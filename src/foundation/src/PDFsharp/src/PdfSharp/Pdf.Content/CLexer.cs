@@ -1,9 +1,13 @@
 ﻿// PDFsharp - A .NET library for processing PDF
 // See the LICENSE file in the solution root for more information.
 
-using System.Text;
 using Microsoft.Extensions.Logging;
+using PdfSharp.Internal;
 using PdfSharp.Logging;
+using PdfSharp.Pdf.Internal;
+using System.Text;
+
+// v7.0.0 REVIEW
 
 namespace PdfSharp.Pdf.Content
 {
@@ -39,7 +43,6 @@ namespace PdfSharp.Pdf.Content
                 _content = content.ToArray();
                 ContLength = _content.Length;
             }
-
             _charIndex = 0;
         }
 
@@ -103,7 +106,8 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
-        /// Scans a comment line. (Not yet used, comments are skipped by lexer.)
+        /// Scans a comment line.
+        /// Not used, comments are skipped by lexer.
         /// </summary>
         public CSymbol ScanComment()
         {
@@ -116,18 +120,13 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
-        /// Scans the bytes of an inline image.
-        /// NYI: Just scans over it.
+        /// Scans the dictionary of BI a CLiteral.
         /// </summary>
-        public CSymbol ScanInlineImage()
+        public CSymbol ScanBeginImage()
         {
-            // TODO_OLD: Implement inline images.
-            // Skip this:
-            // BI
-            // … Key-value pairs …
-            // ID
-            // … Image data …
-            // EI
+            int biIndex = _charIndex;
+            AdjustBackwards(ref biIndex, 'B');
+            biIndex += 3;
 
             bool ascii85 = false;
             do
@@ -135,19 +134,33 @@ namespace PdfSharp.Pdf.Content
                 ScanNextToken();
                 if (Symbol == CSymbol.Eof)
                     ContentReaderDiagnostics.ThrowContentReaderException("Unexpected end of inline-image header; ID expected.");
-                // HACK_OLD: Is image ASCII85 decoded?
+
                 if (!ascii85 && Symbol == CSymbol.Name && Token is "/ASCII85Decode" or "/A85")
                     ascii85 = true;
             } while (Symbol != CSymbol.Operator || Token != "ID");
 
-            if (ascii85)
-            {
-                // Look for '~>' because 'EI' may be part of the encoded image.
-                while (_currChar != Chars.EOF && (_currChar != '~' || _nextChar != '>'))
-                    ScanNextChar();
-                if (_currChar == Chars.EOF)
-                    ContentReaderDiagnostics.HandleUnexpectedCharacter(_currChar);
-            }
+            Debug.Assert(Token == "ID");
+            AdjustBackwards(ref _charIndex, 'I');
+            int idIndex = _charIndex - 1;
+            SetPosition(_charIndex);
+
+            var biBytes = _content[biIndex..idIndex];
+            var bi = PdfEncoders.RawEncoding.GetString(biBytes);
+
+            ClearToken();
+            _token.Append(bi);
+
+            return CSymbol.Operator;
+        }
+
+        /// <summary>
+        /// Scans the data of ID a CLiteral.
+        /// </summary>
+        public CSymbol ScanImageData()
+        {
+            int idIndex = _charIndex;
+            AdjustBackwards(ref idIndex, 'I');
+            idIndex += 3;
 
             // Look for '<ws>EI<ws>', as 'EI' may be part of the binary image data here too.
             while (_currChar != Chars.EOF)
@@ -165,8 +178,17 @@ namespace PdfSharp.Pdf.Content
             if (_currChar == Chars.EOF)
                 ContentReaderDiagnostics.HandleUnexpectedCharacter(_currChar);
 
-            // We currently do nothing with inline images.
-            return CSymbol.None;
+            AdjustBackwards(ref _charIndex, 'E');
+            int endIndex = _charIndex - 1;
+            SetPosition(_charIndex);
+
+            var idBytes = _content[idIndex..endIndex];
+            var id = PdfEncoders.RawEncoding.GetString(idBytes);
+
+            ClearToken();
+            _token.Append(id);
+
+            return CSymbol.Operator;
         }
 
         /// <summary>
@@ -205,7 +227,7 @@ namespace PdfSharp.Pdf.Content
 
                     static char LogError(char ch)
                     {
-                        PdfSharpLogHost.Logger.LogError("Illegal character {char} in hex string.", ch);
+                        PdfSharpLogHost.Logger.LogError("Illegal character '{char}' in hex string.", ch);
                         return '\0';
                     }
                 }
@@ -306,7 +328,7 @@ namespace PdfSharp.Pdf.Content
         /// </summary>
         public CSymbol ScanNumber()
         {
-            // Note: This is a copy of Lexer.ScanNumber with minimal changes. Keep both versions in sync as far as possible.
+            // Note that this is a copy of Lexer.ScanNumber with minimal changes. Keep both versions in sync as far as possible.
 
             // Parsing Strategy:
             // Most real life numbers in PDF files have less than 19 digits. So we try to parse all digits as 64-bit integers
@@ -488,7 +510,10 @@ namespace PdfSharp.Pdf.Content
             // Scan token.
             while (IsOperatorChar(ch))
                 ch = AppendAndScanNextChar();
-
+#if DEBUG
+            if (_token.ToString() == "BI")
+                _ = typeof(int);
+#endif
             return Symbol = CSymbol.Operator;
         }
 
@@ -581,7 +606,7 @@ namespace PdfSharp.Pdf.Content
                                     default:
                                         if (Char.IsDigit(ch))
                                         {
-                                            // Octal character code
+                                            // Octal character code.
                                             int n = ch - '0';
                                             if (Char.IsDigit(_nextChar))
                                             {
@@ -723,12 +748,13 @@ namespace PdfSharp.Pdf.Content
         public CSymbol ScanHexadecimalString()
         {
             Debug.Assert(_currChar == Chars.Less);
-
             ClearToken();
             ScanNextChar();
             while (true)
             {
                 MoveToNonWhiteSpace();
+                if (_currChar == Chars.EOF)
+                    ContentReaderDiagnostics.ThrowContentReaderException("Unexpected end of hexadecimal string; > expected.");
                 if (_currChar == '>')
                 {
                     ScanNextChar();
@@ -743,6 +769,9 @@ namespace PdfSharp.Pdf.Content
                 };
 
                 ScanNextChar();
+                MoveToNonWhiteSpace();
+                if (_currChar == Chars.EOF)
+                    ContentReaderDiagnostics.ThrowContentReaderException("Unexpected end of hexadecimal string; > expected.");
                 if (_currChar == '>')
                 {
                     // Second char is optional in PDF spec.
@@ -816,6 +845,25 @@ namespace PdfSharp.Pdf.Content
             return _currChar;
         }
 
+        void SetPosition(int charIndex)
+        {
+            _charIndex = charIndex;
+            _currChar = (char)_content[_charIndex++];
+            _nextChar = (char)_content[_charIndex++];
+        }
+
+        /// <summary>
+        /// Find index of BI, ID, or EI.
+        /// </summary>
+        void AdjustBackwards(ref int index, char stop)
+        {
+            index = Math.Min(index, _content.Length - 1);
+            while (index >= 0 && (char)_content[index] != stop)
+                index--;
+            if (index < 0)
+                ContentReaderDiagnostics.ThrowContentReaderException("Inline-image delimiter was not found.");
+        }
+
         /// <summary>
         /// Resets the current token to the empty string.
         /// </summary>
@@ -838,9 +886,9 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
-        /// If the current character is not a white space, the function immediately returns it.
-        /// Otherwise, the PDF cursor is moved forward to the first non-white space or EOF.
-        /// White spaces are NUL, HT, LF, FF, CR, and SP.
+        /// If the current character is not a white-space, the function immediately returns it.
+        /// Otherwise, the PDF cursor is moved forward to the first non-white-space or EOF.
+        /// White-spaces are NUL, HT, LF, FF, CR, and SP.
         /// </summary>
         public char MoveToNonWhiteSpace()
         {

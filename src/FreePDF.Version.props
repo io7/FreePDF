@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <FreePDFVersionMajor>7</FreePDFVersionMajor>
+    <FreePDFVersionMinor>0</FreePDFVersionMinor>
+    <FreePDFVersionPatch>0</FreePDFVersionPatch>
+    <FreePDFVersionLabel>dev.1</FreePDFVersionLabel>
+    <SemVer>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch)-$(FreePDFVersionLabel)</SemVer>
+    <Version>$(SemVer)</Version>
+    <AssemblyVersion>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch).0</AssemblyVersion>
+    <FileVersion>$(AssemblyVersion)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
+    <Product>FreePDF</Product>
+  </PropertyGroup>
+</Project>

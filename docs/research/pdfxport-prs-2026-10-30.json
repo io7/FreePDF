@@ -1,0 +1,387 @@
+{
+  "reviewed": "2026-10-30",
+  "commit": "66be2c60174093de2460bee582b3972707c2cfcb",
+  "scope": "Merged PR title inventory; implementation not imported or independently audited.",
+  "pullRequests": [
+    {
+      "number": 78,
+      "title": "Integrate PDFsharp master history",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/78"
+    },
+    {
+      "number": 2,
+      "title": "Fix named destinations after imported page renumbering",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/2"
+    },
+    {
+      "number": 1,
+      "title": "Fix fully merged rows in MigraDoc table rendering",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/1"
+    },
+    {
+      "number": 3,
+      "title": "Fix inline image height under Multiple line spacing",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/3"
+    },
+    {
+      "number": 4,
+      "title": "Avoid repainting identical shared table borders",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/4"
+    },
+    {
+      "number": 5,
+      "title": "Add opt-in clipping for text-frame content",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/5"
+    },
+    {
+      "number": 6,
+      "title": "Add opt-in behind-content rendering for text frames",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/6"
+    },
+    {
+      "number": 7,
+      "title": "Fix unusable MigraDoc default tab intervals",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/7"
+    },
+    {
+      "number": 10,
+      "title": "Store text frame paint layer on the frame",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/10"
+    },
+    {
+      "number": 11,
+      "title": "Store text frame content clipping on the frame",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/11"
+    },
+    {
+      "number": 13,
+      "title": "Render selected text frames above page content",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/13"
+    },
+    {
+      "number": 12,
+      "title": "Test shared table borders across PDF coordinate rounding",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/12"
+    },
+    {
+      "number": 19,
+      "title": "Allow contracted spaces when fitting justified lines",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/19"
+    },
+    {
+      "number": 20,
+      "title": "Store TopBottom exclusion on wrap format",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/20"
+    },
+    {
+      "number": 22,
+      "title": "Integrate MigraDoc rendering stack",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/22"
+    },
+    {
+      "number": 21,
+      "title": "Add paragraph text width adjustment hook",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/21"
+    },
+    {
+      "number": 8,
+      "title": "Keep glyf table for blank glyph subsets",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/8"
+    },
+    {
+      "number": 24,
+      "title": "Fix upward text frame graphics state",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/24"
+    },
+    {
+      "number": 25,
+      "title": "Keep MigraDoc font cache consistent across renderers",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/25"
+    },
+    {
+      "number": 23,
+      "title": "Split underlines when dash style changes",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/23"
+    },
+    {
+      "number": 26,
+      "title": "Include nested composite glyphs in font subsets",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/26"
+    },
+    {
+      "number": 27,
+      "title": "Realize miter limit for miter joins",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/27"
+    },
+    {
+      "number": 28,
+      "title": "Fix CORE StartFigure creating connected path segments",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/28"
+    },
+    {
+      "number": 30,
+      "title": "Write negative PDF font descent",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/30"
+    },
+    {
+      "number": 31,
+      "title": "Use rendered glyph count after text event",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/31"
+    },
+    {
+      "number": 29,
+      "title": "Write Adler-32 trailer for Flate encoded streams",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/29"
+    },
+    {
+      "number": 33,
+      "title": "Allow optional inline image paint offset",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/33"
+    },
+    {
+      "number": 32,
+      "title": "Resolve Windows TTC fonts by selected face",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/32"
+    },
+    {
+      "number": 34,
+      "title": "Resolve DejaVu Sans and Segoe UI on Windows",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/34"
+    },
+    {
+      "number": 35,
+      "title": "Center selected text-frame content vertically",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/35"
+    },
+    {
+      "number": 36,
+      "title": "Honor hidden series outlines in chart legend markers",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/36"
+    },
+    {
+      "number": 37,
+      "title": "Honor top-down BMP row order when importing images",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/37"
+    },
+    {
+      "number": 38,
+      "title": "Render native double MigraDoc borders",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/38"
+    },
+    {
+      "number": 40,
+      "title": "Allow scoped line-end overhang during paragraph layout",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/40"
+    },
+    {
+      "number": 39,
+      "title": "Finish dotted and dashed table borders at corners",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/39"
+    },
+    {
+      "number": 43,
+      "title": "Expose typed underline geometry settings",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/43"
+    },
+    {
+      "number": 44,
+      "title": "Apply justified render widths within wrapped intervals",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/44"
+    },
+    {
+      "number": 45,
+      "title": "Expose typed trailing glyph kerning callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/45"
+    },
+    {
+      "number": 47,
+      "title": "Expose typed exact paragraph baseline offset callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/47"
+    },
+    {
+      "number": 42,
+      "title": "Expose typed tab leader layout callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/42"
+    },
+    {
+      "number": 41,
+      "title": "Store oversized nonbreaking group behavior on paragraph format",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/41"
+    },
+    {
+      "number": 49,
+      "title": "Add paragraph-level bottom space for AtLeast lines",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/49"
+    },
+    {
+      "number": 46,
+      "title": "Expose typed leading kerning after blank callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/46"
+    },
+    {
+      "number": 52,
+      "title": "Expose typed table layout inspection data",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/52"
+    },
+    {
+      "number": 51,
+      "title": "Expose page header and footer render information",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/51"
+    },
+    {
+      "number": 48,
+      "title": "Expose typed exact font baseline offset callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/48"
+    },
+    {
+      "number": 50,
+      "title": "Add paragraph-level baseline offset for AtLeast lines",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/50"
+    },
+    {
+      "number": 53,
+      "title": "Expose continuation text frame render information",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/53"
+    },
+    {
+      "number": 54,
+      "title": "Expose formatted paragraph fragment line count",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/54"
+    },
+    {
+      "number": 56,
+      "title": "Expose minimum line metrics for resolved paragraph fonts",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/56"
+    },
+    {
+      "number": 55,
+      "title": "Expose exact paragraph final-line height callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/55"
+    },
+    {
+      "number": 57,
+      "title": "Expose top border distance at formatting area start",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/57"
+    },
+    {
+      "number": 59,
+      "title": "Expose render-only trailing glyph kerning callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/59"
+    },
+    {
+      "number": 58,
+      "title": "Expose paragraph paint baseline offset callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/58"
+    },
+    {
+      "number": 60,
+      "title": "Expose terminal hanging-space callbacks",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/60"
+    },
+    {
+      "number": 61,
+      "title": "Preserve clipped width for nonterminal hanging spaces",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/61"
+    },
+    {
+      "number": 62,
+      "title": "Refresh caches for inserted MigraDoc rows",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/62"
+    },
+    {
+      "number": 63,
+      "title": "Fix netstandard package build and gate it in CI",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/63"
+    },
+    {
+      "number": 64,
+      "title": "Render Word table border styles and centered junctions",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/64"
+    },
+    {
+      "number": 65,
+      "title": "Expose typed table cell placement callback",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/65"
+    },
+    {
+      "number": 66,
+      "title": "Test nonbreaking-space groups across styled text leaves",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/66"
+    },
+    {
+      "number": 72,
+      "title": "Set imported PDF modification date when saving",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/72"
+    },
+    {
+      "number": 73,
+      "title": "Stop hexadecimal string scanning at end of file",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/73"
+    },
+    {
+      "number": 74,
+      "title": "Replace source PDF when saving to its input stream",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/74"
+    },
+    {
+      "number": 67,
+      "title": "Fix default tab stops near the formatting area right edge",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/67"
+    },
+    {
+      "number": 68,
+      "title": "Continue tab probing past ignored elements",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/68"
+    },
+    {
+      "number": 75,
+      "title": "Collapse opt-in extra spaces at line wrap",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/75"
+    },
+    {
+      "number": 69,
+      "title": "Discard rejected tabs while preserving consecutive tab stops",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/69"
+    },
+    {
+      "number": 76,
+      "title": "Handle optional spaces carried across automatic line breaks",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/76"
+    },
+    {
+      "number": 77,
+      "title": "Fit final multiple-spaced line by natural font height",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/77"
+    },
+    {
+      "number": 18,
+      "title": "Exclude text below selected TopBottom shapes",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/18"
+    },
+    {
+      "number": 17,
+      "title": "Support polygonal contours for side wrapping",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/17"
+    },
+    {
+      "number": 16,
+      "title": "Support rectangular side wrapping around shapes",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/16"
+    },
+    {
+      "number": 15,
+      "title": "Reserve top-border space for table continuations",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/15"
+    },
+    {
+      "number": 14,
+      "title": "Paginate selected positioned text frames",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/14"
+    },
+    {
+      "number": 9,
+      "title": "Store complete text frame rotation on the frame",
+      "url": "https://github.com/gaspardpetit/Pdfxport.Net/pull/9"
+    }
+  ]
+}

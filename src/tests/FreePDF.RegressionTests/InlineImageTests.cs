@@ -26,7 +26,7 @@ public class InlineImageTests
     public void Valid_inline_image_keeps_following_operators(string content)
     {
         var operators = ContentReader.ReadContent(Encoding.ASCII.GetBytes(content)).OfType<COperator>().Select(op => op.Name);
-        Assert.Equal(new[] { "q", "BI", "Q" }, operators);
+        Assert.Equal(new[] { "q", "BI", "ID", "EI", "Q" }, operators);
     }
 
     [Theory]

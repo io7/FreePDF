@@ -1,0 +1,67 @@
+name: Comparison lab
+on:
+  push:
+    branches: ['release/**', 'feature/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: comparison-lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare:
+    name: Pixels / ${{ matrix.os }} / ${{ matrix.framework }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            framework: net10.0
+          - os: windows-2022
+            framework: net10.0
+          - os: windows-2022
+            framework: net462
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Linux renderer
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y mupdf-tools
+      - name: Install pinned Windows renderer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'mupdf.zip'
+          Invoke-WebRequest 'https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-windows.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne '13476a53e84f5527983158acb6442c7853b3cdc022f3b24880780dcfba1fcc99') { throw 'Renderer hash mismatch.' }
+          Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'renderer')
+      - name: Generate and compare fixture PDFs
+        shell: pwsh
+        run: |
+          $renderer = if ($IsWindows) { Join-Path $env:RUNNER_TEMP 'renderer/mupdf-1.28.5-windows/mutool.exe' } else { (Get-Command mutool).Source }
+          ./lab/scripts/Test-Lab.ps1 -Framework '${{ matrix.framework }}' -Renderer $renderer -DataDirectory "$env:RUNNER_TEMP/freepdf-lab-runs"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: comparisons-${{ matrix.os }}-${{ matrix.framework }}
+          path: ${{ runner.temp }}/freepdf-lab-runs
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Prepare Windows deployment bundle
+        if: runner.os == 'Windows' && matrix.framework == 'net10.0'
+        shell: pwsh
+        run: ./lab/scripts/Publish-Lab.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-lab-windows"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: runner.os == 'Windows' && matrix.framework == 'net10.0'
+        with:
+          name: freepdf-lab-windows
+          path: ${{ runner.temp }}/freepdf-lab-windows
+          retention-days: 14
