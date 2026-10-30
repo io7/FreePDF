@@ -7,6 +7,8 @@
     <!-- Found no other way to resolve the following warning than disable it -->
     <NoWarn>NU1507</NoWarn>
     <WriteVersionInfoToBuildLog>false</WriteVersionInfoToBuildLog>
+    <!-- Resolve the config from this checkout, including when its Git directory is a shared worktree anchor. -->
+    <GitVersion_CommandLineArguments>$(GitVersion_CommandLineArguments) /config &quot;$(MSBuildThisFileDirectory)../gitversion.yml&quot;</GitVersion_CommandLineArguments>
   </PropertyGroup>
 
   <PropertyGroup>

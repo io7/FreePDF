@@ -133,6 +133,8 @@ namespace PdfSharp.Pdf.Content
             do
             {
                 ScanNextToken();
+                if (Symbol == CSymbol.Eof)
+                    ContentReaderDiagnostics.ThrowContentReaderException("Unexpected end of inline-image header; ID expected.");
                 // HACK_OLD: Is image ASCII85 decoded?
                 if (!ascii85 && Symbol == CSymbol.Name && Token is "/ASCII85Decode" or "/A85")
                     ascii85 = true;

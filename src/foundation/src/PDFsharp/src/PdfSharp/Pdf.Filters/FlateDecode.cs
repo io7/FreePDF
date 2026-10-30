@@ -6,7 +6,7 @@ using System.IO.Compression;
 namespace PdfSharp.Pdf.Filters
 {
     /// <summary>
-    /// Implements the FlateDecode filter by wrapping SharpZipLib.
+    /// Implements the FlateDecode filter using zlib framing around DeflateStream.
     /// </summary>
     public class FlateDecode : Filter
     {
@@ -109,15 +109,46 @@ namespace PdfSharp.Pdf.Filters
             //    is there to indicate if recompression might be worthwhile.
             ms.WriteByte(0xDA); // FLEVEL may not always be correct here, but that’s okay.
 
-            using var zip = new DeflateStream(ms, level, true);
-            zip.Write(data, 0, data.Length);
-            // Flush has no effect on DeflateStream.
-            // Must call Close to ensure all bytes are written with .NET 4.6.2.
-            // Works with .NET 6 even without Close. But when adding support for .NET 4.6.2, we searched a while until we found that only the Close was needed.
-            zip.Close();
+            if (data.Length == 0)
+            {
+                // A final, empty fixed-Huffman block. Some runtimes emit no block for an unused DeflateStream.
+                ms.WriteByte(0x03);
+                ms.WriteByte(0x00);
+            }
+            else
+            {
+                // Complete the DEFLATE stream before writing its zlib checksum, including on .NET Framework.
+                using (var zip = new DeflateStream(ms, level, true))
+                    zip.Write(data, 0, data.Length);
+            }
+
+            // RFC 1950 requires the Adler-32 checksum of the uncompressed data, most-significant byte first.
+            uint checksum = CalculateAdler32(data);
+            ms.WriteByte((byte)(checksum >> 24));
+            ms.WriteByte((byte)(checksum >> 16));
+            ms.WriteByte((byte)(checksum >> 8));
+            ms.WriteByte((byte)checksum);
 
             ms.Capacity = (int)ms.Length;
             return ms.GetBuffer();
+        }
+
+        static uint CalculateAdler32(byte[] data)
+        {
+            uint s1 = 1, s2 = 0;
+            for (int index = 0; index < data.Length;)
+            {
+                // Limit accumulation to 5552 bytes to keep both sums within UInt32 before reducing them.
+                int end = index + Math.Min(5552, data.Length - index);
+                for (; index < end; index++)
+                {
+                    s1 += data[index];
+                    s2 += s1;
+                }
+                s1 %= 65521;
+                s2 %= 65521;
+            }
+            return (s2 << 16) | s1;
         }
 
         /// <summary>

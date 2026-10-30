@@ -59,7 +59,7 @@ namespace PdfSharp.Drawing.Pdf
         double _realizedMiterLimit = -1;
         XDashStyle _realizedDashStyle = (XDashStyle)(-1);
         string _realizedDashPattern = default!;
-        XColor _realizedStrokeColor = XColor.Empty;
+        XColor? _realizedStrokeColor; // Null means no stroke color has been realized yet.
         bool _realizedStrokeOverPrint;
 
         public void RealizePen(XPen pen, PdfColorMode colorMode)
@@ -165,7 +165,7 @@ namespace PdfSharp.Drawing.Pdf
 
             if (colorMode != PdfColorMode.Cmyk)
             {
-                if (_realizedStrokeColor.Rgb != color.Rgb)
+                if (_realizedStrokeColor == null || _realizedStrokeColor.Value.Rgb != color.Rgb)
                 {
                     renderer.Append(PdfEncoders.ToString(color, PdfColorMode.Rgb));
                     renderer.Append(" RG\n");
@@ -173,14 +173,15 @@ namespace PdfSharp.Drawing.Pdf
             }
             else
             {
-                if (!ColorSpaceHelper.IsEqualCmyk(_realizedStrokeColor, color))
+                if (_realizedStrokeColor == null || !ColorSpaceHelper.IsEqualCmyk(_realizedStrokeColor.Value, color))
                 {
                     renderer.Append(PdfEncoders.ToString(color, PdfColorMode.Cmyk));
                     renderer.Append(" K\n");
                 }
             }
 
-            if (renderer.Owner.Version >= 14 && (_realizedStrokeColor.A != color.A || _realizedStrokeOverPrint != overPrint))
+            if (renderer.Owner.Version >= 14 && (_realizedStrokeColor == null ||
+                _realizedStrokeColor.Value.A != color.A || _realizedStrokeOverPrint != overPrint))
             {
                 PdfExtGState extGState = renderer.Owner.ExtGStateTable.GetExtGStateStroke(color.A, overPrint);
                 string gs = renderer.Resources.AddExtGState(extGState);
@@ -198,7 +199,7 @@ namespace PdfSharp.Drawing.Pdf
 
         #region Fill
 
-        XColor _realizedFillColor = XColor.Empty;
+        XColor? _realizedFillColor; // Null means no fill color has been realized yet.
         bool _realizedNonStrokeOverPrint;
 
         public void RealizeBrush(XBrush brush, PdfColorMode colorMode, int renderingMode, double fontEmSize)
@@ -242,7 +243,7 @@ namespace PdfSharp.Drawing.Pdf
                     renderer.AppendFormatString("{0} scn\n", name);
 
                     // Invalidate fill color.
-                    _realizedFillColor = XColor.Empty;
+                    _realizedFillColor = null;
                 }
             }
         }
@@ -253,7 +254,7 @@ namespace PdfSharp.Drawing.Pdf
 
             if (colorMode != PdfColorMode.Cmyk)
             {
-                if (_realizedFillColor.IsEmpty || _realizedFillColor.Rgb != color.Rgb)
+                if (_realizedFillColor == null || _realizedFillColor.Value.Rgb != color.Rgb)
                 {
                     renderer.Append(PdfEncoders.ToString(color, PdfColorMode.Rgb));
                     renderer.Append(" rg\n");
@@ -263,14 +264,15 @@ namespace PdfSharp.Drawing.Pdf
             {
                 Debug.Assert(colorMode == PdfColorMode.Cmyk);
 
-                if (_realizedFillColor.IsEmpty || !ColorSpaceHelper.IsEqualCmyk(_realizedFillColor, color))
+                if (_realizedFillColor == null || !ColorSpaceHelper.IsEqualCmyk(_realizedFillColor.Value, color))
                 {
                     renderer.Append(PdfEncoders.ToString(color, PdfColorMode.Cmyk));
                     renderer.Append(" k\n");
                 }
             }
 
-            if (renderer.Owner.Version >= 14 && (_realizedFillColor.A != color.A || _realizedNonStrokeOverPrint != overPrint))
+            if (renderer.Owner.Version >= 14 && (_realizedFillColor == null ||
+                _realizedFillColor.Value.A != color.A || _realizedNonStrokeOverPrint != overPrint))
             {
 
                 PdfExtGState extGState = renderer.Owner.ExtGStateTable.GetExtGStateNonStroke(color.A, overPrint);
@@ -288,7 +290,7 @@ namespace PdfSharp.Drawing.Pdf
 
         internal void RealizeNonStrokeTransparency(double transparency, PdfColorMode colorMode)
         {
-            XColor color = _realizedFillColor;
+            XColor color = _realizedFillColor ?? XColor.Empty;
             color.A = transparency;
             RealizeFillColor(color, _realizedNonStrokeOverPrint, colorMode);
         }
