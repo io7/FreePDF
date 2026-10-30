@@ -25,9 +25,16 @@ override, not an untouched upstream application environment.
 A pixel counts as changed when any channel differs by more than 8/255. RMSE and
 maximum delta include *all* pixels. Dimension changes fail comparison. Current
 matching cases have zero delta, not merely differences below the threshold.
-Known upstream defects are amber **Review difference**, never auto-approved.
+Known upstream defects are amber **Needs review**, never auto-approved.
 Candidate generation/invariant failures are always red. New differences fail
 the CLI/CI. Review entries still require human judgment before release.
+
+The viewer reports generation/rendering outcomes separately from comparison
+statuses. A known reference defect can prevent PDFsharp from producing a page
+while FreePDF completes: that case needs review and has no pixel comparison.
+The reference failure remains visible in the suite totals and case details;
+zero comparison failures does not mean both engines completed every case.
+"Generated & rendered" describes execution only, not document correctness.
 
 Pixel equality does **not** prove semantic text, reading order, accessibility,
 PDF/A conformance, signature validity, encryption, or every inherited API. Add
@@ -86,7 +93,9 @@ The viewer has a run selector, refresh action, side-by-side pages, opacity overl
 pixel-difference image, page navigation, and PDF/structure/log downloads. It opens
 the first failed/review case and hides document links when generation failed.
 Both .NET 10 and Framework 4.6.2-targeted suites completed on 2026-10-30: each
-produced nine zero-delta matches, three known-reference-defect reviews, and no failures.
+produced nine zero-delta matches, three known-reference-defect reviews, and zero
+comparison failures. FreePDF completed all twelve cases; the PDFsharp reference
+completed eleven and crashed on the fully merged table in both profiles.
 
 Read-only host checks on 2026-10-30 found Windows host `192.168.1.212`, .NET 10
 and PowerShell 7, about 32.9 GB free on D:, and port 4817 unused. No existing
