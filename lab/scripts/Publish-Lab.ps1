@@ -20,7 +20,7 @@ foreach ($engine in @('Reference','FreePDF')) {
     New-Item -ItemType Directory "$OutputDirectory/$destination/net462" -Force | Out-Null
     Copy-Item "$repo/lab/Generators/$engine/bin/Release/net462/*" "$OutputDirectory/$destination/net462" -Recurse
 }
-Copy-Item "$repo/lab/scripts/Install-Tomahawk.ps1", "$repo/lab/scripts/Run-Nightly.ps1", "$repo/LICENSE", "$repo/PROVENANCE.md", "$repo/lab/README.md" $OutputDirectory
+Copy-Item "$repo/lab/scripts/Install-Tomahawk.ps1", "$repo/lab/scripts/Install-RendererRuntime.ps1", "$repo/lab/scripts/Run-Nightly.ps1", "$repo/LICENSE", "$repo/PROVENANCE.md", "$repo/lab/README.md" $OutputDirectory
 @{ sourceRevision=$revision; runtime='10.0.13'; reference='PDFsharp-MigraDoc 7.0.0-preview-1 (MIT), Pkcs 10.0.13 override'; renderer='MuPDF 1.28.5 (installed separately, AGPL)' } | ConvertTo-Json | Set-Content "$OutputDirectory/bundle.json" -Encoding utf8
 Get-ChildItem $OutputDirectory -Recurse -File | Sort-Object FullName | ForEach-Object {
     [pscustomobject]@{path=[IO.Path]::GetRelativePath((Resolve-Path $OutputDirectory).Path,$_.FullName); sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}

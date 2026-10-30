@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FreePDF · Comparison lab</title><link rel="stylesheet" href="lab.css"><script src="lab.js" defer></script></head>
 <body>
-<header><a class="brand" href="/">Free<span>PDF</span><small>COMPARISON LAB</small></a><div class="run-control"><label for="runs">Recorded run</label><select id="runs"><option>Loading…</option></select></div><span class="readonly">Read only</span></header>
+<header><a class="brand" href="/">Free<span>PDF</span><small>COMPARISON LAB</small></a><div class="run-control"><label for="runs">Recorded run</label><select id="runs"><option>Loading…</option></select></div><button id="refresh" class="refresh" type="button">Refresh results</button><span class="readonly">Read only</span></header>
 <div class="workspace">
   <aside><div class="suite-heading"><h1>Feature suite</h1><span id="count">—</span></div><p id="summary" class="muted">Loading recorded evidence…</p><nav id="cases" aria-label="Test cases"></nav><div class="aside-note">Same fixtures. Separate engines.<br>Fixed font and renderer.<p>Pixel similarity is one check. It does not establish PDF/A compliance, accessibility, or signature validity.</p></div></aside>
   <main id="main"><div id="empty" class="empty" hidden><h2>No recorded runs yet</h2><p>Run the fixture suite from the operator CLI to publish evidence here.</p><code>FreePDF.Lab --run runner.json</code></div>
