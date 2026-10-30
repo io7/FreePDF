@@ -12,8 +12,10 @@ and is not an official empira release.
 
 ## Project status
 
-This repository establishes the fork. No rendering fixes or new features have
-been added yet, and no FreePDF NuGet packages have been published.
+FreePDF 6.2.5 is in development, with selected MIT Preview 1 fixes and independent
+regressions. See the [changelog](CHANGELOG.md) and
+[upstream feature tracking](docs/upstream-feature-tracking.md). No FreePDF NuGet
+packages have been published.
 
 Existing `PdfSharp` and `MigraDoc` namespaces, assembly names, and upstream build
 files remain in place. The inherited packaging projects still contain upstream
@@ -45,6 +47,17 @@ dotnet build src/foundation/src/MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfR
 These builds include the PDFsharp and MigraDoc dependencies. CI also compiles
 the core libraries for .NET 8 and .NET Standard 2.0. Compilation does not prove
 PDF conformance or layout correctness.
+
+Run the synthetic regression suite without external fonts or documents:
+
+```sh
+dotnet test src/tests/FreePDF.RegressionTests/FreePDF.RegressionTests.csproj --configuration Release --framework net10.0
+```
+
+CI runs these regressions on Linux and Windows with .NET 8/10 and on Windows
+with .NET Framework 4.6.2. It also compiles the GDI and WPF variants. These checks
+do not certify every inherited feature; the feature matrix records remaining gates.
+See [6.2.5 validation](docs/6.2.5-validation.md) for the observed checks and limits.
 
 The full upstream solution includes Windows projects and tests requiring
 external assets. See the archived [upstream build notes](docs/upstream/README-v6.2.4.md).

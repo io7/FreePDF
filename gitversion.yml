@@ -1,4 +1,5 @@
 # Last update: 25-11-17
+next-version: 6.2.5
 assembly-versioning-scheme: MajorMinorPatch
 # PDFSHARP_BUILD_VERSION are the days since 2005-01-01. #CHECK_BEFORE_RELEASE
 # Command Window: ? (DateTime.Now - new DateTime(2005, 1, 1)).Days;
