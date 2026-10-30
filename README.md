@@ -1,74 +1,65 @@
-﻿# PDFsharp & MigraDoc 6
+# FreePDF
 
-Version **6.2.4**  
-Published **2026-01-06**
+**PDF creation and document layout for .NET, under the MIT licence.**
 
-This is a final version of the **PDFsharp** project, the main project of PDFsharp & MigraDoc 6 with updates for C# 12 and .NET 8, .NET 9, and .NET 10.
+FreePDF is io7's independent continuation of **PDFsharp and MigraDoc 6.2.4**.
+PDFsharp provides PDF drawing, reading, and modification; MigraDoc provides
+document layout with paragraphs, tables, headers, and footers.
 
-PDFsharp: Copyright (c) 2005-2026 empira Software GmbH, Troisdorf (Cologne Area), Germany
-MigraDoc: Copyright (c) 2001-2026 empira Software GmbH, Troisdorf (Cologne Area), Germany
-Published Open Source under the [MIT License](https://docs.pdfsharp.net/LICENSE.html)
+The starting point is empira's MIT-licensed `v6.2.4` release. FreePDF preserves
+that source history and attribution. It is maintained independently by io7
+and is not an official empira release.
 
-For more information see [docs.pdfsharp.net](https://docs.pdfsharp.net/)
+## Project status
 
-## Read this FIRST
+This repository establishes the fork. No rendering fixes or new features have
+been added yet, and no FreePDF NuGet packages have been published.
 
-Project documentation can be found on our DOCS site: <https://docs.pdfsharp.net>.
+Existing `PdfSharp` and `MigraDoc` namespaces, assembly names, and upstream build
+files remain in place. The inherited packaging projects still contain upstream
+package identities; do not publish their output. Distinct FreePDF package
+identities and reviewed dependency metadata are required before a package release.
 
-Note: PowerShell 7 is required to execute the PowerShell scripts that come with PDFsharp.
+## Licence and provenance
 
-### Download assets first
+- The inherited code remains under the [MIT licence](LICENSE).
+- New contributions to FreePDF are accepted under MIT.
+- Original copyright notices and third-party licences remain intact.
+- [PROVENANCE.md](PROVENANCE.md) records the exact source baseline and checksums.
+- [CONTRIBUTING.md](CONTRIBUTING.md) explains the contribution policy.
 
-Assets like bitmaps, fonts, or PDF files are not part of the repository anymore.
-You must download them before compiling the solution for the first time.
-Use `download-assets.ps1` in the `dev` folder to create `assets` folder required for some unit tests and needed by some projects.
+Later upstream releases use different licensing. Their changes are not
+automatically eligible for inclusion here. Each imported change must have
+documented MIT-compatible provenance; otherwise, fixes must be implemented
+independently from behavioural requirements and the permitted source baseline.
 
-Execute
+## Build the core libraries
 
-```ps
-.\dev\download-assets.ps1
+Install the .NET 10 SDK. From the repository root:
+
+```sh
+dotnet build src/foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj --configuration Release -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0
+dotnet build src/foundation/src/MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfRendering.csproj --configuration Release -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0
 ```
 
-### Build the solution
+These builds include the PDFsharp and MigraDoc dependencies. CI also compiles
+the core libraries for .NET 8 and .NET Standard 2.0. Compilation does not prove
+PDF conformance or layout correctness.
 
-`dotnet build` should build the solution without any warnings or errors.
+The full upstream solution includes Windows projects and tests requiring
+external assets. See the archived [upstream build notes](docs/upstream/README-v6.2.4.md).
+External assets are not part of this source baseline and require a separate
+licence/provenance check before importing or redistributing them.
 
-* You need the latest .NET SDK version installed
-* Please note that you need a git repository with at least one commit in order to build the PDFsharp solution.  
-  Without a git repository with at least one commit, you will get an error message from `GitVersion.MsBuild` while building the solution.
-  You can set a tag to define a valid version, e.g.: `git tag v6.2.0` to make it build with a specific version number. Without tag, version 0.1.0 will be used.
+## Contribute
 
-### Central package management
+Open issues and pull requests at https://github.com/io7/FreePDF.
+Include a small, synthetic reproduction and the expected result. Do not upload
+customer documents, credentials, or other confidential information.
 
-The solution uses central package management.
-Version numbers for all referenced packages are stored in file `Directory.Packages.props` in the `src` folder.
-When adding new packages, add the required version here.
+## Credits
 
-## Authors
-
-PDFsharp and MigraDoc was mainly written by the following software developers.
-With support of a lot of community developers who found issues and fixed bugs.
-
-### Original PDFsharp developers
-
-Stefan Lange  
-Niklas Schneider  
-David Stephensen
-
-### Original MigraDoc developers
-
-Klaus Potzesny  
-Niklas Schneider  
-Stefan Lange
-
-### Current PDFsharp and MigraDoc developers
-
-Stefan Lange  
-Thomas Hövel  
-Martin Ossendorf  
-Andreas Seifert
-
-## Libraries used by PDFsharp
-
-The Core build of PDFsharp uses BigGustave to read PNG images. BigGustave was released into the public domain and does not restrict the MIT license used by PDFsharp.  
-Link to project repository: https://github.com/EliotJones/BigGustave
+PDFsharp and MigraDoc were created and maintained by empira Software GmbH and
+their contributors. Their original author credits and release README are
+preserved in [docs/upstream/README-v6.2.4.md](docs/upstream/README-v6.2.4.md).
+The embedded BigGustave PNG reader retains its own licence in the source tree.
