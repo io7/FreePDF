@@ -44,4 +44,6 @@ branches:
     regex: ^(pull|pull\-requests|pr)[/-]
     tag: PullRequest
     mode: ContinuousDeployment
+    # Match the explicit maintenance policy; do not infer a develop/main branch.
+    increment: None
 merge-message-formats: {}
