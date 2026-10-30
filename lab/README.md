@@ -36,6 +36,10 @@ The reference failure remains visible in the suite totals and case details;
 zero comparison failures does not mean both engines completed every case.
 "Generated & rendered" describes execution only, not document correctness.
 
+When changing viewer JavaScript or CSS, update its URL query in `index.html`
+to the first eight characters of the file's SHA-256. This prevents an existing
+browser cache from mixing new markup with an older viewer script or stylesheet.
+
 Pixel equality does **not** prove semantic text, reading order, accessibility,
 PDF/A conformance, signature validity, encryption, or every inherited API. Add
 veraPDF, text extraction, signature verification and malformed-input/fuzz tests
