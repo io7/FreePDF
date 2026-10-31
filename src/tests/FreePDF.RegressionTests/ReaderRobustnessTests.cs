@@ -44,11 +44,14 @@ public class ReaderRobustnessTests
     [InlineData("hybrid-table", 11, "cross-reference")]
     public async Task Reader_finishes_or_rejects_invalid_structure_without_hanging(string scenario, int exitCode, string message)
     {
-        var assembly = typeof(ReaderRobustnessTests).Assembly.Location;
 #if NETFRAMEWORK
+        // xUnit shadow-copies Framework assemblies into separate cache folders.
+        // Launch the original build output so the child can resolve its DLLs/config.
+        var assembly = new Uri(typeof(ReaderRobustnessTests).Assembly.CodeBase).LocalPath;
         var executable = assembly;
         var arguments = "--reader-probe " + scenario;
 #else
+        var assembly = typeof(ReaderRobustnessTests).Assembly.Location;
         var executable = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
         var arguments = "\"" + assembly + "\" --reader-probe " + scenario;
 #endif
