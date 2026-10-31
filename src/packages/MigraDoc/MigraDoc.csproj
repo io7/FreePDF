@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>io7.FreePDF.MigraDoc</PackageId>
+    <Description>MIT document layout with paragraphs, tables, charts and PDF/RTF output for FreePDF. Preserves MigraDoc API namespaces.</Description>
+    <FreePDFAssemblyPrefix>MigraDoc</FreePDFAssemblyPrefix>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FreePDF/FreePDF.csproj" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.DocumentObjectModel/MigraDoc.DocumentObjectModel.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfRendering.csproj" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

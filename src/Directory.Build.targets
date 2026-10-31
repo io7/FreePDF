@@ -1,7 +1,32 @@
 <Project>
   <PropertyGroup>
     <!-- USE_LONG_SIZE: Read/write PDF files larger than 2 GiB -->
-    <!-- TEST_CODE - Must be set to TEST_CODE_xxx in every release build. DO NOT RENAME TO TEST_CODE_ -->
-    <DefineConstants>$(DefineConstants);USE_LONG_SIZE;TEST_CODE_xxx</DefineConstants>
+    <!-- USE_64BIT_NUMBERS: Use double instead of float in PDFsharp Graphics. NYI-->
+    <!-- TEST_CODE - Must be set to TEST_CODExxx in every release build. DO NOT RENAME TO TEST_CODE_ -->
+    <!-- PRESERVE_PARSED_VALUES - Must be set to PRESERVE_PARSED_VALUESxxx in every release build. DO NOT RENAME TO PDFSHARP_DEBUG_ -->
+    <!-- PDFSHARP_DEBUG - Must be set to PDFSHARP_DEBUGxxx in every release build. DO NOT RENAME TO PDFSHARP_DEBUG_ -->
+    <DefineConstants>$(DefineConstants);USE_LONG_SIZE;TEST_CODExxx;PRESERVE_PARSED_VALUESxxx;PDFSHARP_DEBUGxxx</DefineConstants>
   </PropertyGroup>
+  <Import Condition="Exists('PdfSharpBuildConfig.targets')" Project="PdfSharpBuildConfig.targets" />
+  <Target Name="GenerateFreePDFVersion" BeforeTargets="CoreCompile" DependsOnTargets="InitializeSourceControlInformation" Condition="'$(MSBuildProjectName)' == 'PdfSharp.Shared'">
+    <ItemGroup>
+      <_FreePDFVersionSource Include="namespace PdfSharp.Internal { public static partial class SemVersionInformation {" />
+      <_FreePDFVersionSource Include="const string SemMajor = &quot;$(FreePDFVersionMajor)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemMinor = &quot;$(FreePDFVersionMinor)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemPatch = &quot;$(FreePDFVersionPatch)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemVersion = &quot;$(Version)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemFileVersion = &quot;$(FileVersion)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemPreReleaseLabel = &quot;$(FreePDFVersionLabel)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemInformationalVersion = &quot;$(InformationalVersion)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemSha = &quot;$(SourceRevisionId)&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemShortSha = &quot;&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemBranchName = &quot;&quot;%3B" />
+      <_FreePDFVersionSource Include="const string SemCommitDate = &quot;&quot;%3B" />
+      <_FreePDFVersionSource Include="} }" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)FreePDF.SemVersionInformation.g.cs" Lines="@(_FreePDFVersionSource)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)FreePDF.SemVersionInformation.g.cs" />
+    </ItemGroup>
+  </Target>
 </Project>

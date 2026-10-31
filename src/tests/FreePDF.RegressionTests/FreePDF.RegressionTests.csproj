@@ -1,8 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0;net462</TargetFrameworks>
+    <TargetFrameworks>net8.0;net10.0;net472</TargetFrameworks>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <StartupObject>FreePDF.RegressionTests.ReaderProbe</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" PrivateAssets="all" />
@@ -11,6 +13,14 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Assets/synthetic.ttf" />
+    <EmbeddedResource Include="Assets/composite.ttf" />
+    <Compile Include="../../../lab/Shared/PdfFixtureData.cs" Link="Fixtures/PdfFixtureData.cs" />
+    <Compile Include="../../../lab/Shared/PalettePng.cs" Link="Fixtures/PalettePng.cs" />
+    <Compile Include="../../../lab/Shared/PreservationFixtures.cs" Link="Fixtures/PreservationFixtures.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj" />
   </ItemGroup>
 </Project>

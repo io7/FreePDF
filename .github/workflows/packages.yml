@@ -1,0 +1,47 @@
+name: Candidate packages
+on:
+  push:
+    branches: ['release/**', 'feature/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  packages:
+    name: Package install / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Build, inspect and install candidate packages
+        shell: pwsh
+        run: |
+          $frameworks = if ($IsWindows) { @('net8.0','net9.0','net10.0','net462','net472') } else { @('net8.0','net9.0','net10.0') }
+          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-packages" -Frameworks $frameworks
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-packages-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/freepdf-packages/*.nupkg
+            ${{ runner.temp }}/freepdf-packages/validation.json
+          retention-days: 14
+          if-no-files-found: error

@@ -58,7 +58,7 @@ jobs:
         framework: [net8.0, net10.0]
         include:
           - os: windows-2022
-            framework: net462
+            framework: net472
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true

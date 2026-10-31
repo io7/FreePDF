@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>io7.FreePDF</PackageId>
+    <Description>Portable MIT PDF creation and editing, continued from the verified MIT PDFsharp source. Includes drawing, barcodes, charts and cryptography. Preserves PdfSharp API namespaces.</Description>
+    <FreePDFAssemblyPrefix>PdfSharp</FreePDFAssemblyPrefix>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp.BarCodes/PdfSharp.BarCodes.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp.Charting/PdfSharp.Charting.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp.Cryptography/PdfSharp.Cryptography.csproj" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="System.Text.Encoding.CodePages" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+</Project>

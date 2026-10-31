@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FreePDF · Comparison lab</title><link rel="stylesheet" href="lab.css?v=5ec70d0c"><script src="lab.js?v=be5caaaf" defer></script></head>
+<body>
+<header><a class="brand" href="/">Free<span>PDF</span><small>COMPARISON LAB</small></a><div class="run-control"><label for="runs">Recorded run</label><select id="runs"><option>Loading…</option></select></div><button id="refresh" class="refresh" type="button">Refresh results</button><span class="readonly">Read only</span></header>
+<div class="workspace">
+  <aside><div class="suite-heading"><h1>Feature suite</h1><span id="count">—</span></div><p id="summary" class="muted">Loading recorded evidence…</p><div id="engine-summary" class="engine-summary" aria-label="Generation and rendering totals"></div><nav id="cases" aria-label="Test cases"></nav><div class="aside-note">Same fixtures. Separate engines.<br>Fixed font and renderer.<p>Pixel similarity is one check. It does not establish PDF/A compliance, accessibility, or signature validity.</p></div></aside>
+  <main id="main"><div id="empty" class="empty" hidden><h2>No recorded runs yet</h2><p>Run the fixture suite from the operator CLI to publish evidence here.</p><code>FreePDF.Lab --run runner.json</code></div>
+  <div id="evidence" hidden>
+    <div class="case-heading"><div><p class="eyebrow">REFERENCE / FREEPDF</p><h2 id="title"></h2></div><span id="status" class="badge"></span></div>
+    <div id="engine-outcomes" class="engine-outcomes" aria-label="Generation and rendering outcomes"></div>
+    <p id="notice" class="notice" hidden></p>
+    <div class="toolbar"><div class="modes" role="group" aria-label="Comparison view"><button data-mode="split" aria-pressed="true">Side by side</button><button data-mode="overlay" aria-pressed="false">Overlay</button><button data-mode="difference" aria-pressed="false">Difference</button></div><label class="page-control">Page <select id="pages"></select></label></div>
+    <div id="overlay-control" class="overlay-control" hidden><label for="opacity">FreePDF opacity</label><input id="opacity" type="range" min="0" max="100" value="50"><output id="opacity-value" for="opacity">50%</output></div>
+    <div id="metrics" class="metrics"></div>
+    <div id="viewport" class="viewport"></div>
+    <div class="evidence-footer"><div id="downloads"></div><span>144 DPI · RGB · channel tolerance 8/255</span></div>
+    <details><summary>Document checks and execution details</summary><pre id="details"></pre></details>
+  </div>
+  <p id="error" class="notice error" role="alert" hidden></p>
+  </main>
+</div>
+<footer><span>FreePDF / io7</span><span id="provenance">Synthetic documents only</span><a href="https://github.com/io7/FreePDF">Source and licences ↗</a></footer>
+</body></html>
