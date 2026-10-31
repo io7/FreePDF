@@ -8,6 +8,8 @@ using PdfSharp.Drawing;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Attachments;
+using PdfSharp.Pdf.Content;
+using PdfSharp.Pdf.Content.Objects;
 using PdfSharp.Pdf.IO;
 using PdfSharp.Pdf.Metadata;
 using PdfSharp.Pdf.PdfA;
@@ -40,7 +42,9 @@ static class Program
                 Attachments = attachments.FileCount, AttachmentText = attachment == null ? null : Encoding.UTF8.GetString(attachment.Data),
                 Fields = fields?.Elements.Count ?? 0, Metadata = reopened.Catalog.Elements.ContainsKey("/Metadata"),
                 ReaderRejection = args[0].StartsWith("reader-", StringComparison.Ordinal) ? "PdfReaderException" : null,
-                FixtureFontSha256 = args[0] == "nested-glyphs" ? ResourceHash("CompositeFont.ttf") : null
+                FixtureFontSha256 = args[0] == "nested-glyphs" ? ResourceHash("CompositeFont.ttf") : null,
+                Semantics = args[0] == "semantic-roundtrip" ? SemanticSummary(reopened) : null,
+                ContentRectangles = args[0] == "incremental-content" ? ContentReader.ReadContent(reopened.Pages[0]).OfType<COperator>().Count(op => op.Name == "re") : (int?)null
             };
             File.WriteAllText(Path.Combine(args[1], "structure.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
             return 0;
@@ -50,6 +54,23 @@ static class Program
 
     static PdfDocument Create(string id)
     {
+        if (id is "incremental-content" or "shared-ownership" or "semantic-roundtrip")
+        {
+            var bytes = id == "incremental-content" ? PreservationFixtures.Incremental()
+                : id == "shared-ownership" ? PreservationFixtures.SharedContent(true) : PreservationFixtures.Semantic();
+            var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+            if (id == "shared-ownership")
+            {
+                var first = document.Pages[0].Contents.Elements.GetDictionary(0)!;
+                var second = document.Pages[1].Contents.Elements.GetDictionary(0)!;
+                if (first.Stream!.UnfilteredValue.Length == 0 || !ReferenceEquals(first, second))
+                    throw new InvalidDataException("Accessing another page invalidated the existing content object.");
+            }
+            if (id == "incremental-content" && !ContentReader.ReadContent(document.Pages[0]).OfType<COperator>().Any(op => op.Name == "re"))
+                throw new InvalidDataException("Incremental update lost the page's original rectangle.");
+            if (id == "semantic-roundtrip") _ = SemanticSummary(document);
+            return document;
+        }
         if (id is "paragraphs" or "tables" or "merged-table") return Layout(id);
         if (id is "inherited-page" or "stream-length" or "hybrid-xref" or "multi-stream") return Imported(id);
         if (id is "reader-trailer" or "reader-pages") VerifyRejected(id);
@@ -121,6 +142,31 @@ static class Program
             default: gfx.DrawString("FreePDF / " + id, font, XBrushes.Black, 24, 50); break;
         }
         return doc;
+    }
+
+    static object SemanticSummary(PdfDocument document)
+    {
+        var page = document.Pages[0];
+        var text = string.Concat(ContentReader.ReadContent(page).OfType<COperator>()
+            .Where(op => op.Name == "Tj").SelectMany(op => op.Operands.OfType<CString>()).Select(s => s.Value));
+        var note = page.Annotations[0].Contents;
+        var link = page.Annotations[1].Elements.GetDictionary("/A")!.Elements.GetString("/URI");
+        var field = document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.GetDictionary(0)!;
+        var name = field.Elements.GetString("/T"); var value = field.Elements.GetString("/V");
+        var names = document.Catalog.Elements.GetDictionary("/Names")!;
+        var destinations = names.Elements.GetDictionary("/Dests")!.Elements.GetArray("/Names")!;
+        var destination = destinations.Elements.GetString(0);
+        var target = destinations.Elements.GetArray(1)!.Elements.GetObject(0);
+        var files = names.Elements.GetDictionary("/EmbeddedFiles")!.Elements.GetArray("/Names")!;
+        var filename = files.Elements.GetString(0);
+        var data = files.Elements.GetDictionary(1)!.Elements.GetDictionary("/EF")!.Elements.GetDictionary("/F")!.Stream!.UnfilteredValue;
+        var attachment = Encoding.UTF8.GetString(data);
+        if (text != "Invoice 123" || note != "review note" || link != "https://example.org/invoice/123" || name != "Customer"
+            || value != "Ada Example" || destination != "invoice" || !ReferenceEquals(page, target)
+            || filename != "invoice.xml" || attachment != "<invoice id=\"123\"/>")
+            throw new InvalidDataException("Semantic document values changed during processing.");
+        return new { Text = text, Annotation = note, Link = link, FieldName = name, FieldValue = value,
+            Destination = destination, DestinationPage = 1, FileName = filename, Attachment = attachment };
     }
 
     static void VerifyRejected(string id)

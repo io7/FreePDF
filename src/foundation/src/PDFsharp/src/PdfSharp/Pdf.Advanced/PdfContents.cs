@@ -36,7 +36,8 @@ namespace PdfSharp.Pdf.Advanced
                 {
                     // The following line is correct!
                     // ReSharper disable once ObjectCreationAsStatement because assignment is done in constructor.
-                    new PdfContent((PdfDictionary)iref.Value);
+                    if (iref.Value is not PdfContent)
+                        new PdfContent((PdfDictionary)iref.Value);
                 }
                 else
                     throw new InvalidOperationException("Unexpected item in a content stream array.");

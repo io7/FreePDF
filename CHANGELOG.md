@@ -1,5 +1,19 @@
 # FreePDF changelog
 
+## 7.0.0-rc.1 — candidate, unpublished
+
+- Preserve each active compressed object selected by incremental cross-reference
+  entries; reject object indices that disagree with their stream header (#302 category).
+- Reuse typed shared content streams when another page accesses them, avoiding
+  invalidation of a caller's existing content object (#369 category).
+- Add semantic save/reopen checks for text, links, annotations, named destinations,
+  form values and embedded-file bytes, plus three comparison-lab cases.
+- Prepare `io7.FreePDF` and `io7.FreePDF.MigraDoc` packages with .NET 8/9/10 and
+  .NET Standard 2.0 assets, retained notices, correct internal dependencies and
+  package-only consumer checks. Preserve API namespaces and assembly names.
+- Block inherited upstream package identities and use the publisher's verified
+  direct GitHub asset for the external Windows renderer.
+
 ## 7.0.0-dev.1 — unreleased
 
 - Adopt the complete verified MIT Preview 1 source and its v7 API changes,

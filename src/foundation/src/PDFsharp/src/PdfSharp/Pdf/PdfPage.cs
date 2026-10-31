@@ -555,14 +555,14 @@ namespace PdfSharp.Pdf
                                     array.Document = Owner;
                                 }
                                 // TODO_OLD 4STLA: Causes Exception "Object type transformation must not be done with direct objects" in "protected PdfObject(PdfObject obj)"
-                                _contents = new PdfContents(array);
+                                _contents = array as PdfContents ?? new PdfContents(array);
                             }
                             else
                             {
                                 // Only one content stream -> create array.
                                 _contents = new PdfContents(Owner);
                                 //Owner.irefTable.Add(_contents);
-                                var content = new PdfContent((PdfDictionary)item);
+                                var content = item as PdfContent ?? new PdfContent((PdfDictionary)item);
                                 _contents.Elements.Add(content.Reference ?? NRT.ThrowOnNull<PdfReference>());
                             }
                         }

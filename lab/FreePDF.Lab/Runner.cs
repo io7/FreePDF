@@ -41,7 +41,7 @@ public static partial class Runner
                     if (a.Length != b.Length) errors.Add($"Page count differs: reference {a.Length}, candidate {b.Length}.");
                     var refStructure = JsonNode.Parse(File.ReadAllText(Path.Combine(caseRoot, "reference", "structure.json")))!;
                     var candidateStructure = JsonNode.Parse(File.ReadAllText(Path.Combine(caseRoot, "candidate", "structure.json")))!;
-                    foreach (var key in new[] { "pages", "title", "attachments", "attachmentText", "fields", "metadata", "readerRejection", "fixtureFontSha256" })
+                    foreach (var key in new[] { "pages", "title", "attachments", "attachmentText", "fields", "metadata", "readerRejection", "fixtureFontSha256", "semantics", "contentRectangles" })
                         if (!JsonNode.DeepEquals(refStructure[key], candidateStructure[key])) errors.Add("Structure differs: " + key);
                 }
             }
@@ -105,11 +105,19 @@ public static partial class Runner
         Expect(value["pages"]!.GetValue<int>() == pages && pages > 0, "page count");
         if (id is "paragraphs" or "tables") Expect(pages >= 2, "pagination fixture must span multiple pages");
         Expect(value["title"]!.GetValue<string>() == "FreePDF lab / " + id, "title round trip");
-        Expect(value["attachments"]!.GetValue<int>() == (id == "attachments" ? 1 : 0), "attachment count");
-        Expect(value["fields"]!.GetValue<int>() == (id == "forms" ? 1 : 0), "field count");
+        Expect(value["attachments"]!.GetValue<int>() == (id is "attachments" or "semantic-roundtrip" ? 1 : 0), "attachment count");
+        Expect(value["fields"]!.GetValue<int>() == (id is "forms" or "semantic-roundtrip" ? 1 : 0), "field count");
         if (id == "attachments") Expect(value["attachmentText"]?.GetValue<string>() == "<fixture>original synthetic data</fixture>", "attachment bytes");
         if (id is "attachments" or "pdfa") Expect(value["metadata"]!.GetValue<bool>(), "XMP metadata missing");
         if (id.StartsWith("reader-", StringComparison.Ordinal)) Expect(value["readerRejection"]?.GetValue<string>() == "PdfReaderException", "malformed input was not rejected");
+        if (id == "shared-ownership") Expect(pages == 2, "shared content page count");
+        if (id == "incremental-content") Expect(value["contentRectangles"]?.GetValue<int>() == 1, "incremental update lost content");
+        if (id == "semantic-roundtrip")
+        {
+            Expect(value["semantics"]?["text"]?.GetValue<string>() == "Invoice 123", "text round trip");
+            Expect(value["semantics"]?["fieldValue"]?.GetValue<string>() == "Ada Example", "form value round trip");
+            Expect(value["attachmentText"]?.GetValue<string>() == "<invoice id=\"123\"/>", "semantic attachment bytes");
+        }
     }
 
     public static async Task<ProcessResult> Execute(Command command, string[] extra, int timeout)

@@ -103,6 +103,13 @@ namespace PdfSharp.Pdf.Advanced
         /// </summary>
         readonly int[][] _header = default!; // Reference: Page 102
 
+        internal SizeType GetObjectOffset(PdfObjectID objectId, int index)
+        {
+            if (index < 0 || index >= _header.Length || _header[index][0] != objectId.ObjectNumber)
+                throw new PdfSharp.Pdf.IO.PdfReaderException("Compressed object index does not match its object stream header.");
+            return _header[index][1];
+        }
+
         /// <summary>
         /// Predefined keys common to all font dictionaries.
         /// </summary>

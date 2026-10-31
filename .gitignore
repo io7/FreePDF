@@ -8,6 +8,7 @@ localtests/
 _ReSharper.*/
 .idea/
 packages/
+!src/packages/
 artifacts/
 PublishProfiles/
 .vs/

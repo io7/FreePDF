@@ -40,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $zip = Join-Path $env:RUNNER_TEMP 'mupdf.zip'
-          Invoke-WebRequest 'https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-windows.zip' -OutFile $zip
+          Invoke-WebRequest 'https://github.com/ArtifexSoftware/mupdf-downloads/releases/download/1.28.5/mupdf-1.28.5-windows.zip' -OutFile $zip
           if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne '13476a53e84f5527983158acb6442c7853b3cdc022f3b24880780dcfba1fcc99') { throw 'Renderer hash mismatch.' }
           Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'renderer')
           ./lab/scripts/Install-RendererRuntime.ps1 -RendererDirectory (Join-Path $env:RUNNER_TEMP 'renderer/mupdf-1.28.5-windows')

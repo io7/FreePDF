@@ -163,7 +163,10 @@
       "labels": [
         "bug"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Shared typed content streams remain usable after another page accesses them",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 350,
@@ -377,7 +380,10 @@
       "labels": [
         "investigation"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Active per-object compressed xref selection in incremental PDFs",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 295,

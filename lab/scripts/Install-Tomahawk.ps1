@@ -17,7 +17,7 @@ Copy-Item "$PSScriptRoot/*" $AppDirectory -Recurse
 $tools = Join-Path $AppDirectory 'tools'
 New-Item -ItemType Directory $tools | Out-Null
 $archive = Join-Path $tools 'mupdf-1.28.5-windows.zip'
-Invoke-WebRequest 'https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-windows.zip' -OutFile $archive
+Invoke-WebRequest 'https://github.com/ArtifexSoftware/mupdf-downloads/releases/download/1.28.5/mupdf-1.28.5-windows.zip' -OutFile $archive
 if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '13476a53e84f5527983158acb6442c7853b3cdc022f3b24880780dcfba1fcc99') { throw 'Renderer checksum mismatch.' }
 Expand-Archive $archive $tools
 $renderer = Join-Path $tools 'mupdf-1.28.5-windows/mutool.exe'

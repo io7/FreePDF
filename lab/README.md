@@ -8,12 +8,18 @@ the candidate builds this checkout. Both run on .NET 10, or target .NET Framewor
 
 ## What a run proves
 
-Twenty cases cover text/styles/accents, transforms/clipping, transparency,
+Twenty-three cases cover text/styles/accents, transforms/clipping, transparency,
 gradient-to-solid fills, disconnected paths, PNGs, multi-page paragraphs and
 tables, full-width vertical merges, attachments/XMP, a checkbox appearance,
 the PDF/A generation path, malformed trailer/page-tree rejection, inherited page
 attributes, stream-length repair, hybrid xrefs, content-stream isolation, indexed
-PNG alpha, and nested composite glyphs. Inputs contain only authored synthetic content.
+PNG alpha, nested composite glyphs, incremental-content preservation, shared
+content ownership, and semantic save/reopen checks. Inputs contain only authored synthetic content.
+
+The semantic case verifies text, annotation contents, URI links, named destinations,
+form values and embedded-file bytes before and after saving. Its structure report
+contains those values. The incremental case verifies that its original rectangle
+survives reading and saving; shared ownership uses a two-page fixture.
 
 The two rejection cases emit a clearly labeled receipt PDF only after the reader
 throws the expected `PdfReaderException`. They test bounded rejection, not pixel
@@ -192,3 +198,8 @@ with its own exact package/version, notices and source obligations reviewed.
 Executing it for observed behavior is different from importing its source.
 Do not fetch/read/decompile its implementation or treat output parity as proof
 of independent authorship. The default implemented reference remains MIT.
+
+The renderer download was rechecked on 2026-10-31. The official endpoint now
+redirects to the publisher's GitHub release asset, with the same SHA-256 above:
+https://github.com/ArtifexSoftware/mupdf-downloads/releases/download/1.28.5/mupdf-1.28.5-windows.zip
+CI and new installations use the direct asset URL to avoid the earlier redirect-host outage.

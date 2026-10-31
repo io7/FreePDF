@@ -12,17 +12,26 @@ and is not an official empira release.
 
 ## Project status
 
-FreePDF **7.0.0-dev.1** adopts the verified MIT `7.0.0-preview-1` source, carries
+FreePDF **7.0.0-rc.1** adopts the verified MIT `7.0.0-preview-1` source, carries
 our earlier fixes, and adds independently implemented reader, image, signature,
-font-cache and layout corrections. This is a development build, not a stable
+font-cache and layout corrections. This is a release candidate, not a stable
 release. See the [changelog](CHANGELOG.md) and
 [upstream feature tracking](docs/upstream-feature-tracking.md). No FreePDF NuGet
 packages have been published.
 
-Existing `PdfSharp` and `MigraDoc` namespaces, assembly names, and upstream build
-files remain in place. The inherited packaging projects still contain upstream
-package identities; do not publish their output. Distinct FreePDF package
-identities and reviewed dependency metadata are required before a package release.
+Candidate packages are `io7.FreePDF` and `io7.FreePDF.MigraDoc`. Their namespaces
+and assembly names remain `PdfSharp` and `MigraDoc`. Build and test them with
+PowerShell 7:
+
+```powershell
+./eng/Test-Packages.ps1 -OutputDirectory /absolute/path/to/candidate-packages
+# Windows also supports installed-package checks for Framework consumers:
+./eng/Test-Packages.ps1 -OutputDirectory D:/test/freepdf-packages -Frameworks net8.0,net9.0,net10.0,net462,net472
+```
+
+The `Candidate packages` workflow publishes build artifacts, not NuGet releases.
+See [package and migration notes](src/packages/README.md). The inherited upstream
+packaging projects are blocked to prevent output under upstream identities.
 
 ## Licence and provenance
 

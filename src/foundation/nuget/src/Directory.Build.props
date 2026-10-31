@@ -1,6 +1,10 @@
 ﻿<Project>
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
+  <Target Name="BlockInheritedPackageIdentities" BeforeTargets="Pack;GenerateNuspec">
+    <Error Text="Inherited upstream package identities are disabled. Use src/packages/FreePDF or src/packages/MigraDoc to build io7.FreePDF packages." />
+  </Target>
+
   <ItemGroup>
     <DescriptionFile Include="$(MSBuildProjectDirectory)\Description.txt" />
     <ReleaseNotesFile Include="$(MSBuildProjectDirectory)\ReleaseNotes.txt" />

@@ -1110,41 +1110,14 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        List<PdfObjectID> LoadObjectStreamIDs(PdfReference[] pdfReferences)
+        List<PdfObjectID> LoadObjectStreamIDs()
         {
-            // The PDF Reference 1.7 states in chapter 7.5.6 (Incremental Updates):
-            // "When a conforming reader reads the file,
-            //  it shall build its cross-reference information in such a way that the
-            //  most recent copy of each object shall be the one accessed from the file."
-
-            // IrefTable.AllReferences is sorted by ObjectId which gives older objects preference
-            // (as they typically have lower ObjectIds).
-            // For xref-streams, we revert the order, so that the most current object is read first.
-            // This is because Parser.ReadObject does not overwrite an object that was already collected.
-
-            // Collect xref streams.
-            var xrefStreams = pdfReferences.Select(x => x.Value).OfType<PdfCrossReferenceStream>().ToList();
-            // Sort them so the last xref stream is read first.
-            // TODO_OLD: Is this always sufficient? (haven’t found any issues so far testing with ~1300 PDFs...)
-            xrefStreams.Sort((a, b) => (int)((b.Reference?.Position ?? 0) - (a.Reference?.Position ?? 0)));
-
-            // By checking the CrossReferenceStream entries, we can get all ObjectStream IDs without loading all file level objects now.
-            var objectStreamNumbers = new HashSet<int>();
-            foreach (var xrefStream in xrefStreams)
-            {
-                Debug.Assert(_document.IrefTable.Contains(xrefStream.ObjectID));
-
-                // Loop CrossReferenceStream entries to compressed objects.
-                foreach (var item in xrefStream.Entries.Where(x => x.Type == 2))
-                {
-                    var objectStreamNumber = (int)item.Field2;
-                    objectStreamNumbers.Add(objectStreamNumber);
-                }
-            }
-
-            var objectStreamIDs = objectStreamNumbers.Select(x => new PdfObjectID(x)).ToList();
-            return objectStreamIDs;
+            // Only streams selected by active xref entries are needed. Physical
+            // stream order cannot determine which version of each member is current.
+            return _compressedObjectLocations.Keys.ToList();
         }
+
+        readonly Dictionary<PdfObjectID, Dictionary<PdfObjectID, int>> _compressedObjectLocations = new();
 
         /// <summary>
         /// Reads all ObjectStreams and the references to the PdfObjects they hold.
@@ -1155,9 +1128,7 @@ namespace PdfSharp.Pdf.IO
             // New code: Add an entry for each ObjectID saved in an ObjectStream to _objectStreamObjectSources.
             // Each entry holds the ObjectStream’s parser and the offset, to be able to directly load the object later.
 
-            var pdfReferences = _document.IrefTable.AllReferences;
-
-            var nextObjectStreamIDsToLoad = LoadObjectStreamIDs(pdfReferences);
+            var nextObjectStreamIDsToLoad = LoadObjectStreamIDs();
             int nextObjectStreamIDsCount;
 
             int thisObjectStreamIDsCount;
@@ -1201,37 +1172,19 @@ namespace PdfSharp.Pdf.IO
                     // Create the parser for the object stream.
                     var objectStreamParser = new Parser(_document, new MemoryStream(objectStream.Stream!.UnfilteredValue), _documentParser);
 
-                    // Get all ObjectIDs and offsets of objects residing in the object stream.
-                    var objectIDsWithOffset = objectStream.ReadObjectIDsWithOffsets();
+                    // Select individual members using the current cross-reference
+                    // revision, rather than collecting stale copies in the stream.
+                    var selectedObjects = _compressedObjectLocations[objectStreamID];
 
                     // Save all ObjectIDs with the parser of its ObjectStream and its offset.
-                    foreach (var objectIDWithOffset in objectIDsWithOffset)
+                    foreach (var selectedObject in selectedObjects)
                     {
-                        var objectID = objectIDWithOffset.Key;
-                        var offset = objectIDWithOffset.Value;
+                        var objectID = selectedObject.Key;
+                        var offset = objectStream.GetObjectOffset(objectID, selectedObject.Value);
 
-                        // PDFsharp reads objects from high addresses down to low addresses.
-                        // Thus, the newest object should be read first.
-                        // For duplicate IDs, we keep the first object and ignore objects read later.
-                        if (!_objectStreamObjectSources.TryGetValue(objectID, out _))
-                        {
-                            // Add object with new objectID.
-                            _objectStreamObjectSources.Add(objectID, (objectStreamParser, offset));
-
-                            // Create and add reference to the object if not existing yet.
-                            if (!_document.IrefTable.Contains(objectID))
-                            {
-                                // -1 indicates compressed object.
-                                var iref = PdfReference.CreateForObjectID(objectID, -1);
-
-                                _document.IrefTable.Add(iref);
-                            }
-                        }
-                        else
-                        {
-                            // Ignore object with objectID already on the list.
-                            PdfSharpLogHost.PdfReadingLogger.LogWarning("Ignoring object with ID {objectID} because an object with that ID was already read.", objectID);
-                        }
+                        // The selected xref entry already registered this reference.
+                        Debug.Assert(_document.IrefTable.Contains(objectID));
+                        _objectStreamObjectSources.Add(objectID, (objectStreamParser, offset));
                     }
                 }
 
@@ -1253,7 +1206,7 @@ namespace PdfSharp.Pdf.IO
             
             var pdfReferences = _document.IrefTable.AllReferences;
 
-            var objectStreamIDsToLoad = LoadObjectStreamIDs(pdfReferences);
+            var objectStreamIDsToLoad = LoadObjectStreamIDs();
 
             var skippedObjectStreamIDs = new List<PdfObjectID>();
             var doNextRound = true;
@@ -1835,7 +1788,15 @@ namespace PdfSharp.Pdf.IO
                             // older xref sections can supply a file-level version.
                             var compressedId = new PdfObjectID(subsections[ssc][0] + idx);
                             if (!xrefTable.Contains(compressedId))
+                            {
                                 xrefTable.Add(PdfReference.CreateForObjectID(compressedId, -1));
+                                if (item.Field2 > int.MaxValue || item.Field3 > int.MaxValue)
+                                    throw new PdfReaderException("Invalid compressed object location.");
+                                var streamId = new PdfObjectID((int)item.Field2);
+                                if (!_compressedObjectLocations.TryGetValue(streamId, out var locations))
+                                    _compressedObjectLocations.Add(streamId, locations = new());
+                                locations.Add(compressedId, (int)item.Field3);
+                            }
                             break;
                     }
                 }
