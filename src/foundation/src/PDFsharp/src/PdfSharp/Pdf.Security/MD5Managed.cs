@@ -66,6 +66,8 @@ sealed class MD5Managed : HashAlgorithm
         for (int offset = 0; offset < ending.Length; offset += 64) Compress(ending, offset);
         var digest = new byte[16];
         for (int i = 0; i < digest.Length; i++) digest[i] = (byte)(_state[i / 4] >> (8 * (i % 4)));
+        // Framework's TransformFinalBlock does not reinitialize derived state.
+        Initialize();
         return digest;
     }
 

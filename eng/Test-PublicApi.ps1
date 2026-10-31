@@ -72,3 +72,6 @@ foreach ($version in @('7.0.0-preview-1','6.2.4')) {
 @{ tool=$toolVersion; baselineInputs=$pins; comparisons=$results; passed=(!$failed) } | ConvertTo-Json -Depth 6 | Set-Content "$output/api-validation.json" -Encoding utf8
 if ($failed) { throw 'API validation failed; inspect per-assembly logs.' }
 Write-Host 'PASS: no API compatibility removals from the MIT v7 baseline; v6 migration diagnostics recorded separately.'
+# The last v6 comparison may intentionally return 1. GitHub's pwsh wrapper
+# forwards LASTEXITCODE, so explicitly report the gate's overall success.
+exit 0
