@@ -161,3 +161,8 @@ The direct archive was downloaded and matched the existing pinned SHA-256
 `13476a53e84f5527983158acb6442c7853b3cdc022f3b24880780dcfba1fcc99`.
 CI and new installations now use that publisher-owned URL; renderer version and
 licence remain unchanged.
+
+Windows reference restores added `win-x86` runtime lock sections implicitly.
+The lockfile now records both `win-x86` and deployment's `win-x64` explicitly,
+without changing any package version or content hash. CI uses locked restores
+and rejects changed checkouts after generation or bundle publication.

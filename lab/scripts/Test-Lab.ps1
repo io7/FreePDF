@@ -18,7 +18,11 @@ function Generator([string]$Engine) {
 New-Item -ItemType Directory $DataDirectory -Force | Out-Null
 $configuration = Join-Path $DataDirectory 'runner.json'
 $revision = (& git -C $repo rev-parse HEAD).Trim()
-if (& git -C $repo status --porcelain) { $revision += '+worktree' }
+$changes = @(& git -C $repo status --porcelain)
+if ($changes.Count) {
+    if ($env:CI -eq 'true') { throw "CI checkout changed during the build: $($changes -join '; ')" }
+    $revision += '+worktree'
+}
 @{ dataDirectory=(Resolve-Path $DataDirectory).Path; reference=(Generator 'Reference'); candidate=(Generator 'FreePDF'); renderer=(Resolve-Path $Renderer).Path; sourceRevision=$revision; profile=$Framework; retainRuns=10; retainBytes=2000000000; timeoutSeconds=30 } | ConvertTo-Json -Depth 5 | Set-Content $configuration -Encoding utf8
 & dotnet $app --run $configuration
 exit $LASTEXITCODE

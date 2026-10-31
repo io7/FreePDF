@@ -2,9 +2,6 @@ param([Parameter(Mandatory)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/../..").Path
 if (Test-Path $OutputDirectory) { throw 'Choose a new output directory; existing bundles are not overwritten.' }
-$revision = (& git -C $repo rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0) { throw 'Could not identify source revision.' }
-if (& git -C $repo status --porcelain) { $revision += '+worktree' }
 New-Item -ItemType Directory $OutputDirectory | Out-Null
 function Publish([string]$Project, [string]$Destination) {
     & dotnet publish "$repo/$Project" -c Release -f net10.0 -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.13 -m:1 -o "$OutputDirectory/$Destination"
@@ -21,6 +18,13 @@ foreach ($engine in @('Reference','FreePDF')) {
     Copy-Item "$repo/lab/Generators/$engine/bin/Release/net462/*" "$OutputDirectory/$destination/net462" -Recurse
 }
 Copy-Item "$repo/lab/scripts/Install-Tomahawk.ps1", "$repo/lab/scripts/Install-RendererRuntime.ps1", "$repo/lab/scripts/Run-Nightly.ps1", "$repo/LICENSE", "$repo/PROVENANCE.md", "$repo/lab/README.md" $OutputDirectory
+$revision = (& git -C $repo rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Could not identify source revision.' }
+$changes = @(& git -C $repo status --porcelain)
+if ($changes.Count) {
+    if ($env:CI -eq 'true') { throw "CI checkout changed during publish: $($changes -join '; ')" }
+    $revision += '+worktree'
+}
 @{ sourceRevision=$revision; runtime='10.0.13'; reference='PDFsharp-MigraDoc 7.0.0-preview-1 (MIT), Pkcs 10.0.13 override'; renderer='MuPDF 1.28.5 (installed separately, AGPL)' } | ConvertTo-Json | Set-Content "$OutputDirectory/bundle.json" -Encoding utf8
 Get-ChildItem $OutputDirectory -Recurse -File | Sort-Object FullName | ForEach-Object {
     [pscustomobject]@{path=[IO.Path]::GetRelativePath((Resolve-Path $OutputDirectory).Path,$_.FullName); sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
