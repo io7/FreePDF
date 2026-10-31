@@ -1,0 +1,30 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0;netstandard2.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Authors>io7;empira Software GmbH</Authors>
+    <Copyright>Copyright 2001-2026 empira Software GmbH; FreePDF modifications copyright 2026 io7</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/io7/FreePDF</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/io7/FreePDF</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>FreePDF;PDF;MigraDoc;MIT</PackageTags>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);FreePDFPackageFiles</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="$(MSBuildThisFileDirectory)../../PROVENANCE.md" Pack="true" PackagePath="PROVENANCE.md" />
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="README.md" />
+    <None Include="$(MSBuildThisFileDirectory)ICC-sRGB2014.txt" Pack="true" PackagePath="THIRD-PARTY/ICC-sRGB2014.txt" />
+    <None Include="$(MSBuildThisFileDirectory)../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
+  </ItemGroup>
+  <Target Name="FreePDFPackageFiles">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(OutputPath)$(FreePDFAssemblyPrefix)*.dll;$(OutputPath)$(FreePDFAssemblyPrefix)*.xml" Exclude="$(OutputPath)$(AssemblyName).dll;$(OutputPath)$(AssemblyName).xml" PackagePath="lib/$(TargetFramework)/" />
+    </ItemGroup>
+  </Target>
+</Project>

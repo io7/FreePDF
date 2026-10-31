@@ -1,7 +1,7 @@
 ﻿// PDFsharp - A .NET library for processing PDF
 // See the LICENSE file in the solution root for more information.
 
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
 using System.Net.Http.Headers;
 #endif
 using System.Security.Cryptography;
@@ -16,7 +16,7 @@ namespace PdfSharp.Pdf.Signatures
     public class PdfSharpDefaultSigner : IDigitalSigner
     {
         static readonly Oid SignatureTimeStampOid = new("1.2.840.113549.1.9.16.2.14");
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
         const string TimestampQueryContentType = "application/timestamp-query";
         const string TimestampReplyContentType = "application/timestamp-reply";
 #endif
@@ -31,7 +31,7 @@ namespace PdfSharp.Pdf.Signatures
         {
             Certificate = certificate;
             DigestType = digestType;
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
             TimeStampAuthorityUri = timeStampAuthorityUri;
 #else
             // We don’t know how to get a time stamp with .NET Standard.
@@ -83,10 +83,16 @@ namespace PdfSharp.Pdf.Signatures
         {
             var content = new byte[stream.Length];
             stream.Position = 0;
-            // ReSharper disable once MethodHasAsyncOverload
-            int read = stream.Read(content, 0, content.Length);
-            if (read != content.Length)
-                throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
+            var read = 0;
+            while (read < content.Length)
+            {
+                // A stream may return a partial buffer before reaching EOF.
+                // ReSharper disable once MethodHasAsyncOverload
+                var count = stream.Read(content, read, content.Length - read);
+                if (count == 0)
+                    throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
+                read += count;
+            }
 
             // Sign the byte range.
             var contentInfo = new ContentInfo(content);
@@ -100,7 +106,7 @@ namespace PdfSharp.Pdf.Signatures
                     PdfMessageDigestType.SHA384 => Oid.FromFriendlyName("sha384", OidGroup.HashAlgorithm),
                     PdfMessageDigestType.SHA512 => Oid.FromFriendlyName("sha512", OidGroup.HashAlgorithm),
                     // PdfMessageDigestType.RIPEMD160 => Oid.FromFriendlyName("???"), // ???
-                    _ => throw new NotImplementedException($"Digest type {DigestType} not supported by this signer.")
+                    _ => throw new NotSupportedException($"Digest type {DigestType} not supported by this signer.")
                 }
             } /* { IncludeOption = X509IncludeOption.WholeChain } */;
             signer.UnsignedAttributes.Add(new Pkcs9SigningTime());
@@ -109,7 +115,7 @@ namespace PdfSharp.Pdf.Signatures
 
             if (TimeStampAuthorityUri is not null)
             {
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
                 await AddTimestampFromTSAAsync(signedCms).ConfigureAwait(false);
 #else
                 // Already checked in constructor.
@@ -129,7 +135,7 @@ namespace PdfSharp.Pdf.Signatures
 
         bool MustAddTimeStamp { get; init; }
 
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
         async Task AddTimestampFromTSAAsync(SignedCms signedCms)
         {
             // Generate our nonce to identify the pair request-response.
@@ -151,7 +157,7 @@ namespace PdfSharp.Pdf.Signatures
                 PdfMessageDigestType.SHA384 => HashAlgorithmName.SHA384,
                 PdfMessageDigestType.SHA512 => HashAlgorithmName.SHA512,
                 // PdfMessageDigestType.RIPEMD160 => HashAlgorithmName.SHA512, // ???
-                _ => throw new NotImplementedException($"Digest type {DigestType} not supported by this signer.")
+                _ => throw new NotSupportedException($"Digest type {DigestType} not supported by this signer.")
             };
 
             // Now we generate the request to send to the RFC3161 signing authority.

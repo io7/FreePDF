@@ -2,9 +2,10 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Collections;
+using PdfSharp.Internal;
 using PdfSharp.Pdf.Content.Objects;
+using PdfSharp.Pdf.Internal;
 using PdfSharp.Pdf.IO;
-using static PdfSharp.Pdf.PdfDictionary;
 
 namespace PdfSharp.Pdf.Advanced
 {
@@ -18,7 +19,7 @@ namespace PdfSharp.Pdf.Advanced
         /// </summary>
         /// <param name="document">The document.</param>
         public PdfContents(PdfDocument document)
-            : base(document)
+            : base(document, false)
         { }
 
         internal PdfContents(PdfArray array)
@@ -35,7 +36,8 @@ namespace PdfSharp.Pdf.Advanced
                 {
                     // The following line is correct!
                     // ReSharper disable once ObjectCreationAsStatement because assignment is done in constructor.
-                    new PdfContent((PdfDictionary)iref.Value);
+                    if (iref.Value is not PdfContent)
+                        new PdfContent((PdfDictionary)iref.Value);
                 }
                 else
                     throw new InvalidOperationException("Unexpected item in a content stream array.");
@@ -51,7 +53,6 @@ namespace PdfSharp.Pdf.Advanced
 
             SetModified();
             PdfContent content = new PdfContent(Owner);
-            Owner.IrefTable.Add(content);
             Debug.Assert(content.Reference != null);
             Elements.Add(content.Reference);
             return content;
@@ -66,7 +67,6 @@ namespace PdfSharp.Pdf.Advanced
 
             SetModified();
             PdfContent content = new PdfContent(Owner);
-            Owner.IrefTable.Add(content);
             Debug.Assert(content.Reference != null);
             Elements.Insert(0, content.Reference);
             return content;
@@ -79,19 +79,17 @@ namespace PdfSharp.Pdf.Advanced
         public PdfContent CreateSingleContent()
         {
             byte[] bytes = [];
-            byte[] bytes1;
-            byte[] bytes2;
             foreach (PdfItem iref in Elements)
             {
                 PdfDictionary cont = (PdfDictionary)((PdfReference)iref).Value;
-                bytes1 = bytes;
-                bytes2 = cont.Stream!.UnfilteredValue;
+                var bytes1 = bytes;
+                var bytes2 = cont.Stream!.UnfilteredValue;
                 bytes = new byte[bytes1.Length + bytes2.Length + 1];
                 bytes1.CopyTo(bytes, 0);
                 bytes[bytes1.Length] = (byte)'\n';
                 bytes2.CopyTo(bytes, bytes1.Length + 1);
             }
-            PdfContent content = new PdfContent(Owner);
+            var content = new PdfContent(Owner);
             content.Stream = new PdfDictionary.PdfStream(bytes, content);
             return content;
         }
@@ -99,74 +97,48 @@ namespace PdfSharp.Pdf.Advanced
         /// <summary>
         /// Replaces the current content of the page with the specified content sequence.
         /// </summary>
-        public PdfContent ReplaceContent(CSequence cseq)
+        public PdfContent ReplaceContent(CSequence seq)
         {
-            if (cseq == null)
-                throw new ArgumentNullException(nameof(cseq));
+            if (seq == null)
+                throw new ArgumentNullException(nameof(seq));
 
-            return ReplaceContent(cseq.ToContent());
+            var bytes = PdfEncoders.RawEncoding.GetBytes(seq.ToContent());
+            return ReplaceContent(bytes);
         }
 
         /// <summary>
         /// Replaces the current content of the page with the specified bytes.
         /// </summary>
-        PdfContent ReplaceContent(byte[] contentBytes)
+        public PdfContent ReplaceContent(byte[] contentBytes)
         {
             Debug.Assert(Owner != null);
 
-            PdfContent content = new PdfContent(Owner);
-
+            var content = new PdfContent(Owner);
             content.CreateStream(contentBytes);
 
-            Owner.IrefTable.Add(content);
             Elements.Clear();
-            Elements.Add(content.ReferenceNotNull);
+            Elements.Add(content.RequiredReference);
 
             return content;
         }
 
         void SetModified()
         {
-            if (!_modified)
-            {
-                _modified = true;
-                int count = Elements.Count;
+            if (_modified)
+                return;
+            _modified = true;
+            if (Elements.Count == 0)
+                return;
 
-                if (count == 1)
-                {
-                    PdfContent content = (PdfContent)((PdfReference)Elements[0]).Value;
-                    content.PreserveGraphicsState();
-                }
-                else if (count > 1)
-                {
-                    // Surround content streams with q/Q operations
-                    byte[] value;
-                    int length;
-                    PdfContent content = (PdfContent)((PdfReference)Elements[0]).Value;
-                    if (content != null && content.Stream != null)
-                    {
-                        length = content.Stream.Length;
-                        value = new byte[length + 2];
-                        value[0] = (byte)'q';
-                        value[1] = (byte)'\n';
-                        Array.Copy(content.Stream.Value, 0, value, 2, length);
-                        content.Stream.Value = value;
-                        content.Elements.SetInteger("/Length", length + 2);
-                    }
-                    content = (PdfContent)((PdfReference)Elements[count - 1]).Value;
-                    if (content != null && content.Stream != null)
-                    {
-                        length = content.Stream.Length;
-                        value = new byte[length + 3];
-                        Array.Copy(content.Stream.Value, 0, value, 0, length);
-                        value[length] = (byte)' ';
-                        value[length + 1] = (byte)'Q';
-                        value[length + 2] = (byte)'\n';
-                        content.Stream.Value = value;
-                        content.Elements.SetInteger("/Length", length + 3);
-                    }
-                }
-            }
+            // Keep the existing streams unchanged: they may be shared by pages,
+            // filtered, or end in a comment without a terminating newline.
+            // Separate wrapper streams isolate the original graphics state.
+            var begin = new PdfContent(Owner);
+            begin.CreateStream(new byte[] { (byte)'q', (byte)'\n' });
+            var end = new PdfContent(Owner);
+            end.CreateStream(new byte[] { (byte)'\n', (byte)'Q', (byte)'\n' });
+            Elements.Insert(0, begin.RequiredReference);
+            Elements.Add(end.RequiredReference);
         }
 
         bool _modified;
@@ -175,7 +147,10 @@ namespace PdfSharp.Pdf.Advanced
         {
             // Save two bytes in PDF stream...
             if (Elements.Count == 1)
+            {
+                var xxx = Elements[0];
                 Elements[0].WriteObject(writer);
+            }
             else
                 base.WriteObject(writer);
         }
@@ -222,7 +197,7 @@ namespace PdfSharp.Pdf.Advanced
                 {
                     if (_index == -1 || _index >= _contents.Elements.Count)
                         throw new InvalidOperationException(PsMsgs.ListEnumCurrentOutOfRange);
-                    return _currentElement??throw new InvalidOperationException("Current called before MoveNext.");
+                    return _currentElement ?? throw new InvalidOperationException("Current called before MoveNext.");
                 }
             }
 

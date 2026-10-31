@@ -22,14 +22,19 @@ namespace PdfSharp.Drawing
         {
             _points = [..path._points];
             _types = [..path._types];
+            _startNewFigure = path._startNewFigure;
         }
+
+        bool _startNewFigure;
+
+        public void StartFigure() => _startNewFigure = true;
 
         public void MoveOrLineTo(double x, double y)
         {
             // Make a MoveTo if there is no previous subpath or the previous subpath was closed.
             // Otherwise, make a LineTo.
             // ReSharper disable once UseIndexFromEndExpression
-            if (_types.Count == 0 || (_types[_types.Count - 1] & PathPointTypeCloseSubpath) == PathPointTypeCloseSubpath)
+            if (_startNewFigure || _types.Count == 0 || (_types[_types.Count - 1] & PathPointTypeCloseSubpath) == PathPointTypeCloseSubpath)
                 MoveTo(x, y);
             else
                 LineTo(x, y, false);
@@ -37,6 +42,7 @@ namespace PdfSharp.Drawing
 
         public void MoveTo(double x, double y)
         {
+            _startNewFigure = false;
             _points.Add(new XPoint(x, y));
             _types.Add(PathPointTypeStart);
         }

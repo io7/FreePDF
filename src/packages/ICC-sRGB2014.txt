@@ -1,0 +1,10 @@
+Embedded profile: sRGB2014.icc
+Copyright International Color Consortium, 2015
+
+The profile is unchanged from the reviewed MIT source snapshot.
+SHA-256: 384b832de3412066743b52a75ee906b6fb9fb8d9e09e936fc2c43223815c6e0a
+
+Profile description: https://registry.color.org/rgb-registry/srgbprofiles
+Profile licensing terms: https://www.color.org/profileview/#licensing
+The ICC permits embedding and redistribution of its profiles. Modified profiles
+must remove the original identification/copyright and not claim to be originals.

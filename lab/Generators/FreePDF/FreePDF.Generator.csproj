@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0;net462</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" />
+    <Compile Include="../../Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../Assets/DejaVuSans.ttf" LogicalName="LabFont.ttf" />
+    <EmbeddedResource Include="../../Assets/colors.png" LogicalName="LabImage.png" />
+    <EmbeddedResource Include="../../../src/tests/FreePDF.RegressionTests/Assets/composite.ttf" LogicalName="CompositeFont.ttf" />
+  </ItemGroup>
+</Project>

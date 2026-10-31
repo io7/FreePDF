@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0;net462</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Framework builds infer win-x86 on Windows; deployment also restores win-x64. -->
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Keep the same lock graph when the host already has Framework targeting packs. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" Condition="'$(TargetFramework)' == 'net462'" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <!-- Deliberately pinned to the final MIT preview. Updating the oracle is a reviewed change. -->
+    <PackageReference Include="PDFsharp-MigraDoc" Version="[7.0.0-preview-1]" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" />
+    <Compile Include="../../Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../Assets/DejaVuSans.ttf" LogicalName="LabFont.ttf" />
+    <EmbeddedResource Include="../../Assets/colors.png" LogicalName="LabImage.png" />
+    <EmbeddedResource Include="../../../src/tests/FreePDF.RegressionTests/Assets/composite.ttf" LogicalName="CompositeFont.ttf" />
+  </ItemGroup>
+</Project>

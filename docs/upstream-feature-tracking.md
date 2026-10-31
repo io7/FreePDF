@@ -3,9 +3,10 @@
 Reviewed 2026-10-30. This matrix guides FreePDF's work; it is not a claim of
 feature parity or a promise to ship on upstream's schedule.
 
-**Release policy:** 6.2.5 is a compatible maintenance release. FreePDF 7.0.0 is
-reserved for an explicitly reviewed adoption of the MIT preview's broader
-architecture and API changes. Neither version is released by this change.
+**Release policy:** FreePDF 7.0.0 is the next major release. The current
+`7.0.0-dev.1` adopts the reviewed MIT Preview 1 source and carries the earlier
+6.2.5 development fixes. It is not a stable package or a promise to follow
+upstream release dates. Preview 2 licensing activation is excluded.
 
 ## Sources and limits
 
@@ -26,7 +27,7 @@ current 6.5.0 and 7.0 previews, plus key inherited capabilities relevant to
 compatibility. Earlier release histories remain references rather than a new
 certification of the entire library.
 
-## Current 6.2.5 work
+## Earlier fixes retained in 7.0.0
 
 | Item | Origin | Status and validation |
 | --- | --- | --- |
@@ -50,46 +51,54 @@ These rows record inherited implementation, not fresh acceptance of every path.
 | Platforms | .NET 8/9/10, .NET Standard and Windows variants | The initial build checks covered core 8/10/Standard; this change expands runtime and Windows checks. .NET 9 is not in the CI matrix yet. |
 | Established features | Text/layout, tables, images, merging, signatures, PDF/A support with upstream limitations | No new guarantee of PDF/A conformance, signature validity, or every renderer's layout. |
 
-## MIT Preview 1 feature and compatibility candidates
+## MIT Preview 1 source now imported
 
-Source availability permits review; it does not establish production readiness.
+The complete reviewed MIT snapshot is imported. The last column remains a
+release gate unless explicitly evidenced below; import does not certify behavior.
 
 | Changelog area | FreePDF direction | Acceptance requirement |
 | --- | --- | --- |
-| PDF object model and dictionary nullability | 7.0 review | Public API comparison and migration tests. |
-| Tolerant reading | Isolate bounded 6.2.x fixes where practical | Malformed fixtures must terminate; valid inputs must retain semantics. |
-| PDF/A manager | 7.0 candidate | Independent conformance validation per claimed profile. |
-| Form model | 7.0 candidate | Fill, appearance, save/reopen and viewer fixtures. |
-| Attachment management | 7.0 candidate | Inspect `Pdf.Attachments/EmbeddedFilesManager.cs`; verify attach/extract metadata. The changelog calls this “FileManager”, but that exact class name is absent in the snapshot. |
-| Annotation model | 7.0 candidate | Rendering/interactivity checks and API migration coverage. |
-| XMP metadata policies | 7.0 candidate | Preserve/update/remove metadata fixtures and conformance checks. |
-| Dates and nullable values | 7.0 API change; isolate compatible fixes if possible | Offset, timezone, null and cross-runtime fixtures. |
-| PDF names | Isolate encoding fixes; reserve new `Name` API for 7.0 | UTF-8, delimiter escaping, empty-name and read/write cases. |
-| Page boxes and rectangle semantics | 7.0 review | Inheritance, rotation, missing-box and compatibility fixtures. |
-| Annotation constructors, keys and renamed types | 7.0 review | Compile representative 6.2 consumers and document migrations. |
-| MigraDoc date/build-information APIs | 7.0 review | Preserve current APIs in 6.2.5; assess replacements together. |
-| GitVersion replacement | Build-system candidate, not needed for these fixes | Reproducible assembly/package versions across worktrees and CI. |
-| Framework/obsolete-API updates | Review target by target | Actual runtime checks; framework entries already present in 6.2.4 are not new FreePDF features. |
-| Automatic assets, fewer-framework and slow-test switches | Build/test candidates | Explicitly pinned assets with provenance; reliable offline regression subset. |
-| Broad refactoring/extensibility | 7.0 review | API and behaviour evidence before adoption. |
+| PDF object model and dictionary nullability | Imported in v7 | Public API comparison and migration tests. |
+| Tolerant reading | Imported; independent tolerance fixes added | Malformed fixtures must terminate; valid inputs must retain semantics. |
+| PDF/A manager | Imported in v7 | Independent conformance validation per claimed profile. |
+| Form model | Imported in v7; several typed classes are placeholders | Lab tests a low-level checkbox appearance/readback. Full fill/flatten/typed-field support is not claimed. |
+| Attachment management | Imported in v7 | Inspect `Pdf.Attachments/EmbeddedFilesManager.cs`; verify attach/extract metadata. The changelog calls this “FileManager”, but that exact class name is absent in the snapshot. |
+| Annotation model | Imported in v7 | Rendering/interactivity checks and API migration coverage. |
+| XMP metadata policies | Imported in v7 | Preserve/update/remove metadata fixtures and conformance checks. |
+| Dates and nullable values | Imported v7 API changes | Offset, timezone, null and cross-runtime fixtures. |
+| PDF names | Imported `Name` API; ANSI fallback added | UTF-8, delimiter escaping, empty-name and read/write cases. |
+| Page boxes and rectangle semantics | Imported in v7 | Inheritance, rotation, missing-box and compatibility fixtures. |
+| Annotation constructors, keys and renamed types | Imported in v7 | Compile representative 6.2 consumers and document migrations. |
+| MigraDoc date/build-information APIs | Imported in v7 | Review v7 replacements and publish migration guidance. |
+| GitVersion replacement | Replaced by FreePDF version generation | Reproducible assembly/package versions across worktrees and CI. |
+| Framework/obsolete-API updates | Core/Standard/Windows targets retained | Actual runtime checks; framework entries already present in 6.2.4 are not new FreePDF features. |
+| Automatic assets, fewer-framework and slow-test switches | Imported switches; automatic download is opt-in | Explicitly pinned assets with provenance; reliable offline regression subset. |
+| Broad refactoring/extensibility | Imported in v7 | API and behaviour evidence before adoption. |
 | PsX Forms / PsX Annotations references | Outside the FreePDF library scope | Separate products; their promotion in a changelog grants no rights to their implementation. |
 
 ## Later changelog requirements
 
-These are candidates for independently implemented work, not imported patches.
+The five functional requirements below are independently implemented in v7, not imported patches.
 No 6.5.0 or Preview 2 implementation was read.
 
 | Published area | MIT Preview 1 evidence | FreePDF target / gate |
 | --- | --- | --- |
-| Non-name dictionary keys | `Parser.cs` still rejects keys that are not `PdfName`. | 6.2.x candidate; define safe coercion and malformed-input limits. |
-| Legacy ANSI names | Inspected `Name.cs` decoding uses UTF-8. | 6.2.x candidate; specify deterministic encoding policy and fallback fixtures. |
-| PNG out-of-memory propagation | `PngImageImporter.TryImportImage` still catches all exceptions. | 6.2.x candidate; exception-injection test, preserving ordinary format fallback. |
-| Unique signature-field names | `DigitalSignatureHandler.cs` still writes `Signature1`. | 6.2.x candidate; existing-field and nested-field collision tests plus signature verification. |
-| Concurrent MigraDoc font caching | `FontHandler.cs` retains the separate static weak-reference pair. | High-priority 6.2.x candidate; deterministic concurrent-render regression. |
+| Non-name dictionary keys | `Parser.cs` still rejects keys that are not `PdfName`. | Implemented: string/integer keys coerced to names; other types rejected. Synthetic read/save/reopen tests. |
+| Legacy ANSI names | Inspected `Name.cs` decoding uses UTF-8. | Implemented: strict UTF-8, then current culture ANSI code page; CP1252/Shift-JIS/valid UTF-8 tests. Encoding is inherently ambiguous without external metadata. |
+| PNG out-of-memory propagation | `PngImageImporter.TryImportImage` still catches all exceptions. | Implemented in importer and outer fallback; impossible-array-length PNG test without allocating gigabytes. |
+| Unique signature-field names | `DigitalSignatureHandler.cs` still writes `Signature1`. | Implemented: scan root/nested fields and choose unused name; actual field insertion tested. Cryptographic validity remains a separate gate. |
+| Concurrent MigraDoc font caching | `FontHandler.cs` retains the separate static weak-reference pair. | Implemented: atomic immutable weak-reference pair with property validation; 40,000 parallel conversions and mutable-font test. Full concurrent layout coverage remains open. |
 | 6.5 / Preview 2 licence activation | Changelog describes upstream's AGPL/commercial switch. | Excluded: FreePDF retains its MIT policy. |
 | Preview 2 feature sections | The reviewed pages point to general/licence changes and inherited PDFsharp benefits. | No additional separately enumerated library feature found on those pages at review time. |
 
-## Release gates
+## Additional evidence and release gates
+
+The comparison lab covers twelve feature cases, including two-page layout,
+attachment extraction and a checkbox appearance. Locally, nine cases match
+exactly and three expose independently fixed reference defects. Core StartFigure
+(#396), full-width merged tables (#358), and truncated hex strings also have
+original unit regressions. See `7.0.0-validation.md` for the exact scope.
+
 
 Before a stable package: finish the chosen fix set, run the expanded CI matrix,
 verify generated PDFs independently, review public API compatibility and package
