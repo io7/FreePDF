@@ -740,70 +740,48 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
-        /// TODO
-        /// Traverses the page tree in pre-order.
-        /// Recursively converts the page tree into a flat array.
+        /// Traverses the page tree in pre-order and collects its leaf pages.
         /// </summary>
         /// <param name="pages">The pages.</param>
         /// <param name="treeNode">The tree node.</param>
         /// <param name="inheritedValues">The values.</param>
         void TraversePageTree(List<PdfPage> pages, PdfPageTreeNode treeNode, PdfPageTreeNode.InheritedValues inheritedValues)
         {
-            // TODO inherit inheritable keys...
-            _ = typeof(int);
-            var kids = treeNode.Elements.GetArray<PdfPageTreeNodes>(Keys.Kids);
-            if (kids != null)
+            // Iterative traversal handles deep trees without consuming the call stack.
+            // Each stack entry owns its inherited values, so overrides cannot leak to siblings.
+            var pending = new Stack<(PdfReference Reference, PdfPageTreeNode.InheritedValues Values)>();
+            var visited = new HashSet<PdfReference>();
+            pending.Push((treeNode.RequiredReference, inheritedValues));
+            while (pending.Count > 0)
             {
-                foreach (var item in kids /*.Elements.AsEnumerable<PdfDictionary>()*/)
+                var (reference, values) = pending.Pop();
+                if (!visited.Add(reference))
+                    throw new PdfReaderException("Cyclic or repeated node in the page tree.");
+                if (reference.Value is not PdfDictionary dictionary)
+                    throw new PdfReaderException("Invalid dictionary in the page tree.");
+
+                var type = dictionary.Elements.GetName(Keys.Type);
+                if (type == "/Page")
                 {
-                    if (((PdfReference)item).Value is PdfDictionary kid)
+                    var page = dictionary as PdfPage ?? new PdfPage(dictionary, in values);
+                    page.ApplyInheritedValues(in values);
+                    pages.Add(page);
+                }
+                else if (type == "/Pages")
+                {
+                    var node = dictionary as PdfPageTreeNode ?? new PdfPageTreeNode(dictionary);
+                    node.GetInheritableValues(ref values);
+                    var kids = node.Elements.GetArray(Keys.Kids)
+                        ?? throw new PdfReaderException("Missing children in the page tree.");
+                    for (var index = kids.Elements.Count - 1; index >= 0; index--)
                     {
-                        string type = kid.Elements.GetName(Keys.Type);
-                        if (type == "/Page")
-                        {
-#if DEBUG
-                            var oldKid = kid;
-                            var oldRef = kid.RequiredReference;
-#endif
-                            var page = (PdfPage)kid.Elements.CreateContainer(typeof(PdfPage), kid, true);
-                            page.ApplyInheritedValues(ref inheritedValues);
-
-                            pages.Add(page);
-
-#if DEBUG
-                            Debug.Assert(oldKid.IsDead);
-                            Debug.Assert(ReferenceEquals(oldRef, page.RequiredReference));
-#endif
-                        }
-                        else if (type == "/Pages")
-                        {
-                            //Debug.Assert(type == "/Pages");
-#if DEBUG
-                            var oldKid = kid;
-                            var oldRef = kid.RequiredReference;
-#endif
-                            var node = (PdfPageTreeNode)kid.Elements.CreateContainer(typeof(PdfPageTreeNode), kid, true);
-                            node.GetInheritableValues(ref inheritedValues);
-#if DEBUG
-                            Debug.Assert(oldKid.IsDead);
-                            Debug.Assert(ReferenceEquals(oldRef, node.RequiredReference));
-#endif
-                            // Note that inheritedValues are not changed by the recursive invocation
-                            // because it is a value type that it is passed by value.
-                            TraversePageTree(pages, node, inheritedValues);
-                        }
-                        else
-                        {
-                            // A page tree node with no valid /Type?
-                            Debug.Assert(false, $"Page tree node ({ObjectID.ToString()}) has the unknown /Type entry '{type}'.");
-                        }
+                        if (kids.Elements[index] is not PdfReference child)
+                            throw new PdfReaderException("Invalid child reference in the page tree.");
+                        pending.Push((child, values));
                     }
                 }
-            }
-            else
-            {
-                // A page tree node with no kids?
-                Debug.Assert(false, $"Page tree node ({ObjectID.ToString()}) has no /Kids entry.");
+                else
+                    throw new PdfReaderException("Invalid node type in the page tree.");
             }
         }
 

@@ -49,7 +49,10 @@
       "title": " PdfReader.Open fails when an object declares / Length larger than the actual stream  ",
       "url": "https://github.com/empira/PDFsharp/issues/394",
       "labels": [],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Stream length repair bounded by following file object",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 392,
@@ -58,7 +61,10 @@
       "labels": [
         "investigation"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "1/4-bit indexed PNG alpha and row padding",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 390,
@@ -88,7 +94,10 @@
       "title": "Hybrid-reference PDFs (`/XRefStm`) are mis-read",
       "url": "https://github.com/empira/PDFsharp/issues/388",
       "labels": [],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Hybrid XRefStm resolution and current compressed-object precedence",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 380,
@@ -133,7 +142,10 @@
       "labels": [
         "bug"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Inherited page attributes before initialization and sibling isolation",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 374,
@@ -185,7 +197,10 @@
       "title": "Page Tree Recursion - Result in stack overflow",
       "url": "https://github.com/empira/PDFsharp/issues/361",
       "labels": [],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Cyclic/repeated page-tree nodes and deep valid trees",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 364,
@@ -244,7 +259,10 @@
       "labels": [
         "bug"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Graphics-state isolation across filtered/shared content streams",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 348,
@@ -253,7 +271,10 @@
       "labels": [
         "bug"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Nested composite glyph closure in embedded subsets",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 339,
@@ -406,7 +427,10 @@
       "labels": [
         "bug"
       ],
-      "status": "unreproduced-backlog"
+      "status": "fixed-independent-reproducer",
+      "freepdfValidated": "2026-10-31",
+      "scope": "Repeated/out-of-file trailer cross-reference offsets",
+      "evidence": "../7.0.0-validation.md"
     },
     {
       "number": 198,

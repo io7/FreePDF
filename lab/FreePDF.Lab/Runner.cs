@@ -41,7 +41,7 @@ public static partial class Runner
                     if (a.Length != b.Length) errors.Add($"Page count differs: reference {a.Length}, candidate {b.Length}.");
                     var refStructure = JsonNode.Parse(File.ReadAllText(Path.Combine(caseRoot, "reference", "structure.json")))!;
                     var candidateStructure = JsonNode.Parse(File.ReadAllText(Path.Combine(caseRoot, "candidate", "structure.json")))!;
-                    foreach (var key in new[] { "pages", "title", "attachments", "attachmentText", "fields", "metadata" })
+                    foreach (var key in new[] { "pages", "title", "attachments", "attachmentText", "fields", "metadata", "readerRejection", "fixtureFontSha256" })
                         if (!JsonNode.DeepEquals(refStructure[key], candidateStructure[key])) errors.Add("Structure differs: " + key);
                 }
             }
@@ -109,6 +109,7 @@ public static partial class Runner
         Expect(value["fields"]!.GetValue<int>() == (id == "forms" ? 1 : 0), "field count");
         if (id == "attachments") Expect(value["attachmentText"]?.GetValue<string>() == "<fixture>original synthetic data</fixture>", "attachment bytes");
         if (id is "attachments" or "pdfa") Expect(value["metadata"]!.GetValue<bool>(), "XMP metadata missing");
+        if (id.StartsWith("reader-", StringComparison.Ordinal)) Expect(value["readerRejection"]?.GetValue<string>() == "PdfReaderException", "malformed input was not rejected");
     }
 
     public static async Task<ProcessResult> Execute(Command command, string[] extra, int timeout)

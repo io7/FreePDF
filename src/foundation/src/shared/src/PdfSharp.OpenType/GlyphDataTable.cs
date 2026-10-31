@@ -251,20 +251,20 @@ namespace PdfSharp.Internal.OpenType
         /// </summary>
         public void CompleteGlyphClosure(Dictionary<ushort, object?> glyphs)
         {
-            int count = glyphs.Count;
-            ushort[] glyphArray = new ushort[glyphs.Count];
-            glyphs.Keys.CopyTo(glyphArray, 0);
             // ReSharper disable once CanSimplifyDictionaryLookupWithTryAdd because of .NET Framework
             if (!glyphs.ContainsKey(0))
                 glyphs.Add(0, null);
+            var pending = new Stack<ushort>(glyphs.Keys);
             // #NFM
             // Ensure no other threads can alter the Position property of this OpenTypeFontFace instance,
             // see https://forum.pdfsharp.net/viewtopic.php?f=2&t=2248#p10378
             try
             {
                 Locks.EnterFontManagement();
-                for (int idx = 0; idx < count; idx++)
-                    AddCompositeGlyphs(glyphs, glyphArray[idx]);
+                // Newly discovered components may themselves be composite. Each
+                // glyph is queued once, bounding work even for a cyclic bad font.
+                while (pending.Count > 0)
+                    AddCompositeGlyphs(glyphs, pending.Pop(), pending);
             }
             finally { Locks.ExitFontManagement(); }
         }
@@ -272,7 +272,7 @@ namespace PdfSharp.Internal.OpenType
         /// <summary>
         /// If the specified glyph is a composite glyph add the glyphs it is made of to the glyph table.
         /// </summary>
-        void AddCompositeGlyphs(Dictionary<ushort, object?> glyphs, int glyph)
+        void AddCompositeGlyphs(Dictionary<ushort, object?> glyphs, int glyph, Stack<ushort> pending)
         {
             //int start = fontData.loca.GetOffset(glyph);
             int start = GetOffset(glyph);
@@ -291,7 +291,8 @@ namespace PdfSharp.Internal.OpenType
                 ushort cGlyph = FontData.ReadUFWord();
                 ////if (!glyphs.ContainsKey(cGlyph))
                 ////    glyphs.Add(cGlyph, null);
-                glyphs.TryAdd(cGlyph, null);
+                if (glyphs.TryAdd(cGlyph, null))
+                    pending.Push(cGlyph);
                 if ((flags & ComponentGlyphFlags.MORE_COMPONENTS) == 0)
                     return;
                 int offset = (flags & ComponentGlyphFlags.ARG_1_AND_2_ARE_WORDS) == 0 ? 2 : 4;

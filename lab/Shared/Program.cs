@@ -38,7 +38,9 @@ static class Program
                 CaseId = args[0], Library = typeof(PdfDocument).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
                 Runtime = Environment.Version.ToString(), Pages = reopened.PageCount, Title = reopened.Info.Title,
                 Attachments = attachments.FileCount, AttachmentText = attachment == null ? null : Encoding.UTF8.GetString(attachment.Data),
-                Fields = fields?.Elements.Count ?? 0, Metadata = reopened.Catalog.Elements.ContainsKey("/Metadata")
+                Fields = fields?.Elements.Count ?? 0, Metadata = reopened.Catalog.Elements.ContainsKey("/Metadata"),
+                ReaderRejection = args[0].StartsWith("reader-", StringComparison.Ordinal) ? "PdfReaderException" : null,
+                FixtureFontSha256 = args[0] == "nested-glyphs" ? ResourceHash("CompositeFont.ttf") : null
             };
             File.WriteAllText(Path.Combine(args[1], "structure.json"), JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
             return 0;
@@ -49,6 +51,8 @@ static class Program
     static PdfDocument Create(string id)
     {
         if (id is "paragraphs" or "tables" or "merged-table") return Layout(id);
+        if (id is "inherited-page" or "stream-length" or "hybrid-xref" or "multi-stream") return Imported(id);
+        if (id is "reader-trailer" or "reader-pages") VerifyRejected(id);
         var doc = new PdfDocument();
         if (id == "pdfa") PdfAManager.ForDocument(doc).SetFormat(PdfAFormat.ForcePdfAFormat(1, 'B'));
         if (id == "attachments")
@@ -97,10 +101,86 @@ static class Program
                 using (var stream = typeof(Program).Assembly.GetManifestResourceStream("LabImage.png")!)
                 using (var image = XImage.FromStream(stream)) { gfx.DrawImage(image, 20, 20, 100, 100); gfx.DrawImage(image, 160, 20, 200, 80); }
                 break;
+            case "indexed-png":
+                gfx.DrawString("Palette alpha: transparent / half / opaque", new XFont("Lab Sans", 14), XBrushes.Black, 24, 30);
+                gfx.DrawRectangle(XBrushes.LightGray, 24, 60, 320, 160);
+                using (var indexed = XImage.FromStream(new MemoryStream(PalettePng.Create(4, 5, 2, true))))
+                    gfx.DrawImage(indexed, 24, 60, 320, 160);
+                break;
+            case "nested-glyphs":
+                gfx.DrawString("Nested composite: three bars", font, XBrushes.Black, 24, 35);
+                gfx.DrawString("\ue000", new XFont("Lab Composite", 220), XBrushes.DarkBlue, 40, 220);
+                break;
+            case "reader-trailer":
+            case "reader-pages":
+                gfx.DrawString("Malformed PDF rejected safely", font, XBrushes.DarkGreen, 24, 55);
+                gfx.DrawString(id == "reader-trailer" ? "Cyclic trailer chain" : "Cyclic page tree", font, XBrushes.Black, 24, 95);
+                gfx.DrawString("This page records a rejection check.", new XFont("Lab Sans", 13), XBrushes.Black, 24, 145);
+                break;
             case "forms": AddCheckbox(doc, page); gfx.DrawString("Synthetic checkbox", font, XBrushes.Black, 60, 60); break;
             default: gfx.DrawString("FreePDF / " + id, font, XBrushes.Black, 24, 50); break;
         }
         return doc;
+    }
+
+    static void VerifyRejected(string id)
+    {
+        var scenario = id == "reader-trailer" ? "trailer-self" : "tree-self";
+        try
+        {
+            using var input = new MemoryStream(ReaderFixtureData.Get(scenario));
+            using var document = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+            _ = document.PageCount;
+        }
+        catch (PdfReaderException error)
+        {
+            var expected = id == "reader-trailer" ? "cross-reference" : "page tree";
+            if (error.Message.IndexOf(expected, StringComparison.Ordinal) < 0) throw;
+            Console.WriteLine("Rejected synthetic input: " + error.Message);
+            return;
+        }
+        throw new InvalidDataException("The reader accepted a cyclic PDF.");
+    }
+
+    static PdfDocument Imported(string id)
+    {
+        const string red = "1 0 0 rg 30 150 80 80 re f";
+        const string green = "0 0.6 0 rg 150 150 80 80 re f";
+        string Stream(string value, int? length = null) => $"<< /Length {length ?? value.Length} >>\nstream\n{value}\nendstream";
+        byte[] bytes;
+        if (id == "hybrid-xref") bytes = PdfFixtureData.Hybrid(false);
+        else if (id == "inherited-page") bytes = PdfFixtureData.Create(new[] {
+            ReaderFixtureData.SimplePage[0], "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 420 300] >>",
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>", Stream(green)
+        });
+        else bytes = PdfFixtureData.Create(new[] {
+            ReaderFixtureData.SimplePage[0], ReaderFixtureData.SimplePage[1],
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 300] /Contents [4 0 R 5 0 R] >>",
+            id == "stream-length" ? Stream(red, 100000) : Stream("1 0 0 rg 1 0 0 1 70 0 cm"),
+            id == "stream-length" ? Stream(green) : Stream("40 150 60 60 re f % trailing comment")
+        });
+        var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+        try
+        {
+            var page = document.Pages[0];
+            if (id == "stream-length" && Encoding.ASCII.GetString(page.Contents.Elements.GetDictionary(0)!.Stream!.UnfilteredValue).TrimEnd('\r', '\n') != red)
+                throw new InvalidDataException("Stream recovery consumed bytes beyond the first content stream.");
+            var marker = id == "hybrid-xref" ? document.Catalog.Elements.GetString("/HybridMarker") : id;
+            if (id == "hybrid-xref" && marker != "compressed marker") throw new InvalidDataException("Hybrid object was not preserved.");
+            page.Width = XUnit.FromPoint(420); page.Height = XUnit.FromPoint(300);
+            using var graphics = XGraphics.FromPdfPage(page);
+            graphics.DrawString(marker, new XFont("Lab Sans", 16), XBrushes.Black, 24, 35);
+            if (id == "multi-stream") graphics.DrawRectangle(XBrushes.DarkBlue, 200, 90, 60, 60);
+            return document;
+        }
+        catch { document.Dispose(); throw; }
+    }
+
+    static string ResourceHash(string name)
+    {
+        using var input = typeof(Program).Assembly.GetManifestResourceStream(name)!;
+        using var hash = System.Security.Cryptography.SHA256.Create();
+        return BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
     }
 
     static PdfDocument Layout(string id)
@@ -151,7 +231,7 @@ static class Program
 
     sealed class FixtureFontResolver : IFontResolver
     {
-        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new("fixed", bold, italic);
-        public byte[] GetFont(string faceName) { using var input = typeof(Program).Assembly.GetManifestResourceStream("LabFont.ttf")!; using var output = new MemoryStream(); input.CopyTo(output); return output.ToArray(); }
+        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new(familyName == "Lab Composite" ? "composite" : "fixed", bold, italic);
+        public byte[] GetFont(string faceName) { using var input = typeof(Program).Assembly.GetManifestResourceStream(faceName == "composite" ? "CompositeFont.ttf" : "LabFont.ttf")!; using var output = new MemoryStream(); input.CopyTo(output); return output.ToArray(); }
     }
 }

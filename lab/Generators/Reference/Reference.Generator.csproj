@@ -16,5 +16,6 @@
     <Compile Include="../../Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../Assets/DejaVuSans.ttf" LogicalName="LabFont.ttf" />
     <EmbeddedResource Include="../../Assets/colors.png" LogicalName="LabImage.png" />
+    <EmbeddedResource Include="../../../src/tests/FreePDF.RegressionTests/Assets/composite.ttf" LogicalName="CompositeFont.ttf" />
   </ItemGroup>
 </Project>

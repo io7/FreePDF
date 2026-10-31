@@ -66,7 +66,6 @@ namespace PdfSharp.Pdf.Advanced
 
             SetModified();
             PdfContent content = new PdfContent(Owner);
-            Owner.IrefTable.Add(content);
             Debug.Assert(content.Reference != null);
             Elements.Insert(0, content.Reference);
             return content;
@@ -124,46 +123,21 @@ namespace PdfSharp.Pdf.Advanced
 
         void SetModified()
         {
-            if (!_modified)
-            {
-                _modified = true;
-                int count = Elements.Count;
+            if (_modified)
+                return;
+            _modified = true;
+            if (Elements.Count == 0)
+                return;
 
-                if (count == 1)
-                {
-                    PdfContent content = (PdfContent)((PdfReference)Elements[0]).Value;
-                    content.PreserveGraphicsState();
-                }
-                else if (count > 1)
-                {
-                    // Surround content streams with q/Q operations
-                    byte[] value;
-                    int length;
-                    PdfContent content = (PdfContent)((PdfReference)Elements[0]).Value;
-                    if (content is { Stream: not null })
-                    {
-                        length = content.Stream.Length;
-                        value = new byte[length + 2];
-                        value[0] = (byte)'q';
-                        value[1] = (byte)'\n';
-                        Array.Copy(content.Stream.Value, 0, value, 2, length);
-                        content.Stream.Value = value;
-                        content.Elements.SetInteger("/Length", length + 2);
-                    }
-                    content = (PdfContent)((PdfReference)Elements[count - 1]).Value;
-                    if (content is { Stream: not null })
-                    {
-                        length = content.Stream.Length;
-                        value = new byte[length + 3];
-                        Array.Copy(content.Stream.Value, 0, value, 0, length);
-                        value[length] = (byte)' ';
-                        value[length + 1] = (byte)'Q';
-                        value[length + 2] = (byte)'\n';
-                        content.Stream.Value = value;
-                        content.Elements.SetInteger("/Length", length + 3);
-                    }
-                }
-            }
+            // Keep the existing streams unchanged: they may be shared by pages,
+            // filtered, or end in a comment without a terminating newline.
+            // Separate wrapper streams isolate the original graphics state.
+            var begin = new PdfContent(Owner);
+            begin.CreateStream(new byte[] { (byte)'q', (byte)'\n' });
+            var end = new PdfContent(Owner);
+            end.CreateStream(new byte[] { (byte)'\n', (byte)'Q', (byte)'\n' });
+            Elements.Insert(0, begin.RequiredReference);
+            Elements.Add(end.RequiredReference);
         }
 
         bool _modified;

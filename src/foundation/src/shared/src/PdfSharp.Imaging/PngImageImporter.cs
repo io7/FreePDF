@@ -312,7 +312,7 @@ namespace PdfSharp.Internal.Imaging
                                 {
                                     // Performance idea: Add GetRow to PNG library?
                                     int pels = 0;
-                                    for (var index = 0; index < 8; index++)
+                                    for (var index = 0; index < 8 && x * 8 + index < png.Width; index++)
                                     {
                                         var pel = png.GetPixelIndex(x * 8 + index, y);
                                         pels |= pel << (7 - index);
@@ -384,10 +384,12 @@ namespace PdfSharp.Internal.Imaging
                                         // alphaMask and alpha cannot be null here if hasAlpha is true. Suppress warnings in editor.
                                         alphaMask![offsetAlpha] = alpha![pel];
                                         alphaUsed |= alphaMask[offsetAlpha] != 255;
+                                        ++offsetAlpha;
                                         if (x + 1 < png.Width)
                                         {
                                             alphaMask[offsetAlpha] = alpha[pel2];
                                             alphaUsed |= alphaMask[offsetAlpha] != 255;
+                                            ++offsetAlpha;
                                         }
                                     }
 

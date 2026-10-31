@@ -363,7 +363,16 @@ namespace PdfSharp.Pdf.IO
             int streamLength = GetStreamLength(dict, suppressObjectOrderExceptions);
             if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                 return;
-            // TODO_OLD What to do if startPosition + streamLength is larger than length of stream? => Better not show "Please send us your PDF file" but another error message.
+            // An untrusted /Length must neither allocate beyond the available
+            // object bytes nor consume a later object's endstream marker.
+            var available = GetStreamSearchLength(dict, startPosition);
+            if (streamLength < 0 || streamLength > available)
+            {
+                streamLength = _lexer.DetermineStreamLength(startPosition, available, suppressObjectOrderExceptions);
+                if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
+                    return;
+                dict.Elements["/Length"] = new PdfInteger(streamLength);
+            }
             int retryCount = 0;
         RetryReadStream:
             // Step 3: We try to read the stream content.
@@ -554,14 +563,7 @@ namespace PdfSharp.Pdf.IO
             //_lexer.DetermineStreamLength(dict.Reference!.Position, streamLength - length, ref streamLength);
 
             // Try to read 20 extra bytes in case reported stream length is too small.
-            int scanWindow = streamLength + 20;
-            // Make sure we do not try to read beyond EOF.
-            if (streamStart + scanWindow > _lexer.PdfLength)
-            {
-                // We're close to the EOF, so casting to int is OK here.
-                scanWindow = (int)(_lexer.PdfLength - streamStart);
-                Debug.Assert(scanWindow >= oldLength);
-            }
+            int scanWindow = (int)Math.Min((long)streamLength + 20, GetStreamSearchLength(dict, streamStart));
 
             streamLength = _lexer.DetermineStreamLength(streamStart, scanWindow, suppressObjectOrderExceptions);
             if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
@@ -579,6 +581,28 @@ namespace PdfSharp.Pdf.IO
             dict.Elements["/Length"] = new PdfInteger(streamLength);
             return false;
         }
+
+        int GetStreamSearchLength(PdfDictionary dictionary, SizeType start)
+        {
+            SizeType end;
+            if (_streamBoundaries == null)
+                end = _document.IrefTable.GetPositionOfObjectBehind(dictionary, start);
+            else
+            {
+                // After xref loading, file offsets are stable. Avoid scanning the
+                // entire object table for every valid stream in a large document.
+                var index = Array.BinarySearch(_streamBoundaries, start);
+                if (index < 0) index = ~index;
+                end = index < _streamBoundaries.Length ? _streamBoundaries[index] : -1;
+            }
+            if (end < 0 || end > _lexer.PdfLength)
+                end = _lexer.PdfLength;
+            if (end < start)
+                throw new PdfReaderException("Invalid stream boundary.");
+            return (int)Math.Min((long)end - start, int.MaxValue);
+        }
+
+        SizeType[]? _streamBoundaries;
 
         public PdfArray ReadArray(PdfArray array, bool includeReferences)
         {
@@ -1397,32 +1421,58 @@ namespace PdfSharp.Pdf.IO
 
             ReadSymbol(Symbol.StartXRef);
             // Read position behind 'startxref'.
-            _lexer.Position = ReadSize();
+            long xrefPosition = ReadSize();
 
             // Read all trailers.
             PdfTrailer? newerTrailer = null;
+            var visitedXrefs = new HashSet<long>();
+            var hybridStreams = new HashSet<long>();
             while (true)
             {
-                var trailer = ReadXRefTableAndTrailer(_document.IrefTable);
+                if (xrefPosition < 0 || xrefPosition >= length)
+                    throw new PdfReaderException("Invalid cross-reference offset outside the PDF file.");
+                if (!visitedXrefs.Add(xrefPosition))
+                    throw new PdfReaderException("Cyclic cross-reference chain in the PDF trailer.");
+                _lexer.Position = (SizeType)xrefPosition;
+                var trailer = ReadXRefTableAndTrailer(_document.IrefTable)
+                    ?? throw new PdfReaderException("Invalid cross-reference section.");
+
+                // A hybrid revision supplements its table with an XRefStm before
+                // consulting Prev. Its stream's Prev entry is not a second chain.
+                if (trailer is not PdfCrossReferenceStream && trailer.Elements.ContainsKey("/XRefStm"))
+                {
+                    var hybridPosition = trailer.Elements.GetLongInteger("/XRefStm");
+                    if (hybridPosition < 0 || hybridPosition >= length)
+                        throw new PdfReaderException("Invalid hybrid cross-reference offset.");
+                    if (hybridStreams.Add(hybridPosition))
+                    {
+                        _lexer.Position = (SizeType)hybridPosition;
+                        if (ScanNextToken() != Symbol.Integer)
+                            throw new PdfReaderException("Invalid hybrid cross-reference stream.");
+                        ReadXRefStream(_document.IrefTable);
+                    }
+                }
 
                 // Return the first found trailer, which is the one 'startxref' points to.
                 // This is the current trailer, even for incrementally updated files.
                 if (_document.Trailer == null!)
-                    _document.Trailer = trailer ?? NRT.ThrowOnNull<PdfTrailer>();
+                    _document.Trailer = trailer;
 
                 // Add previous trailer to the newerTrailer, if existing.
                 if (newerTrailer != null)
                     newerTrailer.PreviousTrailer = trailer;
 
                 // Break if there is no previous trailer.
-                int prev = trailer != null ? trailer.Elements.GetInteger(PdfTrailer.Keys.Prev) : 0;
+                long prev = trailer.Elements.GetLongInteger(PdfTrailer.Keys.Prev);
                 if (prev == 0)
                     break;
 
                 // Continue loading previous trailer and cache this one as the newerTrailer to add its previous trailer.
-                _lexer.Position = prev;
+                xrefPosition = prev;
                 newerTrailer = trailer;
             }
+            _streamBoundaries = _document.IrefTable.AllReferences.Where(r => r.Position >= 0)
+                .Select(r => r.Position).OrderBy(position => position).ToArray();
             return _document.Trailer;
         }
 
@@ -1781,7 +1831,11 @@ namespace PdfSharp.Pdf.IO
                             break;
 
                         case 2:
-                            // Nothing to do yet.
+                            // Reserve the current compressed version now, before
+                            // older xref sections can supply a file-level version.
+                            var compressedId = new PdfObjectID(subsections[ssc][0] + idx);
+                            if (!xrefTable.Contains(compressedId))
+                                xrefTable.Add(PdfReference.CreateForObjectID(compressedId, -1));
                             break;
                     }
                 }

@@ -56,6 +56,14 @@ namespace PdfSharp.Pdf
             Initialize(true);
         }
 
+        // Inherited dimensions must be available before Initialize reads MediaBox.
+        internal PdfPage(PdfDictionary dict, ref readonly PdfPageTreeNode.InheritedValues inheritedValues)
+            : base(dict)
+        {
+            ApplyInheritedValues(in inheritedValues);
+            Initialize(true);
+        }
+
         internal void Initialize(bool setupSizeFromMediaBox)
         {
             if (setupSizeFromMediaBox)
@@ -895,7 +903,8 @@ namespace PdfSharp.Pdf
                 {
                     //resources = values.Resources.Clone();
                     //resources.Document = Owner;
-                    Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources);
+                    Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources.IsIndirect
+                        ? inheritedValues.Resources.RequiredReference : inheritedValues.Resources.Clone());
                 }
                 else
                 {

@@ -74,9 +74,9 @@ namespace PdfSharp.Pdf
             //if (res != null)
             //    inheritedValues.Resources = res;
 
-            inheritedValues.Resources = Elements.GetDictionary(PdfPage.InheritablePageKeys.Resources);
-            inheritedValues.MediaBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.MediaBox);
-            inheritedValues.CropBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.CropBox);
+            inheritedValues.Resources = Elements.GetDictionary(PdfPage.InheritablePageKeys.Resources) ?? inheritedValues.Resources;
+            inheritedValues.MediaBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.MediaBox) ?? inheritedValues.MediaBox;
+            inheritedValues.CropBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.CropBox) ?? inheritedValues.CropBox;
 
             // TODO Should be written simpler.
             var rotate = Elements.GetValue(PdfPage.InheritablePageKeys.Rotate);
