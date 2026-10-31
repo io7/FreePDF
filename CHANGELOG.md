@@ -1,5 +1,17 @@
 # FreePDF changelog
 
+## 7.0.0
+
+- Promote the reviewed RC2 implementation to the first stable FreePDF version.
+  Preserve the MIT source ancestry, licence notices, PdfSharp/MigraDoc namespaces
+  and the verified v7 Preview 1 public API.
+- Ship portable PDF creation/editing and MigraDoc PDF/RTF layout as
+  `io7.FreePDF` and `io7.FreePDF.MigraDoc` for .NET 8/9/10 and Standard 2.0.
+- Add explicit, manual publication of verified CI packages through NuGet Trusted
+  Publishing. No library implementation changes are included in the promotion.
+- Document migration requirements, supported profiles and feature limits in the
+  [release notes](docs/releases/7.0.0.md) and [support policy](docs/support-policy.md).
+
 ## 7.0.0-rc.2 — candidate, unpublished
 
 - Correct partial-stream reads during CMS signing and reject unexpected EOF.

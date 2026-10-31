@@ -12,14 +12,15 @@ and is not an official empira release.
 
 ## Project status
 
-FreePDF **7.0.0-rc.2** adopts the verified MIT `7.0.0-preview-1` source, carries
+FreePDF **7.0.0** adopts the verified MIT `7.0.0-preview-1` source, carries
 our earlier fixes, and adds independently implemented reader, image, signature,
-font-cache and layout corrections. This is a release candidate, not a stable
-release. See the [changelog](CHANGELOG.md) and
-[upstream feature tracking](docs/upstream-feature-tracking.md). No FreePDF NuGet
-packages have been published.
+font-cache and layout corrections. The stable release is prepared; publication
+is a separate step. See the [release notes](docs/releases/7.0.0.md),
+[changelog](CHANGELOG.md) and [upstream feature tracking](docs/upstream-feature-tracking.md).
+Published versions are listed in [GitHub Releases](https://github.com/io7/FreePDF/releases)
+and NuGet; CI artifacts alone are not a public release.
 
-Candidate packages are `io7.FreePDF` and `io7.FreePDF.MigraDoc`. Their namespaces
+The packages are `io7.FreePDF` and `io7.FreePDF.MigraDoc`. Their namespaces
 and assembly names remain `PdfSharp` and `MigraDoc`. Build and test them with
 PowerShell 7:
 
@@ -34,10 +35,12 @@ See [package and migration notes](src/packages/README.md). The inherited upstrea
 packaging projects are blocked to prevent output under upstream identities.
 The [v7 migration guide](docs/migrating-to-7.md),
 [support policy](docs/support-policy.md) and
-[dependency audit](docs/dependency-audit.md) define the candidate's scope.
+[dependency audit](docs/dependency-audit.md) define the release's scope.
 CI additionally rehearses unpublished plain `7.0.0` packages, checks public APIs
 against pinned MIT baselines, and validates generated output with qpdf, Poppler
 and veraPDF.
+The manual [publication workflow](docs/releasing.md) promotes verified CI
+artifacts without rebuilding them and authenticates through NuGet Trusted Publishing.
 
 ## Licence and provenance
 

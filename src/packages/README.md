@@ -1,4 +1,4 @@
-# FreePDF 7 release candidate
+# FreePDF 7.0.0
 
 FreePDF is io7's MIT continuation of the verified MIT PDFsharp/MigraDoc source.
 Original copyright notices and the MIT licence are retained. New fixes use
@@ -12,10 +12,10 @@ The namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Replace
 upstream package references when migrating; applications must resolve one
 implementation of those assemblies. The v7 API changes still require review
 when migrating from PDFsharp 6.x. See the migration guide and support policy:
-https://github.com/io7/FreePDF/blob/feature/7.0.0-mit-preview-CZ/docs/migrating-to-7.md
-https://github.com/io7/FreePDF/blob/feature/7.0.0-mit-preview-CZ/docs/support-policy.md
-RC versions are candidates. Plain-version CI rehearsals remain unpublished
-until an explicit release is authorized; a version label alone is not release evidence.
+https://github.com/io7/FreePDF/blob/release/7.0.0-CZ/docs/migrating-to-7.md
+https://github.com/io7/FreePDF/blob/release/7.0.0-CZ/docs/support-policy.md
+Use the published NuGet packages or the packages attached to an official GitHub
+release. CI rehearsal artifacts and a plain version label alone are not release evidence.
 
 Assets target .NET 8, 9, 10 and .NET Standard 2.0. Framework consumers use the
 Standard assets; install tests cover .NET Framework 4.6.2 and 4.7.2 on Windows.

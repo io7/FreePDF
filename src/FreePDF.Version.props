@@ -3,7 +3,7 @@
     <FreePDFVersionMajor>7</FreePDFVersionMajor>
     <FreePDFVersionMinor>0</FreePDFVersionMinor>
     <FreePDFVersionPatch>0</FreePDFVersionPatch>
-    <FreePDFVersionLabel>rc.2</FreePDFVersionLabel>
+    <FreePDFVersionLabel></FreePDFVersionLabel>
     <SemVer>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch)</SemVer>
     <SemVer Condition="'$(FreePDFVersionLabel)' != ''">$(SemVer)-$(FreePDFVersionLabel)</SemVer>
     <Version>$(SemVer)</Version>
