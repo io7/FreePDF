@@ -6,6 +6,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/..").Path
+$revision = (& git -C $repo rev-parse HEAD).Trim()
+$startedDirty = @(& git -C $repo status --porcelain).Count -ne 0
+if ($env:CI -eq 'true' -and $startedDirty) { throw 'CI package checks require a clean source checkout.' }
 if (Test-Path $OutputDirectory) { throw 'Choose a new output directory so the consumer cannot reuse an older candidate from its package cache.' }
 New-Item -ItemType Directory $OutputDirectory -Force | Out-Null
 $output = (Resolve-Path $OutputDirectory).Path
@@ -75,6 +78,8 @@ foreach ($framework in $Frameworks) {
     & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json"
     $results += @{ framework=$framework; status='passed'; fixtures="consumer-$framework/consumer-results.xml" }
 }
-$revision = (& git -C $repo rev-parse HEAD).Trim()
-if (& git -C $repo status --porcelain) { $revision += '+worktree' }
+if ((& git -C $repo rev-parse HEAD).Trim() -ne $revision) { throw 'Source revision changed during packaging; rebuild from one revision.' }
+$endedDirty = @(& git -C $repo status --porcelain).Count -ne 0
+if ($env:CI -eq 'true' -and $endedDirty) { throw 'CI source checkout changed during package checks.' }
+if ($startedDirty -or $endedDirty) { $revision += '+worktree' }
 @{ sourceRevision=$revision; version=$version; consumers=$results; packages=@(Get-ChildItem $output -Filter '*.nupkg' | ForEach-Object { @{ file=$_.Name; sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) } | ConvertTo-Json -Depth 6 | Set-Content "$output/validation.json" -Encoding utf8
