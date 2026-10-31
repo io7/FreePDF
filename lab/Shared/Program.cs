@@ -30,9 +30,12 @@ static class Program
             document.Info.Title = "FreePDF lab / " + args[0];
             document.Info.Elements.SetString("/CreationDate", "D:20200102030405Z");
             document.Info.Elements.SetString("/ModDate", "D:20200102030405Z");
+            var fontSubsetNames = FixtureFontNames.Normalize(document);
             var path = Path.Combine(args[1], "document.pdf");
             document.Save(path);
             using var reopened = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+            if (!fontSubsetNames.SequenceEqual(FixtureFontNames.Read(reopened)))
+                throw new InvalidDataException("Saving changed the controlled fixture font subset names.");
             var attachments = EmbeddedFilesManager.ForDocument(reopened);
             var fields = reopened.Catalog.Elements.GetDictionary("/AcroForm")?.Elements.GetArray("/Fields");
             var attachment = attachments.FileCount == 0 ? null : attachments.GetEmbeddedFileInfo(0);
@@ -43,6 +46,7 @@ static class Program
                 Fields = fields?.Elements.Count ?? 0, Metadata = reopened.Catalog.Elements.ContainsKey("/Metadata"),
                 ReaderRejection = args[0].StartsWith("reader-", StringComparison.Ordinal) ? "PdfReaderException" : null,
                 FixtureFontSha256 = args[0] == "nested-glyphs" ? ResourceHash("CompositeFont.ttf") : null,
+                FontSubsetNames = fontSubsetNames,
                 Semantics = args[0] == "semantic-roundtrip" ? SemanticSummary(reopened) : null,
                 ContentRectangles = args[0] == "incremental-content" ? ContentReader.ReadContent(reopened.Pages[0]).OfType<COperator>().Count(op => op.Name == "re") : (int?)null
             };

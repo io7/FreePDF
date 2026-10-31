@@ -18,6 +18,7 @@
     <Compile Include="../../../lab/Shared/PdfFixtureData.cs" Link="Fixtures/PdfFixtureData.cs" />
     <Compile Include="../../../lab/Shared/PalettePng.cs" Link="Fixtures/PalettePng.cs" />
     <Compile Include="../../../lab/Shared/PreservationFixtures.cs" Link="Fixtures/PreservationFixtures.cs" />
+    <Compile Include="../../../lab/Shared/FixtureFontNames.cs" Link="Fixtures/FixtureFontNames.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />

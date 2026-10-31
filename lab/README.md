@@ -43,6 +43,15 @@ Known upstream defects are amber **Needs review**, never auto-approved.
 Candidate generation/invariant failures are always red. New differences fail
 the CLI/CI. Review entries still require human judgment before release.
 
+Both generators replace random six-letter font subset tags with deterministic,
+distinct tags before saving. Family/style names, font bytes and drawing commands
+are unchanged; saved names are checked and recorded in `structure.json`. This is
+a fixture input control, not a change to the library's default behavior. A Windows
+MuPDF 1.28.5 black-box check showed 56 text-edge pixels change when only the six
+letters were exchanged between otherwise identical attachment fixtures; four
+repeated renders of each original were stable, and swapping tags swapped the
+render hashes. The pixel threshold remains unchanged.
+
 The viewer reports generation/rendering outcomes separately from comparison
 statuses. A known reference defect can prevent PDFsharp from producing a page
 while FreePDF completes: that case needs review and has no pixel comparison.
