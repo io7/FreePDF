@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## 7.0.0 — prepared, unpublished
+## 7.0.0
 
 - Promote the reviewed RC2 implementation to the first stable FreePDF version.
   Preserve the MIT source ancestry, licence notices, PdfSharp/MigraDoc namespaces
