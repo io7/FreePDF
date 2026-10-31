@@ -16,11 +16,11 @@
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);FreePDFPackageFiles</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)../../LICENSE" Pack="true" PackagePath="LICENSE" />
+    <None Include="$(MSBuildThisFileDirectory)../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="$(MSBuildThisFileDirectory)../../PROVENANCE.md" Pack="true" PackagePath="PROVENANCE.md" />
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="README.md" />
     <None Include="$(MSBuildThisFileDirectory)ICC-sRGB2014.txt" Pack="true" PackagePath="THIRD-PARTY/ICC-sRGB2014.txt" />
-    <None Include="$(MSBuildThisFileDirectory)../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave-LICENSE.txt" />
+    <None Include="$(MSBuildThisFileDirectory)../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
   </ItemGroup>
   <Target Name="FreePDFPackageFiles">
     <ItemGroup>

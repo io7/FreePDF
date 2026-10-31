@@ -26,7 +26,7 @@ foreach ($id in $expected.Keys) {
         try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
         if ($nuspec.package.metadata.id -ne $id -or $nuspec.package.metadata.version -ne $version) { throw 'Incorrect package identity.' }
         if ($nuspec.package.metadata.repository.url -ne 'https://github.com/io7/FreePDF') { throw 'Incorrect repository metadata.' }
-        foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave-LICENSE.txt','THIRD-PARTY/ICC-sRGB2014.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
+        foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
         foreach ($tfm in @('net8.0','net9.0','net10.0','netstandard2.0')) {
             $names = @($archive.Entries | Where-Object { $_.FullName -like "lib/$tfm/*.dll" } | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.FullName) })
             if (Compare-Object ($expected[$id] | Sort-Object) ($names | Sort-Object)) { throw "Incorrect assemblies in $id/$tfm" }
