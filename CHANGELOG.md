@@ -1,5 +1,22 @@
 # FreePDF changelog
 
+## 7.0.0-rc.2 — candidate, unpublished
+
+- Correct partial-stream reads during CMS signing and reject unexpected EOF.
+- Bound short-file trailer scans and report missing cross-reference markers as
+  PDF-reader errors. Add a deterministic mutation corpus with process budgets.
+- Preserve the MIT v7 package's legacy dictionary-extension generic contract.
+- Replace the inherited MD5 helper with original RFC 1321 code after finding
+  incomplete historical third-party licence evidence. Preserve PDF compatibility
+  through published-vector, chunking, padding, reuse and independent PDF tests.
+- Add four-target API gates, dependency inventories/advisory gates, migration
+  guidance, support policy and a plain `7.0.0` package-install rehearsal.
+- Exercise multipage invoices/RTF, merge/stamp, attachments, AES-128/256,
+  PDF/A-1b/2b/3b and SHA-256/384/512 signatures through installed packages.
+  Check outputs with qpdf, Poppler and veraPDF, including tampered signatures.
+- Correct the original semantic fixture's missing form default appearance.
+  Update the lab's private runtime to .NET 10.0.14.
+
 ## 7.0.0-rc.1 — candidate, unpublished
 
 - Preserve each active compressed object selected by incremental cross-reference

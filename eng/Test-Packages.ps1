@@ -1,7 +1,8 @@
 # Builds candidate packages and runs an isolated package-only consumer. Does not publish.
 param(
     [Parameter(Mandatory)][string]$OutputDirectory,
-    [string[]]$Frameworks = @('net10.0')
+    [string[]]$Frameworks = @('net10.0'),
+    [switch]$StableRehearsal
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/..").Path
@@ -10,11 +11,15 @@ New-Item -ItemType Directory $OutputDirectory -Force | Out-Null
 $output = (Resolve-Path $OutputDirectory).Path
 [xml]$versionProps = Get-Content "$repo/src/FreePDF.Version.props"
 $settings = $versionProps.Project.PropertyGroup
-$version = "$($settings.FreePDFVersionMajor).$($settings.FreePDFVersionMinor).$($settings.FreePDFVersionPatch)-$($settings.FreePDFVersionLabel)"
+$version = "$($settings.FreePDFVersionMajor).$($settings.FreePDFVersionMinor).$($settings.FreePDFVersionPatch)"
+if (!$StableRehearsal -and $settings.FreePDFVersionLabel) { $version += "-$($settings.FreePDFVersionLabel)" }
+[string[]]$versionProperties = if ($StableRehearsal) { @('-p:FreePDFVersionLabel=') } else { @() }
 foreach ($project in @('FreePDF','MigraDoc')) {
-    & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output
+    & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
     if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
 }
+& "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/packages/FreePDF/obj/project.assets.json" -OutputDirectory "$output/library-dependencies"
+& "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
 $expected = @{
     'io7.FreePDF' = @('PdfSharp','PdfSharp.Shared','PdfSharp.System','PdfSharp.Imaging','PdfSharp.OpenType','PdfSharp.BarCodes','PdfSharp.Charting','PdfSharp.Cryptography')
     'io7.FreePDF.MigraDoc' = @('MigraDoc.DocumentObjectModel','MigraDoc.Rendering','MigraDoc.RtfRendering')
@@ -47,6 +52,14 @@ $config = Join-Path $output 'NuGet.Config'
 </configuration>
 "@ | Set-Content $config -Encoding utf8
 $consumer = "$repo/tests/PackageSmoke/PackageSmoke.csproj"
+$certificatePath = Join-Path $output 'synthetic-signing.pfx'
+$key = [Security.Cryptography.RSA]::Create(2048)
+try {
+    $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=FreePDF synthetic signing fixture', $key, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    $certificate = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(7))
+    try { [IO.File]::WriteAllBytes($certificatePath, $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx, 'test-only')) }
+    finally { $certificate.Dispose() }
+} finally { $key.Dispose() }
 $results = @()
 foreach ($framework in $Frameworks) {
     if ($framework -match '^net4' -and !$IsWindows) { throw 'Framework execution requires Windows.' }
@@ -55,9 +68,12 @@ foreach ($framework in $Frameworks) {
     & dotnet build $consumer -c Release -f $framework --no-restore -m:1 "-p:TargetFrameworks=$framework" "-p:FreePDFPackageVersion=$version"
     if ($LASTEXITCODE -ne 0) { throw "Consumer build failed: $framework" }
     $binary = "$repo/tests/PackageSmoke/bin/Release/$framework/PackageSmoke"
-    if ($framework -match '^net4') { & "$binary.exe" } else { & dotnet "$binary.dll" }
+    $fixtures = Join-Path $output "consumer-$framework"
+    if ($framework -match '^net4') { & "$binary.exe" $fixtures $certificatePath } else { & dotnet "$binary.dll" $fixtures $certificatePath }
     if ($LASTEXITCODE -ne 0) { throw "Installed package execution failed: $framework" }
-    $results += @{ framework=$framework; status='passed' }
+    & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/tests/PackageSmoke/obj/project.assets.json" -OutputDirectory "$fixtures/dependencies"
+    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json"
+    $results += @{ framework=$framework; status='passed'; fixtures="consumer-$framework/consumer-results.xml" }
 }
 $revision = (& git -C $repo rev-parse HEAD).Trim()
 if (& git -C $repo status --porcelain) { $revision += '+worktree' }

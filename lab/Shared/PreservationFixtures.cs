@@ -50,7 +50,7 @@ static class PreservationFixtures
         const string content="BT /F1 12 Tf 20 100 Td (Invoice 123) Tj ET";
         const string attachment="<invoice id=\"123\"/>";
         return PdfFixtureData.Create(new[]{
-            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [9 0 R] >> /Names << /Dests << /Names [(invoice) [3 0 R /Fit]] >> /EmbeddedFiles << /Names [(invoice.xml) 10 0 R] >> >> >>",
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [9 0 R] /DR << /Font << /F1 5 0 R >> >> /DA (/F1 12 Tf 0 g) >> /Names << /Dests << /Names [(invoice) [3 0 R /Fit]] >> /EmbeddedFiles << /Names [(invoice.xml) 10 0 R] >> >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [7 0 R 8 0 R 9 0 R] >>",
             $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",

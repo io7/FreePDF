@@ -1,0 +1,173 @@
+FreePDF 7 migration diagnostics against MIT PDFsharp/MigraDoc 6.2.4
+Target: net8.0; Microsoft.DotNet.ApiCompat.Tool 10.0.100
+Baseline package SHA-256 pins: eng/api-baselines.json
+163 diagnostics; these include inherited v7 changes, not 163 unique APIs.
+
+6.2.4-net8.0-MigraDoc.Rendering.log
+CP0002: Member 'System.DateTime MigraDoc.Rendering.DocumentRenderer.PrintDate.get' exists on MIT-6.2.4/MigraDoc.Rendering.dll but not on FreePDF-7/MigraDoc.Rendering.dll
+
+6.2.4-net8.0-PdfSharp.Shared.log
+CP0001: Type 'PdfSharp.Internal.PdfSharpGitVersionInformation' exists on MIT-6.2.4/PdfSharp.Shared.dll but not on FreePDF-7/PdfSharp.Shared.dll
+
+6.2.4-net8.0-PdfSharp.log
+CP0002: Member 'string PdfSharp.Drawing.XColor.RgbCmykG.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Drawing.XColor.RgbCmykG.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Drawing.XFontSource.FontName.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Drawing.XGlyphTypeface.StyleName.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Events.PageEventArgs.PageEventArgs(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Events.PageGraphicsEventArgs.PageGraphicsEventArgs(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Events.PdfSharpEventArgs.PdfSharpEventArgs(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject PdfSharp.Events.PdfSharpEventArgs.Source.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Events.PrepareTextEventArgs.PrepareTextEventArgs(PdfSharp.Pdf.PdfObject, PdfSharp.Drawing.XFont, string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Events.RenderTextEventArgs.RenderTextEventArgs(PdfSharp.Pdf.PdfObject, PdfSharp.Drawing.XFont, PdfSharp.Fonts.CodePointGlyphIndexPair[])' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Fonts.CodePointGlyphIndexPair[] PdfSharp.Events.RenderTextEventArgs.CodePointGlyphIndexPairs.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Fonts.CodePointGlyphIndexPair' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Fonts.FontFamilyInternal' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Fonts.GlobalFontSettings.DefaultFontName_' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Fonts.CodePointGlyphIndexPair[] PdfSharp.Fonts.GlyphHelper.GlyphIndicesFromString(string, PdfSharp.Drawing.XFont)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject? PdfSharp.Pdf.PdfArray.ArrayElements.GetObject(int)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfDictionary? PdfSharp.Pdf.PdfArray.ArrayElements.GetDictionary(int)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfArray? PdfSharp.Pdf.PdfArray.ArrayElements.GetArray(int)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfArray.PdfArray(PdfSharp.Pdf.PdfDocument)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0017: Parameter name on member 'PdfSharp.Pdf.PdfDate.PdfDate(string)' changed from 'value' to 'date'.
+CP0002: Member 'System.DateTime PdfSharp.Pdf.PdfDate.Value.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'bool PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetBoolean(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'bool PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetBoolean(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'int PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetInteger(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'int PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetInteger(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'uint PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetUnsignedInteger(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'uint PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetUnsignedInteger(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'double PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetReal(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'double PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetReal(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetString(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetString(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0017: Parameter name on member 'PdfSharp.Pdf.PdfDictionary.DictionaryElements.TryGetString(string, out string)' changed from 'value' to 'result'.
+CP0002: Member 'string PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetName(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfRectangle PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetRectangle(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfRectangle PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetRectangle(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Drawing.XMatrix PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetMatrix(string, bool)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Drawing.XMatrix PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetMatrix(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.DateTime PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetDateTime(string, System.DateTime)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfItem? PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetValue(string, PdfSharp.Pdf.VCF)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfItem? PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetValue(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject? PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetObject(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfDictionary? PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetDictionary(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfArray? PdfSharp.Pdf.PdfDictionary.DictionaryElements.GetArray(string)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfDictionary.PdfDictionary(PdfSharp.Pdf.PdfDocument)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.PdfDictionary.Stream.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0007: Type 'PdfSharp.Pdf.PdfDocument' does not inherit from base type 'PdfSharp.Pdf.PdfObject' on FreePDF-7/PdfSharp.dll but it does on MIT-6.2.4/PdfSharp.dll
+CP0008: Type 'PdfSharp.Pdf.PdfDocument' does not implement interface 'System.ICloneable' on FreePDF-7/PdfSharp.dll but it does on MIT-6.2.4/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.PdfDocument.SetPdfA()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.AcroForms.PdfAcroForm PdfSharp.Pdf.PdfDocument.AcroForm.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfInternals PdfSharp.Pdf.PdfDocument.Internals.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.DateTime PdfSharp.Pdf.PdfDocumentInformation.CreationDate.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.DateTime PdfSharp.Pdf.PdfDocumentInformation.ModificationDate.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfLiteral.PdfLiteral()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.PdfName.PdfXNameComparer' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfName.PdfXNameComparer PdfSharp.Pdf.PdfName.Comparer.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.PdfNameObject.Value.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfNameTreeNode.PdfNameTreeNode(PdfSharp.Pdf.PdfDictionary)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.Collections.Generic.IEnumerable<PdfSharp.Pdf.PdfNameTreeNode> PdfSharp.Pdf.PdfNameTreeNode.Kids.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject.PdfObject(PdfSharp.Pdf.PdfDocument)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfOutline.PdfOutline(PdfSharp.Pdf.PdfDictionary)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfArray PdfSharp.Pdf.PdfPages.PagesArray.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfAcroFieldFlags' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfAcroField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfAcroForm' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfButtonField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfCheckBoxField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfChoiceField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfComboBoxField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfGenericField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfListBoxField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfPushButtonField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfRadioButtonField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfSignatureField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.AcroForms.PdfTextField' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.AcroForms.PdfAcroForm PdfSharp.Pdf.Advanced.PdfCatalog.AcroForm.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfContent.PdfContent(PdfSharp.Pdf.PdfDictionary)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0017: Parameter name on member 'PdfSharp.Pdf.Advanced.PdfContents.ReplaceContent(PdfSharp.Pdf.Content.Objects.CSequence)' changed from 'cseq' to 'seq'.
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfEmbeddedFileStream.PdfEmbeddedFileStream(PdfSharp.Pdf.PdfDocument, System.IO.Stream)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.Advanced.PdfFileSpecification' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Advanced.PdfInternals.CustomValueKey' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Advanced.PdfInternals.FirstDocumentID.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfInternals.FirstDocumentID.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.Guid PdfSharp.Pdf.Advanced.PdfInternals.FirstDocumentGuid.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Advanced.PdfInternals.SecondDocumentID.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfInternals.SecondDocumentID.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'System.Guid PdfSharp.Pdf.Advanced.PdfInternals.SecondDocumentGuid.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfCatalog PdfSharp.Pdf.Advanced.PdfInternals.Catalog.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfExtGStateTable PdfSharp.Pdf.Advanced.PdfInternals.ExtGStateTable.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'object? PdfSharp.Pdf.Advanced.PdfInternals.UAManager.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject? PdfSharp.Pdf.Advanced.PdfInternals.GetObject(PdfSharp.Pdf.PdfObjectID)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject? PdfSharp.Pdf.Advanced.PdfInternals.MapExternalObject(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Advanced.PdfReference? PdfSharp.Pdf.Advanced.PdfInternals.GetReference(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObjectID PdfSharp.Pdf.Advanced.PdfInternals.GetObjectID(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'int PdfSharp.Pdf.Advanced.PdfInternals.GetObjectNumber(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'int PdfSharp.Pdf.Advanced.PdfInternals.GenerationNumber(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject[] PdfSharp.Pdf.Advanced.PdfInternals.GetAllObjects()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject[] PdfSharp.Pdf.Advanced.PdfInternals.AllObjects.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'T PdfSharp.Pdf.Advanced.PdfInternals.CreateIndirectObject<T>()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfInternals.AddObject(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfInternals.RemoveObject(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.PdfObject[] PdfSharp.Pdf.Advanced.PdfInternals.GetClosure(PdfSharp.Pdf.PdfObject)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfInternals.WriteObject(System.IO.Stream, PdfSharp.Pdf.PdfItem)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfReference.ObjectID.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfReference.Document.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Advanced.PdfReference.Dereference(ref object)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.Annotations.PdfRubberStampAnnotationIcon' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.Annotations.PdfTextAnnotationIcon' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Keys.BS' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Keys.A' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Keys.T' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Keys.Popup' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Keys.Subj' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Annotations.PdfAnnotation.Delete()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Title.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Annotations.PdfAnnotation.Title.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'string PdfSharp.Pdf.Annotations.PdfAnnotation.Subject.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Annotations.PdfAnnotation.Subject.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0007: Type 'PdfSharp.Pdf.Annotations.PdfRubberStampAnnotation' does not inherit from base type 'PdfSharp.Pdf.Annotations.PdfAnnotation' on FreePDF-7/PdfSharp.dll but it does on MIT-6.2.4/PdfSharp.dll
+CP0008: Type 'PdfSharp.Pdf.Annotations.PdfRubberStampAnnotation' does not implement interface 'System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, PdfSharp.Pdf.PdfItem?>>' on FreePDF-7/PdfSharp.dll but it does on MIT-6.2.4/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Annotations.PdfRubberStampAnnotation.PdfRubberStampAnnotation(PdfSharp.Pdf.PdfDocument)' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Annotations.PdfRubberStampAnnotationIcon PdfSharp.Pdf.Annotations.PdfRubberStampAnnotation.Icon.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Annotations.PdfRubberStampAnnotation.Icon.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Annotations.PdfTextAnnotationIcon PdfSharp.Pdf.Annotations.PdfTextAnnotation.Icon.get' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.CSymbol PdfSharp.Pdf.Content.CLexer.ScanInlineImage()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0011: Value of field 'Name' in enum 'CSymbol' changed from '8' to '6'.
+CP0011: Value of field 'Operator' in enum 'CSymbol' changed from '9' to '7'.
+CP0011: Value of field 'BeginArray' in enum 'CSymbol' changed from '10' to '8'.
+CP0011: Value of field 'EndArray' in enum 'CSymbol' changed from '11' to '9'.
+CP0011: Value of field 'Dictionary' in enum 'CSymbol' changed from '12' to '10'.
+CP0011: Value of field 'Eof' in enum 'CSymbol' changed from '13' to '11'.
+CP0002: Member 'PdfSharp.Pdf.Content.CSymbol.UnicodeString' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.CSymbol.UnicodeHexString' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.Internal.AnsiEncoding' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'void PdfSharp.Pdf.Security.PdfSecuritySettings.HasOwnerPermissions.set' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Pdf.Signatures.PdfSignature2' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.Adler32Checksum' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.ChunkHeader' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.ColorType' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.CompressionMethod' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.Crc32' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.FilterMethod' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.IChunkVisitor' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.ImageHeader' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.InterlaceMethod' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.Palette' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.Pixel' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.Png' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.PngBuilder' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0001: Type 'PdfSharp.Internal.Png.BigGustave.PngOpenerSettings' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'byte[] PdfSharp.Pdf.Content.Objects.CSequence.ToContent()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0005: Cannot add abstract member 'double PdfSharp.Pdf.Content.Objects.CNumber.GetDoubleValue()' to FreePDF-7/PdfSharp.dll because it does not exist on MIT-6.2.4/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.CInteger.CInteger()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.CReal.CReal()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0011: Value of field 'Dictionary' in enum 'CStringType' changed from '4' to '2'.
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.CStringType.UnicodeString' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.CStringType.UnicodeHexString' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.CString.CString()' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll
+CP0007: Type 'PdfSharp.Pdf.Content.Objects.CArray' does not inherit from base type 'PdfSharp.Pdf.Content.Objects.CSequence' on FreePDF-7/PdfSharp.dll but it does on MIT-6.2.4/PdfSharp.dll
+CP0012: Cannot remove 'virtual' keyword from member 'PdfSharp.Pdf.Content.Objects.COperator.Name.get'.
+CP0012: Cannot remove 'virtual' keyword from member 'PdfSharp.Pdf.Content.Objects.COperator.Name'.
+CP0002: Member 'PdfSharp.Pdf.Content.Objects.OpCodeName.sh' exists on MIT-6.2.4/PdfSharp.dll but not on FreePDF-7/PdfSharp.dll

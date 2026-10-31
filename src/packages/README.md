@@ -11,7 +11,11 @@ independent reproductions; see PROVENANCE.md.
 The namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Replace
 upstream package references when migrating; applications must resolve one
 implementation of those assemblies. The v7 API changes still require review
-when migrating from PDFsharp 6.x. This candidate is not a stable release.
+when migrating from PDFsharp 6.x. See the migration guide and support policy:
+https://github.com/io7/FreePDF/blob/feature/7.0.0-mit-preview-CZ/docs/migrating-to-7.md
+https://github.com/io7/FreePDF/blob/feature/7.0.0-mit-preview-CZ/docs/support-policy.md
+RC versions are candidates. Plain-version CI rehearsals remain unpublished
+until an explicit release is authorized; a version label alone is not release evidence.
 
 Assets target .NET 8, 9, 10 and .NET Standard 2.0. Framework consumers use the
 Standard assets; install tests cover .NET Framework 4.6.2 and 4.7.2 on Windows.
@@ -23,6 +27,8 @@ Configure an `IFontResolver` for portable font access. This package contains the
 portable Core implementation. GDI/WPF implementations remain available as source
 builds. The comparison lab and its external renderer are not package dependencies.
 
-Validation covers original PDF regressions, semantic save/reopen checks and
-render comparisons. No general PDF/A, PDF/UA, secure-redaction, complex-script
-shaping or cryptographic-signature conformance certification is claimed.
+Validation covers original PDF regressions, semantic save/reopen checks,
+installed-package workflows, render comparisons and independent output checks.
+PDF/A-1b/2b/3b fixture conformance and CMS integrity tests do not certify arbitrary
+documents, trusted signer identity or legal signature status. No PDF/UA,
+secure-redaction, complex-script shaping or FIPS certification is claimed.

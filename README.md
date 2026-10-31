@@ -12,7 +12,7 @@ and is not an official empira release.
 
 ## Project status
 
-FreePDF **7.0.0-rc.1** adopts the verified MIT `7.0.0-preview-1` source, carries
+FreePDF **7.0.0-rc.2** adopts the verified MIT `7.0.0-preview-1` source, carries
 our earlier fixes, and adds independently implemented reader, image, signature,
 font-cache and layout corrections. This is a release candidate, not a stable
 release. See the [changelog](CHANGELOG.md) and
@@ -32,6 +32,12 @@ PowerShell 7:
 The `Candidate packages` workflow publishes build artifacts, not NuGet releases.
 See [package and migration notes](src/packages/README.md). The inherited upstream
 packaging projects are blocked to prevent output under upstream identities.
+The [v7 migration guide](docs/migrating-to-7.md),
+[support policy](docs/support-policy.md) and
+[dependency audit](docs/dependency-audit.md) define the candidate's scope.
+CI additionally rehearses unpublished plain `7.0.0` packages, checks public APIs
+against pinned MIT baselines, and validates generated output with qpdf, Poppler
+and veraPDF.
 
 ## Licence and provenance
 

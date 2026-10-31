@@ -21,6 +21,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp.Cryptography/PdfSharp.Cryptography.csproj" />
     <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj" />
   </ItemGroup>
 </Project>

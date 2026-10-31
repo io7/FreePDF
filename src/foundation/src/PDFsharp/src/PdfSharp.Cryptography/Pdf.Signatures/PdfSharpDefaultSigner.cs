@@ -83,10 +83,16 @@ namespace PdfSharp.Pdf.Signatures
         {
             var content = new byte[stream.Length];
             stream.Position = 0;
-            // ReSharper disable once MethodHasAsyncOverload
-            int read = stream.Read(content, 0, content.Length);
-            if (read != content.Length)
-                throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
+            var read = 0;
+            while (read < content.Length)
+            {
+                // A stream may return a partial buffer before reaching EOF.
+                // ReSharper disable once MethodHasAsyncOverload
+                var count = stream.Read(content, read, content.Length - read);
+                if (count == 0)
+                    throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
+                read += count;
+            }
 
             // Sign the byte range.
             var contentInfo = new ContentInfo(content);

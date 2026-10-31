@@ -18,8 +18,9 @@ namespace PdfSharp.DotNetFrameworkExtensions
     {
         extension<TKey, TValue>(Dictionary<TKey, TValue> dict) where TKey : notnull
         {
+#nullable disable // Preserve the published method metadata without altering the extension marker.
             /// <summary>
-            /// Implementation of TryAdd.
+            /// Implementation of TryAdd. Retains the published MIT v7 generic contract.
             /// </summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public bool TryAdd(TKey key, TValue value)
@@ -31,6 +32,7 @@ namespace PdfSharp.DotNetFrameworkExtensions
                 }
                 return false;
             }
+#nullable restore
         }
     }
 }

@@ -34,7 +34,7 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Install Linux renderer
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y mupdf-tools
+        run: sudo apt-get update -qq && sudo apt-get install -y mupdf-tools qpdf poppler-utils default-jre-headless
       - name: Install pinned Windows renderer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -49,6 +49,12 @@ jobs:
         run: |
           $renderer = if ($IsWindows) { Join-Path $env:RUNNER_TEMP 'renderer/mupdf-1.28.5-windows/mutool.exe' } else { (Get-Command mutool).Source }
           ./lab/scripts/Test-Lab.ps1 -Framework '${{ matrix.framework }}' -Renderer $renderer -DataDirectory "$env:RUNNER_TEMP/freepdf-lab-runs"
+      - name: Check lab output with independent PDF tools
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: |
+          ./eng/Install-VeraPdf.ps1 -OutputDirectory "$env:RUNNER_TEMP/verapdf"
+          ./eng/Test-PdfOutput.ps1 -LabDirectory "$env:RUNNER_TEMP/freepdf-lab-runs" -OutputDirectory "$env:RUNNER_TEMP/freepdf-lab-runs/independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

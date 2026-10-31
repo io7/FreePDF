@@ -1,0 +1,6 @@
+[
+  { "id": "pdfsharp", "version": "6.2.4", "sha256": "5647882339b327cbf6da9ea3f882efb335f8d602e6fd45323adf9e78da53cf67" },
+  { "id": "pdfsharp-migradoc", "version": "6.2.4", "sha256": "994fca5bd569ea3067c4beb6254df2da520b9b33879cb531dbbe08c1aa2ea6e2" },
+  { "id": "pdfsharp", "version": "7.0.0-preview-1", "sha256": "982a679ca8353a7d8061a85b2af18d2f08d258fa676f80a546e3c16dd3e1dd9b" },
+  { "id": "pdfsharp-migradoc", "version": "7.0.0-preview-1", "sha256": "618a240e62edb34efe42d50fb1d2e06a2a1c4d7303471f521de7b3e93e84c5ee" }
+]

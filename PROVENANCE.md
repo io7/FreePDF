@@ -166,3 +166,41 @@ Windows reference restores added `win-x86` runtime lock sections implicitly.
 The lockfile now records both `win-x86` and deployment's `win-x64` explicitly,
 without changing any package version or content hash. CI uses locked restores
 and rejects changed checkouts after generation or bundle publication.
+
+## RC2 release hardening (2026-10-31)
+
+The signer partial-read correction and short-file trailer correction use the
+reviewed MIT/FreePDF source, the platform Stream.Read contract and original
+reproducers. The deterministic 32-input mutation corpus modifies only original
+PDF fixtures; it uses no third-party documents. Package-consumer invoices,
+attachments, merge/stamp, encryption, archival and signing workflows are also
+original. Signing identities are generated for tests and never represent a user.
+
+The inherited MD5 helper named a historical Silverlight archive and a Microsoft
+Mobile repository as source locations. The latter's root licence blob
+`02fa4857ddeec8f868d90906b3442822c62e0810` contains device-limited terms. This did
+not establish the original helper's unrestricted licence. The entire helper was
+replaced with original code derived from the algorithm in RFC 1321 sections
+3.1-3.5, not its reference implementation. The retired source was seen during
+the audit; this is documented original replacement work, not a claim of a
+staffed clean room. Published digest vectors, platform MD5 comparisons,
+padding/chunking/offset/reuse cases, PDF encryption and attachment checks verify
+the replacement. It does not claim FIPS compliance or make MD5 a secure signature
+algorithm. Original notices remain in history; the old implementation is absent
+from the new source file and package binaries.
+
+Inherited inactive Adobe glyph-list source has an added BSD notice from the
+publisher's `adobe-type-tools/agl-aglfn` commit
+`4036a9ca80a62f64f9de4f7321a9a045ad0ecfd6`. Only copyright/licence notices were
+added; no glyph implementation was imported. The retained notice's SHA-256 is
+`b4881ceee6880f7067d76065d3945218b67b20275372463068b104b81d983ef1`.
+
+API comparison reads metadata from exactly the four MIT NuGet archives pinned
+in `eng/api-baselines.json`, not later upstream packages. Independent qpdf,
+Poppler and veraPDF processes validate authored output; their implementation is
+not imported into the product. The veraPDF 1.30.3 installer SHA-256 is
+`b512bf24945503a33fc10738ecffc1f2dccaaf8593a448e94ee9ac86a9559a59`; its publisher
+signature was checked against fingerprint
+`13DD102B4DD69354D12DE5A83184863278B17FE7`. The dependency inventory records all
+resolved package identities, licences and archive hashes. See
+`docs/dependency-audit.md` for the product/tool boundary and audit limitations.

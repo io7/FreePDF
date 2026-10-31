@@ -13,7 +13,7 @@ jobs:
   packages:
     name: Package install / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,11 +37,61 @@ jobs:
         run: |
           $frameworks = if ($IsWindows) { @('net8.0','net9.0','net10.0','net462','net472') } else { @('net8.0','net9.0','net10.0') }
           ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-packages" -Frameworks $frameworks
+      - name: Audit public APIs against pinned MIT packages
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./eng/Test-PublicApi.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -OutputDirectory "$env:RUNNER_TEMP/freepdf-api"
+      - name: Install independent Linux validators
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y qpdf poppler-utils default-jre-headless
+      - name: Install verified veraPDF
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./eng/Install-VeraPdf.ps1 -OutputDirectory "$env:RUNNER_TEMP/verapdf"
+      - name: Independently validate installed-package output
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -OutputDirectory "$env:RUNNER_TEMP/freepdf-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
+      - name: Rehearse plain 7.0.0 packages in a separate cache
+        shell: pwsh
+        run: |
+          $frameworks = if ($IsWindows) { @('net10.0','net472') } else { @('net10.0') }
+          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-stable-rehearsal" -Frameworks $frameworks -StableRehearsal
+      - name: Independently validate the stable rehearsal
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-stable-rehearsal" -OutputDirectory "$env:RUNNER_TEMP/freepdf-stable-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: candidate-packages-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/freepdf-packages/*.nupkg
             ${{ runner.temp }}/freepdf-packages/validation.json
+            ${{ runner.temp }}/freepdf-packages/library-advisories.json
+            ${{ runner.temp }}/freepdf-packages/library-dependencies/**
+            ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: 14
           if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: stable-rehearsal-unpublished-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/freepdf-stable-rehearsal/*.nupkg
+            ${{ runner.temp }}/freepdf-stable-rehearsal/*.json
+            ${{ runner.temp }}/freepdf-stable-rehearsal/library-dependencies/**
+            ${{ runner.temp }}/freepdf-stable-rehearsal/consumer-*/**
+          retention-days: 14
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && runner.os == 'Linux'
+        with:
+          name: independent-release-checks
+          path: |
+            ${{ runner.temp }}/freepdf-api/*.json
+            ${{ runner.temp }}/freepdf-api/*.log
+            ${{ runner.temp }}/freepdf-independent/**
+            ${{ runner.temp }}/freepdf-stable-independent/**
+          retention-days: 14
+          if-no-files-found: warn

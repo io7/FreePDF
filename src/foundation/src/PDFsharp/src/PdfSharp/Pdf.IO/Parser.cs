@@ -1335,21 +1335,13 @@ namespace PdfSharp.Pdf.IO
 
             // Implementation note 18 Appendix  H:
             // Acrobat viewers require only that the %%EOF marker appear somewhere within the last 1024 bytes of the file.
-            int idx;
-            if (length <= 1030)
-            {
-                // Reading the final 30 bytes should work for all files. But often it does not.
-                string trail = _lexer.ScanRawString(length - 31, 30); //lexer.Pdf.Substring(length - 30);
-                idx = trail.LastIndexOf("startxref", StringComparison.Ordinal);
-                _lexer.Position = length - 31 + idx;
-            }
-            else
-            {
-                // For larger files we read 1 kiB - in most cases we find 'startxref' in that range.
-                string trail = _lexer.ScanRawString(length - 1031, 1030);
-                idx = trail.LastIndexOf("startxref", StringComparison.Ordinal);
-                _lexer.Position = length - 1031 + idx;
-            }
+            // A damaged input can be shorter than the usual trailer window.
+            // Never seek before the file or to the -1 returned for a missing marker.
+            SizeType tailStart = Math.Max(0, length - 1030);
+            string tail = _lexer.ScanRawString(tailStart, (int)(length - tailStart));
+            int idx = tail.LastIndexOf("startxref", StringComparison.Ordinal);
+            if (idx >= 0)
+                _lexer.Position = tailStart + idx;
 
             // SAP sometimes creates files with a size of several MByte and places 'startxref' somewhere in the middle...
             if (idx == -1)
@@ -1367,7 +1359,7 @@ namespace PdfSharp.Pdf.IO
                 idx = trail.LastIndexOf("startxref", StringComparison.Ordinal);
 
                 if (idx == -1)
-                    throw new Exception("The StartXRef table could not be found, the file cannot be opened.");
+                    throw new PdfReaderException("The StartXRef table could not be found, the file cannot be opened.");
 
                 _lexer.Position = idx;
             }

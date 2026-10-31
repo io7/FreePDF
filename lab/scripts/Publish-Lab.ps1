@@ -4,7 +4,7 @@ $repo = (Resolve-Path "$PSScriptRoot/../..").Path
 if (Test-Path $OutputDirectory) { throw 'Choose a new output directory; existing bundles are not overwritten.' }
 New-Item -ItemType Directory $OutputDirectory | Out-Null
 function Publish([string]$Project, [string]$Destination) {
-    & dotnet publish "$repo/$Project" -c Release -f net10.0 -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.13 -m:1 -o "$OutputDirectory/$Destination"
+    & dotnet publish "$repo/$Project" -c Release -f net10.0 -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.14 -m:1 -o "$OutputDirectory/$Destination"
     if ($LASTEXITCODE -ne 0) { throw "Publish failed: $Project" }
 }
 Publish 'lab/FreePDF.Lab/FreePDF.Lab.csproj' 'viewer'
@@ -25,7 +25,7 @@ if ($changes.Count) {
     if ($env:CI -eq 'true') { throw "CI checkout changed during publish: $($changes -join '; ')" }
     $revision += '+worktree'
 }
-@{ sourceRevision=$revision; runtime='10.0.13'; reference='PDFsharp-MigraDoc 7.0.0-preview-1 (MIT), Pkcs 10.0.13 override'; renderer='MuPDF 1.28.5 (installed separately, AGPL)' } | ConvertTo-Json | Set-Content "$OutputDirectory/bundle.json" -Encoding utf8
+@{ sourceRevision=$revision; runtime='10.0.14'; reference='PDFsharp-MigraDoc 7.0.0-preview-1 (MIT), Pkcs 10.0.13 override'; renderer='MuPDF 1.28.5 (installed separately, AGPL)' } | ConvertTo-Json | Set-Content "$OutputDirectory/bundle.json" -Encoding utf8
 Get-ChildItem $OutputDirectory -Recurse -File | Sort-Object FullName | ForEach-Object {
     [pscustomobject]@{path=[IO.Path]::GetRelativePath((Resolve-Path $OutputDirectory).Path,$_.FullName); sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
 } | ConvertTo-Json | Set-Content "$OutputDirectory/checksums.json" -Encoding utf8
