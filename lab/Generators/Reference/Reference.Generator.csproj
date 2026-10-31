@@ -12,6 +12,8 @@
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Keep the same lock graph when the host already has Framework targeting packs. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" Condition="'$(TargetFramework)' == 'net462'" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- Deliberately pinned to the final MIT preview. Updating the oracle is a reviewed change. -->
     <PackageReference Include="PDFsharp-MigraDoc" Version="[7.0.0-preview-1]" />
