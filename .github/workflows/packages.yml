@@ -37,6 +37,12 @@ jobs:
         run: |
           $frameworks = if ($IsWindows) { @('net8.0','net9.0','net10.0','net462','net472') } else { @('net8.0','net9.0','net10.0') }
           ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-packages" -Frameworks $frameworks
+          [xml]$props = Get-Content src/FreePDF.Version.props
+          if (!$props.Project.PropertyGroup.FreePDFVersionLabel) {
+            $receipt = Get-Content "$env:RUNNER_TEMP/freepdf-packages/validation.json" -Raw | ConvertFrom-Json
+            ./eng/Test-ReleaseArtifact.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks
+            ./eng/Test-ReleaseArtifact.Tests.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks
+          }
       - name: Audit public APIs against pinned MIT packages
         if: runner.os == 'Linux'
         shell: pwsh

@@ -66,4 +66,6 @@ The plain `7.0.0` package rehearsal installs from an isolated local source and
 verifies versions in all eleven assemblies. Rehearsal artifacts are unpublished
 and must not be mistaken for a released package. A maintainer reviews the final
 candidate and explicitly authorizes public publication; the checks contain no
-NuGet publishing step.
+NuGet publishing step. The separate manual `Publish verified packages` workflow
+requires successful checks at its exact source revision and only publishes when
+its explicit publish input is enabled. See `releasing.md` for setup and verification.

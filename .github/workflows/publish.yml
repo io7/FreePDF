@@ -1,0 +1,119 @@
+name: Publish verified packages
+on:
+  workflow_dispatch:
+    inputs:
+      package_run_id:
+        description: Successful Candidate packages push-run ID at this exact revision
+        type: string
+        required: true
+      publish:
+        description: Publish the verified packages to NuGet.org
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: freepdf-nuget-publication
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify source checks and prepare exact CI packages
+        id: verify
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+          PUBLISH: ${{ inputs.publish }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function GhJson([string[]]$Arguments) {
+            $response = & gh @Arguments
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub evidence query failed.' }
+            return $response | ConvertFrom-Json
+          }
+          if ($env:PACKAGE_RUN_ID -notmatch '^\d+$') { throw 'Invalid package run ID.' }
+          if ($env:PUBLISH -eq 'true' -and $env:GITHUB_REF -cne "refs/heads/$env:DEFAULT_BRANCH") { throw 'Publication requires the default branch.' }
+          [xml]$props = Get-Content 'src/FreePDF.Version.props'
+          $v = $props.Project.PropertyGroup
+          if ($v.FreePDFVersionLabel) { throw 'Only a plain stable version can be published.' }
+          $version = "$($v.FreePDFVersionMajor).$($v.FreePDFVersionMinor).$($v.FreePDFVersionPatch)"
+          $run = GhJson -Arguments @('api', "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:PACKAGE_RUN_ID")
+          if ($run.head_sha -cne $env:GITHUB_SHA -or $run.event -cne 'push' -or $run.conclusion -cne 'success' -or $run.path -cne '.github/workflows/packages.yml' -or $run.head_repository.full_name -cne $env:GITHUB_REPOSITORY) { throw 'Package run is not a successful push build of this revision.' }
+          $runs = GhJson -Arguments @('api','--method','GET',"repos/$env:GITHUB_REPOSITORY/actions/runs",'-f',"head_sha=$env:GITHUB_SHA",'-f','event=push','-f','per_page=100')
+          foreach ($path in @('.github/workflows/core-build.yml','.github/workflows/comparison-lab.yml','.github/workflows/packages.yml')) {
+            $latest = $runs.workflow_runs | Where-Object path -CEQ $path | Sort-Object id -Descending | Select-Object -First 1
+            if (!$latest -or $latest.conclusion -cne 'success') { throw "Release gate has not passed: $path" }
+          }
+          & gh run download $env:PACKAGE_RUN_ID --repo $env:GITHUB_REPOSITORY --name candidate-packages-ubuntu-24.04 --dir "$env:RUNNER_TEMP/ci-packages"
+          if ($LASTEXITCODE -ne 0) { throw 'Package artifact download failed.' }
+          ./eng/Test-ReleaseArtifact.ps1 -PackageDirectory "$env:RUNNER_TEMP/ci-packages" -ExpectedRevision $env:GITHUB_SHA -Version $version
+          New-Item -ItemType Directory release | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/ci-packages/*.nupkg", "$env:RUNNER_TEMP/ci-packages/validation.json" release
+          $receipt = Get-Content release/validation.json -Raw | ConvertFrom-Json
+          $receipt.packages | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content release/SHA256SUMS -Encoding ascii
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "Verified packages for $version at $env:GITHUB_SHA. Publish requested: $env:PUBLISH." >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: artifact
+        with:
+          name: verified-release-${{ steps.verify.outputs.version }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 90
+  publish:
+    if: inputs.publish
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: release
+          merge-multiple: true
+      - name: Recheck exact publish inputs
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          if (!$env:NUGET_USER) { throw 'Configure NUGET_USER and the NuGet Trusted Publishing policy first.' }
+          ./eng/Test-ReleaseArtifact.ps1 -PackageDirectory release -ExpectedRevision $env:GITHUB_SHA -Version $env:RELEASE_VERSION
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Request short-lived NuGet credential
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Publish Core, then MigraDoc
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          foreach ($id in @('io7.FreePDF','io7.FreePDF.MigraDoc')) {
+            & dotnet nuget push "release/$id.$env:RELEASE_VERSION.nupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json
+            if ($LASTEXITCODE -ne 0) { throw "Publication failed for $id. Inspect NuGet before retrying; a previous package may already be published." }
+          }
