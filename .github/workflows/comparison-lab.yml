@@ -1,7 +1,7 @@
 name: Comparison lab
 on:
   push:
-    branches: ['release/**', 'feature/**']
+    branches: [main, 'release/**', 'feature/**']
   pull_request:
   workflow_dispatch:
 permissions:

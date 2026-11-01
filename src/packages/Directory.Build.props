@@ -5,7 +5,8 @@
     <IsPackable>true</IsPackable>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <Authors>io7;empira Software GmbH</Authors>
+    <!-- NuGet shows authors as the publisher; empira's authorship stays in Copyright and LICENSE. -->
+    <Authors>io7</Authors>
     <Copyright>Copyright 2001-2026 empira Software GmbH; FreePDF modifications copyright 2026 io7</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>

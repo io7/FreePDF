@@ -12,6 +12,10 @@ packages from the entire dependency graph, including transitive references,
 and rebuild consumers. Do not load both implementations in one application:
 they intentionally use the same assembly names.
 
+Since 7.0.1, FreePDF assemblies are strong-named with io7's key (public key
+token `77af05c50284aa70`). 7.0.0 used empira's key (`f94615aa0424f9eb`), so
+rebuild anything compiled against 7.0.0 and do not mix the two versions.
+
 The packages contain the portable core, barcodes, charts, cryptography, document
 model, PDF renderer and RTF renderer. Upstream's Quality, Snippets and WPFonts
 helper assemblies are not shipped. GDI/WPF source variants are build-checked
@@ -40,6 +44,10 @@ value as UTC; preserve the application's intended timezone.
 target frameworks with hash-pinned MIT packages. Microsoft ApiCompat 10.0.100
 also checks public parameter names. Any incompatible change from the published
 MIT v7 Preview 1 contract fails the gate; there are no blanket suppressions.
+Since 7.0.1, each comparison must also report exactly one `CP0003` finding: the
+public key token change from empira's `f94615aa0424f9eb` to io7's
+`77af05c50284aa70`. Both tokens are pinned in the script, so a missing or
+different identity change fails the gate as well.
 
 The same audit produces v6.2.4 migration diagnostics as information, not a v6
 compatibility promise. The initial net8.0 comparison reports 163 diagnostics;

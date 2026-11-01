@@ -51,6 +51,9 @@ $referencePack = Get-ChildItem "$dotnetRoot/packs/Microsoft.NETCore.App.Ref" -Di
 if (!$referencePack) { throw '.NET 10 reference pack required for API dependency resolution.' }
 $frameworkReferences = Join-Path $referencePack.FullName 'ref/net10.0'
 $results = @(); $failed = $false
+# Since 7.0.1 FreePDF signs with io7's key; the MIT baselines carry empira's. Each comparison must report
+# exactly this identity change (pinned to both tokens) and, against Preview 1, nothing else.
+$keyChange = "^\s*(error )?CP0003\s*:.* assembly public key token 'f94615aa0424f9eb' does not match with .* '77af05c50284aa70'\.\s*$"
 foreach ($version in @('7.0.0-preview-1','6.2.4')) {
     foreach ($framework in @('net8.0','net9.0','net10.0','netstandard2.0')) {
         $left = Join-Path $output "$version/$framework"; $right = Join-Path $output "candidate/$framework"
@@ -63,15 +66,18 @@ foreach ($version in @('7.0.0-preview-1','6.2.4')) {
             $messages = @(& $ApiCompat -l (Join-Path $left $assembly.Name) -r $assembly.FullName --lref "$left,$DependencyDirectory,$frameworkReferences" --rref "$right,$DependencyDirectory,$frameworkReferences" --enable-rule-cannot-change-parameter-name 2>&1)
             $exitCode = $LASTEXITCODE
             $messages | Set-Content (Join-Path $output $log) -Encoding utf8
-            $diagnostics = @($messages | Where-Object { $_ -match '^\s*(error )?CP\d+\s*:' }).Count
-            if ($exitCode -ne 0 -and ($version -ne '6.2.4' -or $exitCode -ne 1 -or !$diagnostics)) { $failed = $true }
-            $results += @{ baseline=$version; framework=$framework; assembly=$assembly.Name; exitCode=$exitCode; diagnostics=$diagnostics; log=$log }
+            $diagnosticLines = @($messages | Where-Object { $_ -match '^\s*(error )?CP\d+\s*:' })
+            $keyChanges = @($diagnosticLines | Where-Object { $_ -match $keyChange }).Count
+            $diagnostics = $diagnosticLines.Count - $keyChanges
+            if ($exitCode -ne 1 -or $keyChanges -ne 1) { $failed = $true }
+            elseif ($version -ne '6.2.4' -and $diagnostics) { $failed = $true }
+            $results += @{ baseline=$version; framework=$framework; assembly=$assembly.Name; exitCode=$exitCode; keyChanges=$keyChanges; diagnostics=$diagnostics; log=$log }
         }
     }
 }
 @{ tool=$toolVersion; baselineInputs=$pins; comparisons=$results; passed=(!$failed) } | ConvertTo-Json -Depth 6 | Set-Content "$output/api-validation.json" -Encoding utf8
 if ($failed) { throw 'API validation failed; inspect per-assembly logs.' }
-Write-Host 'PASS: no API compatibility removals from the MIT v7 baseline; v6 migration diagnostics recorded separately.'
+Write-Host 'PASS: no API compatibility removals from the MIT v7 baseline; only the expected io7 signing-key change; v6 migration diagnostics recorded separately.'
 # The last v6 comparison may intentionally return 1. GitHub's pwsh wrapper
 # forwards LASTEXITCODE, so explicitly report the gate's overall success.
 exit 0

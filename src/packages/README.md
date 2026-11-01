@@ -1,8 +1,9 @@
-# FreePDF 7.0.0
+# FreePDF
 
 FreePDF is io7's MIT continuation of the verified MIT PDFsharp/MigraDoc source.
-Original copyright notices and the MIT licence are retained. New fixes use
-independent reproductions; see PROVENANCE.md.
+It is maintained independently by io7 and is not an empira release. Original
+copyright notices and the MIT licence are retained. New fixes use independent
+reproductions; see PROVENANCE.md.
 
 - `io7.FreePDF` provides PDF drawing, editing, barcodes, charts and cryptography.
 - `io7.FreePDF.MigraDoc` provides document layout and PDF/RTF rendering, and depends
@@ -12,8 +13,8 @@ The namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Replace
 upstream package references when migrating; applications must resolve one
 implementation of those assemblies. The v7 API changes still require review
 when migrating from PDFsharp 6.x. See the migration guide and support policy:
-https://github.com/io7/FreePDF/blob/release/7.0.0-CZ/docs/migrating-to-7.md
-https://github.com/io7/FreePDF/blob/release/7.0.0-CZ/docs/support-policy.md
+https://github.com/io7/FreePDF/blob/main/docs/migrating-to-7.md
+https://github.com/io7/FreePDF/blob/main/docs/support-policy.md
 Use the published NuGet packages or the packages attached to an official GitHub
 release. CI rehearsal artifacts and a plain version label alone are not release evidence.
 
