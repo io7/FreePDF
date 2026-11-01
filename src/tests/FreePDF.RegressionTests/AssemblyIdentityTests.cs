@@ -21,8 +21,10 @@ public class AssemblyIdentityTests
         while (pending.Count > 0)
         {
             var assembly = pending.Dequeue();
-            if (!found.TryAdd(assembly.GetName().Name!, assembly))
+            var name = assembly.GetName().Name!;
+            if (found.ContainsKey(name))
                 continue;
+            found.Add(name, assembly);
             foreach (var reference in assembly.GetReferencedAssemblies())
             {
                 if (reference.Name!.StartsWith("PdfSharp", StringComparison.Ordinal) || reference.Name.StartsWith("MigraDoc", StringComparison.Ordinal))
