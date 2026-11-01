@@ -107,13 +107,13 @@ jobs:
         id: login
         with:
           user: ${{ vars.NUGET_USER }}
-      - name: Publish Core, then MigraDoc
+      - name: Publish Core, then Layout
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          foreach ($id in @('io7.FreePDF','io7.FreePDF.MigraDoc')) {
+          foreach ($id in @('io7.FreePDF','io7.FreePDF.Layout')) {
             & dotnet nuget push "release/$id.$env:RELEASE_VERSION.nupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json
             if ($LASTEXITCODE -ne 0) { throw "Publication failed for $id. Inspect NuGet before retrying; a previous package may already be published." }
           }
