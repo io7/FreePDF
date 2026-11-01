@@ -17,7 +17,7 @@ $settings = $versionProps.Project.PropertyGroup
 $version = "$($settings.FreePDFVersionMajor).$($settings.FreePDFVersionMinor).$($settings.FreePDFVersionPatch)"
 if (!$StableRehearsal -and $settings.FreePDFVersionLabel) { $version += "-$($settings.FreePDFVersionLabel)" }
 [string[]]$versionProperties = if ($StableRehearsal) { @('-p:FreePDFVersionLabel=') } else { @() }
-foreach ($project in @('FreePDF','MigraDoc')) {
+foreach ($project in @('FreePDF','Layout')) {
     & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
     if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
 }
@@ -25,7 +25,7 @@ foreach ($project in @('FreePDF','MigraDoc')) {
 & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
 $expected = @{
     'io7.FreePDF' = @('PdfSharp','PdfSharp.Shared','PdfSharp.System','PdfSharp.Imaging','PdfSharp.OpenType','PdfSharp.BarCodes','PdfSharp.Charting','PdfSharp.Cryptography')
-    'io7.FreePDF.MigraDoc' = @('MigraDoc.DocumentObjectModel','MigraDoc.Rendering','MigraDoc.RtfRendering')
+    'io7.FreePDF.Layout' = @('MigraDoc.DocumentObjectModel','MigraDoc.Rendering','MigraDoc.RtfRendering')
 }
 foreach ($id in $expected.Keys) {
     $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $output "$id.$version.nupkg"))
@@ -42,7 +42,7 @@ foreach ($id in $expected.Keys) {
         foreach ($group in $nuspec.package.metadata.dependencies.group) {
             $dependencies = @($group.dependency)
             if ($dependencies.id -match '^(PDFsharp|PDFsharp-MigraDoc)(-|$)') { throw 'Upstream package dependency is forbidden.' }
-            if ($id -eq 'io7.FreePDF.MigraDoc' -and !($dependencies | Where-Object { $_.id -eq 'io7.FreePDF' -and $_.version -match [regex]::Escape($version) })) { throw 'Missing FreePDF dependency.' }
+            if ($id -eq 'io7.FreePDF.Layout' -and !($dependencies | Where-Object { $_.id -eq 'io7.FreePDF' -and $_.version -match [regex]::Escape($version) })) { throw 'Missing FreePDF dependency.' }
         }
     } finally { $archive.Dispose() }
 }

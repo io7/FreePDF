@@ -7,7 +7,9 @@ assembly names does **not** make existing v6 binaries compatible.
 ## Packages and rebuilding
 
 Replace `PDFsharp` with `io7.FreePDF`, and `PDFsharp-MigraDoc` with
-`io7.FreePDF.MigraDoc`. The latter depends on the former. Remove upstream
+`io7.FreePDF.Layout`. The latter depends on the former. FreePDF 7.0.0 named
+the layout package `io7.FreePDF.MigraDoc`; it was renamed before the first
+NuGet release. Remove upstream
 packages from the entire dependency graph, including transitive references,
 and rebuild consumers. Do not load both implementations in one application:
 they intentionally use the same assembly names.

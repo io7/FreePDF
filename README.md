@@ -22,8 +22,8 @@ release. See the release notes for [7.0.1](docs/releases/7.0.1.md) and
 Published versions are listed in [GitHub Releases](https://github.com/io7/FreePDF/releases)
 and NuGet; CI artifacts alone are not a public release.
 
-The packages are `io7.FreePDF` and `io7.FreePDF.MigraDoc`. Their namespaces
-and assembly names remain `PdfSharp` and `MigraDoc`. Build and test them with
+The packages are `io7.FreePDF` and `io7.FreePDF.Layout` (the MigraDoc layout
+engine). Their namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Build and test them with
 PowerShell 7:
 
 ```powershell

@@ -9,6 +9,9 @@
   licence scanners could not tell them apart from empira's PDFsharp builds.
 - Keep empira Software GmbH's copyright in every assembly and package, next to
   io7's. NuGet lists io7 as the only author.
+- Rename the layout package from `io7.FreePDF.MigraDoc` to `io7.FreePDF.Layout`
+  before the first NuGet release, so no package ID carries empira's product
+  names. Assembly names and `MigraDoc` namespaces are unchanged.
 - Add regression tests that pin the assembly identity. Run CI on pushes to
   `main`, the default branch that publication requires.
 - No library behaviour or public API changes. Rebuild code compiled against

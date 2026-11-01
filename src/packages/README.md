@@ -6,8 +6,8 @@ copyright notices and the MIT licence are retained. New fixes use independent
 reproductions; see PROVENANCE.md.
 
 - `io7.FreePDF` provides PDF drawing, editing, barcodes, charts and cryptography.
-- `io7.FreePDF.MigraDoc` provides document layout and PDF/RTF rendering, and depends
-  on `io7.FreePDF`.
+- `io7.FreePDF.Layout` provides MigraDoc document layout and PDF/RTF rendering,
+  and depends on `io7.FreePDF`.
 
 The namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Replace
 upstream package references when migrating; applications must resolve one

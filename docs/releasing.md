@@ -46,7 +46,7 @@ Official setup: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publis
    repository signature; original artifact hashes describe the uploaded files.
 
 NuGet publication is not atomic across packages. Core is uploaded first, then
-MigraDoc. If one upload fails, inspect the feed before retrying. The workflow
+Layout. If one upload fails, inspect the feed before retrying. The workflow
 does not silently skip an existing version or overwrite one. Keep the original
 artifact and resolve any partial publication explicitly.
 

@@ -12,7 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ExpectedFreePDFVersion" Value="$(FreePDFPackageVersion)" />
-    <PackageReference Include="io7.FreePDF.MigraDoc" Version="$(FreePDFPackageVersion)" />
+    <PackageReference Include="io7.FreePDF.Layout" Version="$(FreePDFPackageVersion)" />
     <EmbeddedResource Include="../../lab/Assets/DejaVuSans.ttf" LogicalName="PackageFont.ttf" />
     <None Include="../../lab/Assets/DejaVuSans.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

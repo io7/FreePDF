@@ -14,7 +14,7 @@ foreach ($framework in $RequiredFrameworks) {
     $consumers = @($receipt.consumers | Where-Object { $_.framework -ceq $framework })
     if ($consumers.Count -ne 1 -or $consumers[0].status -cne 'passed') { throw "Missing successful consumer: $framework" }
 }
-$expected = @("io7.FreePDF.$Version.nupkg", "io7.FreePDF.MigraDoc.$Version.nupkg")
+$expected = @("io7.FreePDF.$Version.nupkg", "io7.FreePDF.Layout.$Version.nupkg")
 if (@($receipt.packages).Count -ne 2 -or (Compare-Object ($expected | Sort-Object) (@($receipt.packages.file) | Sort-Object))) { throw 'Unexpected release package manifest.' }
 $actual = @(Get-ChildItem -LiteralPath $root -File -Filter '*.nupkg' | ForEach-Object Name)
 if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object)) { throw 'Unexpected release package files.' }
