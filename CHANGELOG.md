@@ -1,5 +1,20 @@
 # FreePDF changelog
 
+## 7.0.1
+
+- Give FreePDF its own assembly identity. Sign with io7's strong-name key
+  (public key token `77af05c50284aa70`) instead of empira's (`f94615aa0424f9eb`),
+  and set the assembly company to io7 and the product to FreePDF. The 7.0.0
+  assemblies carried empira's key, company and product names, so loaders and
+  licence scanners could not tell them apart from empira's PDFsharp builds.
+- Keep empira Software GmbH's copyright in every assembly and package, next to
+  io7's. NuGet lists io7 as the only author.
+- Add regression tests that pin the assembly identity. Run CI on pushes to
+  `main`, the default branch that publication requires.
+- No library behaviour or public API changes. Rebuild code compiled against
+  7.0.0, and do not mix 7.0.0 and 7.0.1 assemblies. See the
+  [release notes](docs/releases/7.0.1.md).
+
 ## 7.0.0
 
 - Promote the reviewed RC2 implementation to the first stable FreePDF version.

@@ -12,11 +12,13 @@ and is not an official empira release.
 
 ## Project status
 
-FreePDF **7.0.0** adopts the verified MIT `7.0.0-preview-1` source, carries
+FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries
 our earlier fixes, and adds independently implemented reader, image, signature,
-font-cache and layout corrections. The stable release is prepared; publication
-is a separate step. See the [release notes](docs/releases/7.0.0.md),
-[changelog](CHANGELOG.md) and [upstream feature tracking](docs/upstream-feature-tracking.md).
+font-cache and layout corrections. 7.0.1 gives the assemblies io7's own
+strong-name key and FreePDF/io7 product metadata; FreePDF is not an empira
+release. See the release notes for [7.0.1](docs/releases/7.0.1.md) and
+[7.0.0](docs/releases/7.0.0.md), the [changelog](CHANGELOG.md) and
+[upstream feature tracking](docs/upstream-feature-tracking.md).
 Published versions are listed in [GitHub Releases](https://github.com/io7/FreePDF/releases)
 and NuGet; CI artifacts alone are not a public release.
 

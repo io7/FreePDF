@@ -204,3 +204,19 @@ signature was checked against fingerprint
 `13DD102B4DD69354D12DE5A83184863278B17FE7`. The dependency inventory records all
 resolved package identities, licences and archive hashes. See
 `docs/dependency-audit.md` for the product/tool boundary and audit limitations.
+
+## io7 assembly identity (2026-11-01)
+
+FreePDF 7.0.0 still signed its assemblies with the inherited empira strong-name
+key (public key token `f94615aa0424f9eb`) and named empira as company and PDFsharp
+as product. For 7.0.1, `src/StrongnameKey.snk` was replaced with a newly generated
+io7 1024-bit RSA key pair under the same file name, so the inherited project
+references stay unchanged. Its public key token is `77af05c50284aa70`, and the
+`PDFsharpStronNamePublicKey` property holds the matching public key. It was
+generated with .NET's `RSACryptoServiceProvider` and tagged as a signature key,
+as `sn -k` does. empira's key remains only in the repository history.
+
+Strong naming is an assembly identity, not a security boundary, so the full key
+pair is committed, as upstream's was. Assemblies now name io7 as company and
+FreePDF as product. Their copyright attribute keeps empira Software GmbH next to
+io7. No implementation or third-party material was added by this change.

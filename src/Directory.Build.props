@@ -106,18 +106,22 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- Default values for assembly attributes and NuGet. -->
-    <Product>PDFsharp</Product>
-    <Company>empira Software</Company>
-    <Copyright>© 2026 empira Software GmbH</Copyright>
-    <CopyrightPdfSharp>© 2005-2026 empira Software GmbH</CopyrightPdfSharp>
-    <CopyrightMigraDoc>© 2001-2026 empira Software GmbH</CopyrightMigraDoc>
+    <!-- Default values for assembly attributes and NuGet. FreePDF builds are io7's, not
+         empira's: keep empira's copyright, but never their company or product name. -->
+    <Product>FreePDF</Product>
+    <Company>io7</Company>
+    <Copyright>© 2026 empira Software GmbH; FreePDF changes © 2026 io7</Copyright>
+    <CopyrightPdfSharp>© 2005-2026 empira Software GmbH; FreePDF changes © 2026 io7</CopyrightPdfSharp>
+    <CopyrightMigraDoc>© 2001-2026 empira Software GmbH; FreePDF changes © 2026 io7</CopyrightMigraDoc>
     <!-- PDFsharp Team is a GitHub user. -->
     <Authors>PDFsharp Team</Authors>
     <Owners>empira Software GmbH</Owners>
     <!-- Required assets version. Will be downloaded automatically on build if not already downloaded. -->
     <RequiredAssetsVersion>1032</RequiredAssetsVersion>
-    <PDFsharpStronNamePublicKey>00240000048000009400000006020000002400005253413100040000010001008794e803e566eccc3c9181f52c4f7044e5442cc2ce3cbba9fc11bc4186ba2e446cd31deea20c1a8f499e978417fad2bc74143a4f8398f7cf5c5c0271b0f7fe907c537cff28b9d582da41289d1dae90168a3da2a5ed1115210a18fdae832479d3e639ca4003286ba8b98dc9144615c040ed838981ac816112df3b5a9e7cab4fbb</PDFsharpStronNamePublicKey>
+    <!-- io7's strong-name key (src/StrongnameKey.snk), public key token 77af05c50284aa70.
+         empira's key (token f94615aa0424f9eb) is not used, so FreePDF assemblies never
+         share an identity with empira's PDFsharp builds. -->
+    <PDFsharpStronNamePublicKey>002400000480000094000000060200000024000052534131000400000100010067522bbb85b5c782cb9f8c7b76629c96e920f42392a9f2e342c687407f937386c36075bf504cb369f9e30da844c95769ee7b70afbd654862b8011ef7f380b678e5ce79e7ed90ca7aed356851dc41c69444aa845bb60463620290e6680ca84e20ca252e96e6d62cbadb03dd57891e8520ce0caddab506b2e5c34089ab999eb1dd</PDFsharpStronNamePublicKey>
   </PropertyGroup>
 
   <!-- Additional dynamic values for AssemblyXxxAttribute. -->
