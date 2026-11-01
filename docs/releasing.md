@@ -27,8 +27,9 @@ Official setup: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publis
 
 ## Release sequence
 
-1. Merge the reviewed version/release-notes change. The version label must be
-   empty for a stable release. Keep source changes out of a version promotion.
+1. Merge the reviewed version/release-notes change into `main`, the default
+   branch. The version label must be empty for a stable release. Keep source
+   changes out of a version promotion.
 2. Wait for the latest push runs of `Core build`, `Comparison lab` and
    `Candidate packages` to pass at the exact merged commit.
 3. Run `Publish verified packages` on that default-branch commit with the
