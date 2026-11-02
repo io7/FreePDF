@@ -17,8 +17,14 @@ https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core
 
 Tested OS profiles are Ubuntu 24.04 and Windows Server 2022 in CI, plus a
 dedicated Windows lab host. macOS, browser/WASM, mobile, Native AOT and
-trimming are not validated release profiles. GDI/WPF variants are compiled from
-source; the two `io7.FreePDF*` packages ship the portable core only.
+trimming are not validated release profiles.
+
+The GDI and WPF packages (`io7.FreePDF.Gdi`, `io7.FreePDF.Layout.Gdi`,
+`io7.FreePDF.Wpf`, `io7.FreePDF.Layout.Wpf`) contain `net8.0-windows7.0`,
+`net9.0-windows7.0`, `net10.0-windows7.0` and `net462` assets. CI executes their
+package consumers on Windows for `net8.0-windows` and Framework 4.7.2, including
+an image drawn from the platform's own bitmap type. Their drawing results follow
+GDI+ or WPF on the host and are not covered by the cross-platform pixel comparisons.
 
 ## Supported feature claims
 

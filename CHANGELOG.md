@@ -6,6 +6,19 @@
   source, reproducible PNG generation and package-content checks. The README
   shows it, and `src/packages/social-preview.png` is the matching GitHub social
   preview card.
+- Publish the GDI and WPF builds as packages for Windows desktop and .NET
+  Framework apps: `io7.FreePDF.Gdi` and `io7.FreePDF.Layout.Gdi` replace
+  `PDFsharp-GDI` and `PDFsharp-MigraDoc-GDI`; `io7.FreePDF.Wpf` and
+  `io7.FreePDF.Layout.Wpf` replace `PDFsharp-WPF` and `PDFsharp-MigraDoc-WPF`.
+  They target Windows .NET 8, 9, 10 and .NET Framework 4.6.2, keep upstream's
+  assembly names, and are installed and run on Windows in CI.
+- Fix the BMP importer's file-size check, which was inverted since the v7 import
+  refactoring: it rejected bitmaps followed by extra bytes and accepted truncated
+  ones. GDI+ and WPF images (`XImage.FromGdiPlusImage`, `XImage.FromBitmapSource`)
+  in true-colour formats reach it with trailing buffer bytes, so drawing an
+  ordinary `System.Drawing.Bitmap` threw "ReadTrueColorMemoryBitmap: unsupported
+  format". Found by the new GDI package consumer; PDFsharp 6.2.4 parsed these
+  bitmaps inline and was not affected.
 - Restore PDFsharp 6.2.4 members that real applications still use, found by
   compiling 26 public 6.2.4 projects against FreePDF (`docs/research/consumer-survey`):
   `DictionaryElements.GetDateTime(string, DateTime)` returning UTC as 6.2.4 did,

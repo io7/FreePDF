@@ -26,8 +26,13 @@
     <None Include="$(MSBuildThisFileDirectory)../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
   </ItemGroup>
   <Target Name="FreePDFPackageFiles">
+    <PropertyGroup>
+      <!-- NuGet requires a platform version in Windows lib folders: net8.0-windows becomes net8.0-windows7.0. -->
+      <FreePDFLibFolder>$(TargetFramework)</FreePDFLibFolder>
+      <FreePDFLibFolder Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp' and '$(TargetPlatformIdentifier)' == 'Windows' and !$(TargetFramework.EndsWith('$(TargetPlatformVersion)'))">$(TargetFramework)$(TargetPlatformVersion)</FreePDFLibFolder>
+    </PropertyGroup>
     <ItemGroup>
-      <TfmSpecificPackageFile Include="$(OutputPath)$(FreePDFAssemblyPrefix)*.dll;$(OutputPath)$(FreePDFAssemblyPrefix)*.xml" Exclude="$(OutputPath)$(AssemblyName).dll;$(OutputPath)$(AssemblyName).xml" PackagePath="lib/$(TargetFramework)/" />
+      <TfmSpecificPackageFile Include="$(OutputPath)$(FreePDFAssemblyPrefix)*.dll;$(OutputPath)$(FreePDFAssemblyPrefix)*.xml" Exclude="$(OutputPath)$(AssemblyName).dll;$(OutputPath)$(AssemblyName).xml" PackagePath="lib/$(FreePDFLibFolder)/" />
     </ItemGroup>
   </Target>
 </Project>

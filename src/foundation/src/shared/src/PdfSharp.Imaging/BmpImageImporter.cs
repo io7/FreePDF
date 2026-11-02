@@ -58,9 +58,10 @@ namespace PdfSharp.Internal.Imaging
             if (dataParser.GetWord(0, true) == 0x424d)
             {
                 int fileSize = (int)dataParser.GetDWord(2, false);
-                // Integrity check: fileSize set in BM header should match size of the stream.
-                // We test "<" instead of "!=" to allow extra bytes at the end of the stream.
-                if (fileSize < dataParser.Length)
+                // Integrity check: the stream must hold the whole file the BM header declares.
+                // Extra bytes after it are allowed: GDI+ and WPF bitmaps arrive here through
+                // MemoryStream.GetBuffer(), which is longer than the bitmap it holds.
+                if (fileSize > dataParser.Length)
                     return false;
 
                 offset = (int)dataParser.GetDWord(10, false);
