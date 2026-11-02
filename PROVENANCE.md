@@ -220,3 +220,17 @@ Strong naming is an assembly identity, not a security boundary, so the full key
 pair is committed, as upstream's was. Assemblies now name io7 as company and
 FreePDF as product. Their copyright attribute keeps empira Software GmbH next to
 io7. No implementation or third-party material was added by this change.
+
+## Package icon (2026-11-02)
+
+`src/packages/icon.svg` is original, AI-assisted FreePDF artwork: a geometric
+white F on a rounded tile in io7's maintainer-supplied magenta (`#A11F63`).
+The inputs were the maintainer's brand brief, original design drafts and their
+small-size renders. No upstream or Adobe artwork, fonts or external image
+assets were used. The SVG, generated PNG and regeneration script are covered
+by this repository's MIT licence.
+
+`eng/Update-PackageIcon.ps1` renders the committed 128x128 `icon.png` using
+Inkscape 1.4 (`e7c3feb100`, 2024-10-09), an isolated profile and explicit PNG
+export settings. Inkscape is an external development tool, not a packaged
+dependency. Both FreePDF packages include the same PNG at the package root.

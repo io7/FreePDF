@@ -34,6 +34,9 @@ foreach ($id in $expected.Keys) {
         try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
         if ($nuspec.package.metadata.id -ne $id -or $nuspec.package.metadata.version -ne $version) { throw 'Incorrect package identity.' }
         if ($nuspec.package.metadata.repository.url -ne 'https://github.com/io7/FreePDF') { throw 'Incorrect repository metadata.' }
+        if ($nuspec.package.metadata.icon -cne 'icon.png') { throw "Incorrect package icon metadata: $id" }
+        $icon = $archive.GetEntry('icon.png')
+        if (!$icon -or $icon.Length -eq 0 -or $icon.Length -gt 1MB) { throw "Missing or invalid package icon: $id" }
         foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
         foreach ($tfm in @('net8.0','net9.0','net10.0','netstandard2.0')) {
             $names = @($archive.Entries | Where-Object { $_.FullName -like "lib/$tfm/*.dll" } | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.FullName) })

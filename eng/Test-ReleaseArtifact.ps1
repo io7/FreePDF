@@ -28,6 +28,9 @@ foreach ($package in $receipt.packages) {
         try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
         $metadata = $nuspec.package.metadata
         if ($metadata.id -cne $id -or $metadata.version -cne $Version -or $metadata.repository.commit -cne $ExpectedRevision -or $metadata.repository.url -cne 'https://github.com/io7/FreePDF' -or $metadata.license.InnerText -cne 'MIT') { throw "Release package metadata mismatch: $id" }
+        if ($metadata.icon -cne 'icon.png') { throw "Release package icon metadata mismatch: $id" }
+        $icon = $archive.GetEntry('icon.png')
+        if (!$icon -or $icon.Length -eq 0 -or $icon.Length -gt 1MB) { throw "Missing or invalid release package icon: $id" }
     } finally { $archive.Dispose() }
 }
 Write-Output "Verified $($expected.Count) release packages at $ExpectedRevision, version $Version."

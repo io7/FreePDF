@@ -1,5 +1,12 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Add a shared FreePDF package icon for NuGet and Visual Studio, with an SVG
+  source, reproducible PNG generation and package-content checks. The README
+  shows it, and `src/packages/social-preview.png` is the matching GitHub social
+  preview card.
+
 ## 7.0.1
 
 - Give FreePDF its own assembly identity. Sign with io7's strong-name key
