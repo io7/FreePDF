@@ -21,15 +21,18 @@ using var rtf = new MemoryStream();
 new RtfDocumentRenderer().Render(document,rtf,false,"");
 if (!Encoding.ASCII.GetString(rtf.ToArray()).StartsWith("{\\rtf",StringComparison.Ordinal))
     throw new InvalidDataException("Package RTF render failed.");
-var expectedVersion = typeof(SmokeFontResolver).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-    .Single(a => a.Key == "ExpectedFreePDFVersion").Value!;
-foreach (var name in new[]{"PdfSharp","PdfSharp.Shared","PdfSharp.System","PdfSharp.Imaging","PdfSharp.OpenType","PdfSharp.BarCodes","PdfSharp.Charting","PdfSharp.Cryptography","MigraDoc.DocumentObjectModel","MigraDoc.Rendering","MigraDoc.RtfRendering"})
+var metadata = typeof(SmokeFontResolver).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToList();
+var expectedVersion = metadata.Single(a => a.Key == "ExpectedFreePDFVersion").Value!;
+// The Windows packages name their drawing-dependent assemblies with -gdi or -wpf; the shared ones keep their names.
+var suffix = metadata.Single(a => a.Key == "FreePDFAssemblySuffix").Value ?? "";
+foreach (var name in new[]{"PdfSharp"+suffix,"PdfSharp.Shared","PdfSharp.System","PdfSharp.Imaging","PdfSharp.OpenType","PdfSharp.BarCodes"+suffix,"PdfSharp.Charting"+suffix,"PdfSharp.Cryptography","MigraDoc.DocumentObjectModel","MigraDoc.Rendering"+suffix,"MigraDoc.RtfRendering"+suffix})
 {
     var assembly = Assembly.Load(name);
     var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
     if (version.Split('+')[0] != expectedVersion) throw new InvalidDataException("Unexpected assembly: " + name + " " + version);
 }
-Console.WriteLine("PASS: installed FreePDF PDF/RTF output, reopen, and all 11 packaged assemblies; runtime " + Environment.Version);
+WindowsVariant.Check();
+Console.WriteLine("PASS: installed FreePDF" + suffix + " PDF/RTF output, reopen, and all 11 packaged assemblies; runtime " + Environment.Version);
 if (args.Length == 2) ReleaseWorkflows.Run(args[0], args[1], expectedVersion);
 else if (args.Length != 0) throw new ArgumentException("Usage: PackageSmoke [output-directory synthetic-certificate.pfx]");
 

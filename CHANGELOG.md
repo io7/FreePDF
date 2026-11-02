@@ -6,6 +6,12 @@
   source, reproducible PNG generation and package-content checks. The README
   shows it, and `src/packages/social-preview.png` is the matching GitHub social
   preview card.
+- Publish the GDI and WPF builds as packages for Windows desktop and .NET
+  Framework apps: `io7.FreePDF.Gdi` and `io7.FreePDF.Layout.Gdi` replace
+  `PDFsharp-GDI` and `PDFsharp-MigraDoc-GDI`; `io7.FreePDF.Wpf` and
+  `io7.FreePDF.Layout.Wpf` replace `PDFsharp-WPF` and `PDFsharp-MigraDoc-WPF`.
+  They target Windows .NET 8, 9, 10 and .NET Framework 4.6.2, keep upstream's
+  assembly names, and are installed and run on Windows in CI.
 
 ## 7.0.1
 

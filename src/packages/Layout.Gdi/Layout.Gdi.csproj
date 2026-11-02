@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>io7.FreePDF.Layout.Gdi</PackageId>
+    <TargetFrameworks>$(PDFsharpTargetFrameworks_Windows)</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Description>MIT document layout with paragraphs, tables, charts and PDF/RTF output for io7.FreePDF.Gdi. The FreePDF build for apps moving from PDFsharp-MigraDoc-GDI 6.2.4; preserves MigraDoc API namespaces. Use it instead of io7.FreePDF.Layout, not together with it.</Description>
+    <FreePDFAssemblyPrefix>MigraDoc</FreePDFAssemblyPrefix>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../FreePDF.Gdi/FreePDF.Gdi.csproj" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.DocumentObjectModel/MigraDoc.DocumentObjectModel.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.Rendering-gdi/MigraDoc.Rendering-gdi.csproj" PrivateAssets="all" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.RtfRendering-gdi/MigraDoc.RtfRendering-gdi.csproj" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

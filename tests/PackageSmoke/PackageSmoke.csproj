@@ -9,10 +9,30 @@
     <IsPackable>false</IsPackable>
     <FreePDFPackageVersion Condition="'$(FreePDFPackageVersion)' == ''">$(Version)</FreePDFPackageVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <!-- Empty for the portable packages; Gdi or Wpf for the Windows packages (Windows target frameworks only). -->
+    <FreePDFVariant Condition="'$(FreePDFVariant)' == ''"></FreePDFVariant>
+    <FreePDFLayoutPackage>io7.FreePDF.Layout</FreePDFLayoutPackage>
+    <FreePDFAssemblySuffix></FreePDFAssemblySuffix>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FreePDFVariant)' == 'Gdi'">
+    <FreePDFLayoutPackage>io7.FreePDF.Layout.Gdi</FreePDFLayoutPackage>
+    <FreePDFAssemblySuffix>-gdi</FreePDFAssemblySuffix>
+    <UseWindowsForms>true</UseWindowsForms>
+    <DefineConstants>$(DefineConstants);FREEPDF_GDI</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FreePDFVariant)' == 'Wpf'">
+    <FreePDFLayoutPackage>io7.FreePDF.Layout.Wpf</FreePDFLayoutPackage>
+    <FreePDFAssemblySuffix>-wpf</FreePDFAssemblySuffix>
+    <UseWPF>true</UseWPF>
+    <DefineConstants>$(DefineConstants);FREEPDF_WPF</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FreePDFVariant)' != ''">
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="ExpectedFreePDFVersion" Value="$(FreePDFPackageVersion)" />
-    <PackageReference Include="io7.FreePDF.Layout" Version="$(FreePDFPackageVersion)" />
+    <AssemblyMetadata Include="FreePDFAssemblySuffix" Value="$(FreePDFAssemblySuffix)" />
+    <PackageReference Include="$(FreePDFLayoutPackage)" Version="$(FreePDFPackageVersion)" />
     <EmbeddedResource Include="../../lab/Assets/DejaVuSans.ttf" LogicalName="PackageFont.ttf" />
     <None Include="../../lab/Assets/DejaVuSans.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][string]$PackageDirectory,
     [Parameter(Mandatory)][string]$ExpectedRevision,
     [Parameter(Mandatory)][string]$Version,
-    [string[]]$RequiredFrameworks = @('net8.0','net9.0','net10.0')
+    [string[]]$RequiredFrameworks = @('net8.0','net9.0','net10.0'),
+    [string[]]$RequiredWindowsFrameworks = @()
 )
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path $PackageDirectory).Path
@@ -14,13 +15,13 @@ function ExpectRejected([string]$Name, [scriptblock]$Change, [string]$Message) {
     Copy-Item "$source/*.nupkg", "$source/validation.json" $directory
     & $Change $directory
     $failure = $null
-    try { & "$PSScriptRoot/Test-ReleaseArtifact.ps1" -PackageDirectory $directory -ExpectedRevision $ExpectedRevision -Version $Version -RequiredFrameworks $RequiredFrameworks | Out-Null }
+    try { & "$PSScriptRoot/Test-ReleaseArtifact.ps1" -PackageDirectory $directory -ExpectedRevision $ExpectedRevision -Version $Version -RequiredFrameworks $RequiredFrameworks -RequiredWindowsFrameworks $RequiredWindowsFrameworks | Out-Null }
     catch { $failure = $_.Exception.Message }
     if (!$failure -or $failure -notlike "$Message*") { throw "Expected rejection for $Name; got '$failure'." }
     Write-Output "PASS: rejected $Name"
 }
 try {
-    & "$PSScriptRoot/Test-ReleaseArtifact.ps1" -PackageDirectory $source -ExpectedRevision $ExpectedRevision -Version $Version -RequiredFrameworks $RequiredFrameworks
+    & "$PSScriptRoot/Test-ReleaseArtifact.ps1" -PackageDirectory $source -ExpectedRevision $ExpectedRevision -Version $Version -RequiredFrameworks $RequiredFrameworks -RequiredWindowsFrameworks $RequiredWindowsFrameworks
     ExpectRejected 'wrong-source' {
         param($directory)
         $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
@@ -36,7 +37,7 @@ try {
     ExpectRejected 'failed-consumer' {
         param($directory)
         $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
-        ($receipt.consumers | Where-Object framework -EQ $RequiredFrameworks[0]).status = 'failed'
+        ($receipt.consumers | Where-Object { $_.framework -eq $RequiredFrameworks[0] -and !"$($_.variant)" }).status = 'failed'
         $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
     } 'Missing successful consumer:'
     ExpectRejected 'upstream-package' {
@@ -86,4 +87,11 @@ try {
         ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Layout.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
     } 'Release package icon metadata mismatch:'
+    ExpectRejected 'missing-windows-package' {
+        param($directory)
+        Remove-Item -LiteralPath "$directory/io7.FreePDF.Layout.Gdi.$Version.nupkg"
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        $receipt.packages = @($receipt.packages | Where-Object file -NE "io7.FreePDF.Layout.Gdi.$Version.nupkg")
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Unexpected release package manifest.'
 } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }

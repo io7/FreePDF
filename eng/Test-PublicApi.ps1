@@ -42,8 +42,10 @@ foreach ($pin in $pins) {
     if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $pin.sha256) { throw "Baseline hash mismatch: $name" }
     Extract-Libraries $archive (Join-Path $output $pin.version)
 }
-$packages = @(Get-ChildItem $PackageDirectory -Filter '*.nupkg')
-if ($packages.Count -ne 2) { throw 'Expected exactly two candidate packages.' }
+# The comparison covers the portable packages, whose MIT baselines are pinned. The GDI and WPF packages share the
+# portable public API apart from their platform drawing types and are checked by their Windows consumers instead.
+$packages = @(Get-ChildItem $PackageDirectory -Filter '*.nupkg' | Where-Object { $_.Name -match '^io7\.FreePDF(\.Layout)?\.\d+\.\d+\.\d+(-[^.]+(\.\d+)*)?\.nupkg$' })
+if ($packages.Count -ne 2) { throw 'Expected exactly two portable candidate packages.' }
 foreach ($package in $packages) { Extract-Libraries $package.FullName (Join-Path $output 'candidate') }
 $dotnet = (Get-Command dotnet).Source
 $dotnetRoot = Split-Path ((Get-Item $dotnet).ResolveLinkTarget($true) ?? (Get-Item $dotnet)).FullName

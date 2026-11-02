@@ -24,13 +24,23 @@ release. See the release notes for [7.0.1](docs/releases/7.0.1.md) and
 Published versions are listed in [GitHub Releases](https://github.com/io7/FreePDF/releases)
 and NuGet; CI artifacts alone are not a public release.
 
-The packages are `io7.FreePDF` and `io7.FreePDF.Layout` (the MigraDoc layout
-engine). Their namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Build and test them with
-PowerShell 7:
+Replace each upstream package with its FreePDF counterpart. Namespaces and assembly names remain `PdfSharp`
+and `MigraDoc`, so an application references exactly one implementation:
+
+| Upstream package (6.2.4) | FreePDF package | Targets |
+| --- | --- | --- |
+| `PDFsharp` | `io7.FreePDF` | .NET 8, 9, 10, .NET Standard 2.0 |
+| `PDFsharp-MigraDoc` | `io7.FreePDF.Layout` | .NET 8, 9, 10, .NET Standard 2.0 |
+| `PDFsharp-GDI` | `io7.FreePDF.Gdi` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
+| `PDFsharp-MigraDoc-GDI` | `io7.FreePDF.Layout.Gdi` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
+| `PDFsharp-WPF` | `io7.FreePDF.Wpf` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
+| `PDFsharp-MigraDoc-WPF` | `io7.FreePDF.Layout.Wpf` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
+
+Each layout package depends on its matching core package. Build and test them with PowerShell 7:
 
 ```powershell
 ./eng/Test-Packages.ps1 -OutputDirectory /absolute/path/to/candidate-packages
-# Windows also supports installed-package checks for Framework consumers:
+# Windows also runs Framework consumers and the GDI/WPF consumers (net8.0-windows and net472 by default):
 ./eng/Test-Packages.ps1 -OutputDirectory D:/test/freepdf-packages -Frameworks net8.0,net9.0,net10.0,net462,net472
 ```
 

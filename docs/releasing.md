@@ -40,13 +40,14 @@ Official setup: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publis
 4. After the maintainer's publication decision, run the same workflow on the
    same commit and run ID with `publish=true`. Only the default branch can
    publish. The `nuget` environment and NuGet policy must match.
-5. Verify both NuGet listings and install from NuGet into a clean package cache.
+5. Verify all six NuGet listings and install from NuGet into a clean package cache.
    Tag the exact verified source `v<version>` and publish GitHub release notes
    with the same nupkgs, validation receipt and SHA256SUMS. NuGet may add its
    repository signature; original artifact hashes describe the uploaded files.
 
-NuGet publication is not atomic across packages. Core is uploaded first, then
-Layout. If one upload fails, inspect the feed before retrying. The workflow
+NuGet publication is not atomic across packages. Each core package is uploaded
+before its layout package: `io7.FreePDF`, `io7.FreePDF.Layout`, then the GDI pair,
+then the WPF pair. If one upload fails, inspect the feed before retrying. The workflow
 does not silently skip an existing version or overwrite one. Keep the original
 artifact and resolve any partial publication explicitly.
 
