@@ -34,6 +34,10 @@
   streams are now parsed by `/Length` and saved with their `/F` entry. FreePDF
   deliberately never loads the external file, so a PDF cannot make it read local
   files.
+- Treat a trailer `/Info` entry that references a missing object as absent
+  (ISO 32000 treats such references as null); opening threw
+  `ArgumentNullException`. References to missing or misplaced objects now fail
+  with `PdfReaderException` instead of `AggregateException` (upstream issue 73).
 
 ## 7.0.1
 

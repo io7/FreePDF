@@ -62,12 +62,12 @@ namespace PdfSharp.Pdf.IO
             SizeType? position = _document.IrefTable[objectID]?.Position;
             if (!position.HasValue)
             {
-                SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw new AggregateException($"Invalid object ID {objectID}."));
+                SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw new PdfReaderException($"Invalid object ID {objectID}."));
                 return -1;
             }
             if (position < 0)
             {
-                SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw new AggregateException($"Invalid position {position} for object ID {objectID}."));
+                SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw new PdfReaderException($"Invalid position {position} for object ID {objectID}."));
                 return -1;
             }
 

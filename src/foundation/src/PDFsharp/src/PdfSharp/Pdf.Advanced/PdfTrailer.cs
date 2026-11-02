@@ -217,9 +217,13 @@ namespace PdfSharp.Pdf.Advanced
             iref = Document.Trailer.Elements.GetReference(Keys.Info); // TODO #US373
             if (iref is { Value: null })
             {
-                iref = Document.IrefTable[iref.ObjectID];
-                Debug.Assert(iref?.Value != null);
-                Document.Trailer.Elements[Keys.Info] = iref;
+                // A reference to an object missing from the file is null (ISO 32000-1 7.3.10): drop it, and the
+                // document gets a new information dictionary when one is needed.
+                var resolved = Document.IrefTable[iref.ObjectID];
+                if (resolved?.Value != null)
+                    Document.Trailer.Elements[Keys.Info] = resolved;
+                else
+                    Document.Trailer.Elements.Remove(Keys.Info);
             }
 
             // /Encrypt
