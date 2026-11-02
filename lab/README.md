@@ -113,27 +113,27 @@ its own completed, identified run directories. Interrupted runs are not pruned
 automatically; inspect and remove those manually. PPM intermediates are removed
 after comparison; PDFs, PNGs, differences, JSON and bounded logs remain.
 
-## Permanent Tomahawk25 installation
+## Permanent Windows installation
 
-The approved installation is available at `http://192.168.1.212:4817` on the LAN.
 The viewer has a run selector, refresh action, side-by-side pages, opacity overlay,
 pixel-difference image, page navigation, and PDF/structure/log downloads. It opens
 the first failed/review case and hides document links when generation failed.
-Both .NET 10 and Framework 4.6.2-targeted suites completed on 2026-10-30: each
-produced nine zero-delta matches, three known-reference-defect reviews, and zero
-comparison failures. FreePDF completed all twelve cases; the PDFsharp reference
-completed eleven and crashed on the fully merged table in both profiles.
+On io7's Windows lab host, both .NET 10 and Framework 4.6.2-targeted suites
+completed on 2026-10-30: each produced nine zero-delta matches, three
+known-reference-defect reviews, and zero comparison failures. FreePDF completed
+all twelve cases; the PDFsharp reference completed eleven and crashed on the
+fully merged table in both profiles.
 
-Read-only host checks on 2026-10-30 found Windows host `192.168.1.212`, .NET 10
-and PowerShell 7, about 32.9 GB free on D:, and port 4817 unused. No existing
-FreePDFLab paths or PATH renderer were found. These checks are not deployment.
+Before installing, check read-only that the host has .NET 10 and PowerShell 7,
+enough free space on D:, no existing FreePDFLab paths, and an unused port 4817.
 
 `scripts/Publish-Lab.ps1 -OutputDirectory <new-directory>` prepares a Windows
 x64 bundle with .NET 10.0.13 self-contained viewer/generators and Framework
 generators, checksums and provenance. It does not alter shared runtimes.
 
 After operator approval, elevated PowerShell 7 can run the bundled
-`Install-Tomahawk.ps1`. Its exact shared-host changes are:
+`Install-Lab.ps1 -AllowedRemoteAddress <trusted client ranges>`. Its exact
+shared-host changes are:
 
 - Create `D:\apps\FreePDFLab` and `D:\data\FreePDFLab`; refuse existing paths.
 - Download the official MuPDF 1.28.5 Windows archive separately and check its
@@ -145,18 +145,20 @@ After operator approval, elevated PowerShell 7 can run the bundled
 - Create `FreePDFLab-Viewer`, a persistent startup scheduled task with automatic
   restart and a one-minute recovery trigger (ignore new starts while running),
   and `FreePDFLab-Nightly`, a daily 03:17 task for both runtime profiles.
-  Both run as LocalService. The viewer uses port 4817; neither changes Acetate.
+  Both run as LocalService. The viewer uses port 4817; neither changes other
+  services on the host.
 - Grant LocalService read/execute on the app and modify on its results directory.
-- Add `FreePDFLab-LAN`, a TCP 4817 inbound firewall rule limited to
-  `192.168.1.0/24`; start the viewer and initial comparisons.
+- Add `FreePDFLab-LAN`, a TCP 4817 inbound firewall rule limited to the
+  `-AllowedRemoteAddress` ranges; start the viewer and initial comparisons.
 
 Acceptance: `/health` returns read-only status; both tasks have the intended
 identity/settings; both profiles produce reports; browser images, overlay,
-difference view, page navigation and downloads work from the LAN; restart the
-viewer task and verify recovery. No production-ready claim before these checks.
+difference view, page navigation and downloads work from an allowed client;
+restart the viewer task and verify recovery. No production-ready claim before
+these checks.
 
-The first host run found the C++ DLLs absent, although CI's Windows images already
-had them. `Install-RendererRuntime.ps1` now supplies them and verifies renderer
+The first lab-host run found the C++ DLLs absent, although CI's Windows images
+already had them. `Install-RendererRuntime.ps1` now supplies them and verifies renderer
 startup before registering tasks. Its source is the official Microsoft C++
 14.51.36247.0 redistributable, SHA-256
 `843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c`.
