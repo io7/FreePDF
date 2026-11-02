@@ -620,21 +620,9 @@ namespace PdfSharp.Pdf
                     writer.WriteRaw("% Title: \u0093" + FilterUnicode(Title) + "\u0094\n");
             }
 
-            // TODO_OLD: Proof that there is nothing to do here.
-            bool hasKids = HasChildren;
-            if (_parent != null || hasKids)
-            {
-                ////// Everything done in PrepareForSave
-                ////if (_parent == null)
-                ////{
-                ////    // This is the outline dictionary (the root)
-                ////}
-                ////else
-                ////{
-                ////    // This is an outline item dictionary
-                ////}
-                base.WriteObject(writer);
-            }
+            // Everything is done in PrepareForSave. An empty root is written too: it is in the cross-reference
+            // table and the catalog refers to it, so skipping it left the reference pointing at the next token.
+            base.WriteObject(writer);
 
             static string FilterUnicode(string text)
             {

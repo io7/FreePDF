@@ -62,6 +62,11 @@
   written so far, but the comment is plain text in an encrypted file.
 - `OpenTypeFontFace.GetOrCreateFrom` returns the cached face of a font source
   that already has one instead of failing a Debug assertion.
+- Write the outline root when it has no items. The writer skipped its body but
+  kept it in the cross-reference table, so the saved file could not be reopened
+  ("Unexpected token 'xref'"). This hit every new document that read
+  `document.Outlines` without adding an item, and every opened file with an empty
+  `/Outlines` dictionary. Found by mutation fuzzing (`CorpusCheck fuzz`).
 
 ## 7.0.1
 
