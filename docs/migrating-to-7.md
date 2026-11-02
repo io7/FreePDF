@@ -40,6 +40,28 @@ For example, `document.Info.CreationDate = DateTimeOffset.UtcNow` expresses a
 known instant. Do not silently interpret a legacy `DateTimeKind.Unspecified`
 value as UTC; preserve the application's intended timezone.
 
+## What real 6.2.4 applications hit
+
+FreePDF compiled 26 public projects that use PDFsharp or PDFsharp-MigraDoc 6.2.4
+against FreePDF 7 (method and results: [consumer survey](research/consumer-survey/README.md)).
+23 compiled with no new error. The breaks in the other three, and what to do:
+
+| 6.2.4 code | With FreePDF |
+| --- | --- |
+| `elements.GetDateTime(key, DateTime default)` returning `DateTime` | Compiles again since 7.1: the overload returns the stored date as UTC, as 6.2.4 did. `GetDateTime(key)` returns `DateTimeOffset?`. |
+| `new CString()`, `new CInteger()`, `new CReal()`, or a subclass filled with an object initializer | Compiles again since 7.1. |
+| `document.SetPdfA()` | Compiles again since 7.1 and declares PDF/A-1b, which FreePDF's release checks validate. 6.2.4 declared PDF/A-1a without creating the tagged structure that level requires. Call it before adding pages; FreePDF refuses PDF/A settings after content exists. |
+| `byte[] bytes = sequence.ToContent()` | `ToContent()` returns the content stream as a string with one character per byte. Use `PdfSharp.Pdf.Internal.PdfEncoders.RawEncoding.GetBytes(sequence.ToContent())`, as FreePDF does internally. |
+| `DateTime created = document.Info.CreationDate` | Read `document.Info.CreationDate?.UtcDateTime` (or `LocalDateTime`). Assigning a `DateTime` still compiles. |
+| `using PdfSharp.Snippets;`, `PdfSharp.Quality`, `PdfSharp.WPFonts` | These upstream helper assemblies are not shipped. Remove unused usings. `PdfSharp.WPFonts` embeds Microsoft's Segoe WP fonts, which FreePDF has no licence to redistribute: give your `IFontResolver` font files you are licensed to embed. |
+
+Legacy forms (`PdfSharp.Pdf.AcroForms`, `document.AcroForm.Fields["name"]`) did not
+appear in the survey, but some applications fill forms this way. FreePDF 7 carries
+only the v7 form model, whose field collection has no lookup by name and whose
+typed fields are incomplete. Applications that fill forms through the legacy model
+need code changes; legacy form support is tracked in
+[issue #9](https://github.com/io7/FreePDF/issues/9).
+
 ## Repeatable API evidence
 
 `eng/Test-PublicApi.ps1` compares all eleven packaged assemblies for all four

@@ -34,7 +34,7 @@ namespace PdfSharp.Pdf.PdfA
         /// <summary>
         /// PDF/A-2u – Level U (Unicode) conformance.
         /// </summary>
-        public static PdfAFormat PdfA_2u { get; } = new(2, 'b');
+        public static PdfAFormat PdfA_2u { get; } = new(2, 'u');
 
         /// <summary>
         /// PDF/A-3a – Level A (Accessible) conformance.

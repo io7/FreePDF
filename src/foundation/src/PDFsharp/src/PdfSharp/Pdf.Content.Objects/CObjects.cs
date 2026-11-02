@@ -343,6 +343,12 @@ namespace PdfSharp.Pdf.Content.Objects
         public CInteger(int value) => Value = value;
 
         /// <summary>
+        /// PDFsharp 6.x source compatibility: creates an integer with the value 0, to be set through <see cref="Value"/>.
+        /// </summary>
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public CInteger() { }
+
+        /// <summary>
         /// Creates a new object that is a copy of the current instance.
         /// </summary>
         public new CInteger Clone() => (CInteger)Copy();
@@ -388,6 +394,12 @@ namespace PdfSharp.Pdf.Content.Objects
     public class CReal : CNumber
     {
         public CReal(double value) => Value = value;
+
+        /// <summary>
+        /// PDFsharp 6.x source compatibility: creates a real number with the value 0, to be set through <see cref="Value"/>.
+        /// </summary>
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public CReal() { }
 
         /// <summary>
         /// Creates a new object that is a copy of the current instance.
@@ -457,6 +469,13 @@ namespace PdfSharp.Pdf.Content.Objects
     [DebuggerDisplay("({" + nameof(Value) + "})")]
     public class CString(string value, CStringType stringType = CStringType.String) : CObject
     {
+        /// <summary>
+        /// PDFsharp 6.x source compatibility: creates an empty string of type <see cref="Objects.CStringType.String"/>,
+        /// to be filled through <see cref="Value"/> and <see cref="CStringType"/>.
+        /// </summary>
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public CString() : this("") { }
+
         /// <summary>
         /// Creates a new object that is a copy of the current instance.
         /// </summary>

@@ -1140,6 +1140,15 @@ namespace PdfSharp.Pdf
                 return result;
             }
 
+            /// <summary>
+            /// PDFsharp 6.x source compatibility: converts the specified value to a UTC DateTime, as 6.2.4 did.
+            /// If the value does not exist, the function returns the specified default value.
+            /// New code should use the DateTimeOffset overload, which keeps the stored time zone.
+            /// </summary>
+            [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+            public DateTime GetDateTime(string key, DateTime defaultValue)
+                => GetDateTime(key, (DateTimeOffset?)null) is { } value ? value.UtcDateTime : defaultValue;
+
             public DateTimeOffset GetRequiredDateTime(string key, DateTimeOffset? defaultValue = null, bool create = false)
             {
                 TryGetDateTimeInternal(key, out DateTimeOffset? result, create, defaultValue, true);
