@@ -100,7 +100,11 @@ foreach ($run in $runs) {
     if ($framework -match '^net4') { & "$binary.exe" $fixtures $certificatePath } else { & dotnet "$binary.dll" $fixtures $certificatePath }
     if ($LASTEXITCODE -ne 0) { throw "Installed package execution failed: $variant $framework" }
     & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/tests/PackageSmoke/obj/project.assets.json" -OutputDirectory "$fixtures/dependencies"
-    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json"
+    # dotnet list package takes no MSBuild properties; MSBuild reads the variant from the environment instead,
+    # so the project evaluates to the same package as the restore above.
+    $env:FreePDFVariant = $variant
+    try { & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json" }
+    finally { Remove-Item Env:FreePDFVariant -ErrorAction SilentlyContinue }
     $results += @{ variant=$variant; framework=$framework; status='passed'; fixtures="$name/consumer-results.xml" }
 }
 if ((& git -C $repo rev-parse HEAD).Trim() -ne $revision) { throw 'Source revision changed during packaging; rebuild from one revision.' }

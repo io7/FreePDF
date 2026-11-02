@@ -27,6 +27,7 @@
     <DefineConstants>$(DefineConstants);FREEPDF_WPF</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(FreePDFVariant)' != ''">
+    <TargetFrameworks>net8.0-windows;net472</TargetFrameworks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
