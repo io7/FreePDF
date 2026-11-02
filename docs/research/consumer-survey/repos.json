@@ -1,0 +1,162 @@
+{
+  "selected": "2026-11-02",
+  "selection": "Public GitHub repositories whose csproj references PDFsharp or PDFsharp-MigraDoc 6.2.4 (GitHub code search), ranked by stars and recent activity.",
+  "entries": [
+    {
+      "name": "ArthurHub_HTML-Renderer",
+      "repo": "ArthurHub/HTML-Renderer",
+      "commit": "53203db515fe9a6be64d3ababe11f18096393ecc",
+      "project": "Source/HtmlRenderer.PdfSharp/HtmlRenderer.PdfSharp.csproj"
+    },
+    {
+      "name": "abatsakidis_PDFDeSecure",
+      "repo": "abatsakidis/PDFDeSecure",
+      "commit": "b92123854add999e54266c99c1242250752b389f",
+      "project": "src/PDFDeSecure/PDFDeSecure.csproj"
+    },
+    {
+      "name": "EvotecIT_OfficeIMO",
+      "repo": "EvotecIT/OfficeIMO",
+      "commit": "e4b566ceb2c1c5d15c4b21d91f54416d69414641",
+      "project": "OfficeIMO.Pdf.Benchmarks.Comparisons/OfficeIMO.Pdf.Benchmarks.Comparisons.csproj"
+    },
+    {
+      "name": "APSIMInitiative_ApsimX",
+      "repo": "APSIMInitiative/ApsimX",
+      "commit": "4829378f2d1e653dcf390acdc271c27cd52e9436",
+      "project": "Models/Models.csproj"
+    },
+    {
+      "name": "InkCanvasForClass_community",
+      "repo": "InkCanvasForClass/community",
+      "commit": "bdd24572d1503bade521c3d1fc2d549f37ba5e20",
+      "project": "Ink Canvas/InkCanvasForClass.csproj"
+    },
+    {
+      "name": "OpenAC-Net_OpenAC.Net.NFSe",
+      "repo": "OpenAC-Net/OpenAC.Net.NFSe",
+      "commit": "cac2bb13ebe583e62e921229313c41fe0bbcf94f",
+      "project": "src/OpenAC.Net.NFSe.DANFSe.PDFSharp/OpenAC.Net.NFSe.DANFSe.PDFSharp.csproj"
+    },
+    {
+      "name": "surveysolutions_surveysolutions",
+      "repo": "surveysolutions/surveysolutions",
+      "commit": "5ad4799037abb28ea90bf830fc7eb110c606f4d2",
+      "project": "src/Core/BoundedContexts/Headquarters/WB.Core.BoundedContexts.Headquarters/WB.Core.BoundedContexts.Headquarters.csproj"
+    },
+    {
+      "name": "Gaurox_FrameShift",
+      "repo": "Gaurox/FrameShift",
+      "commit": "b777b5518ed5f1fb22931fec7d0af58d67215072",
+      "project": "src/FrameShift/FrameShift.csproj"
+    },
+    {
+      "name": "manfromarce_DocSharp",
+      "repo": "manfromarce/DocSharp",
+      "commit": "7c996f8f6934139d4a4a698963baeb59fd8d60df",
+      "project": "samples/WpfApp1/WpfApp1.csproj"
+    },
+    {
+      "name": "tobitege_OpenSourceToolkit.NET",
+      "repo": "tobitege/OpenSourceToolkit.NET",
+      "commit": "c6c42b7e71666ec388337fc9fca424aa1d5ad1b3",
+      "project": "OpenSourceToolkit.Documents/OpenSourceToolkit.Documents.csproj"
+    },
+    {
+      "name": "i3sam_OrbitDrop",
+      "repo": "i3sam/OrbitDrop",
+      "commit": "7da755f5f167e7606250650190e4a0e47e4bea00",
+      "project": "src/OrbitDrop.Conversion/OrbitDrop.Conversion.csproj"
+    },
+    {
+      "name": "KnudsenMorten_SecurityInsight",
+      "repo": "KnudsenMorten/SecurityInsight",
+      "commit": "48ab4351d28f46472a3a94bdfe28094d60b6d76f",
+      "project": "engine/_shared/pdf/SI.Pdf.csproj"
+    },
+    {
+      "name": "brunoleocam_ZPL2PDF",
+      "repo": "brunoleocam/ZPL2PDF",
+      "commit": "98fbb80381c9524602386bbf953944619d5d28d4",
+      "project": "ZPL2PDF.csproj"
+    },
+    {
+      "name": "allisterb_Camel",
+      "repo": "allisterb/Camel",
+      "commit": "d662c30920d71bca2e2f9f84491a62840e970826",
+      "project": "src/Camel.Reporting/Camel.Reporting.csproj"
+    },
+    {
+      "name": "sql-bi_SQLBI-Whiteboard",
+      "repo": "sql-bi/SQLBI-Whiteboard",
+      "commit": "fc80c86e841ca83a0ace49984cd80112de3b44dd",
+      "project": "src/SQLBI.Whiteboard.Export/SQLBI.Whiteboard.Export.csproj"
+    },
+    {
+      "name": "Altinn_altinn-storage",
+      "repo": "Altinn/altinn-storage",
+      "commit": "718d391141ff35755cf7a8b62498f53cdd95a245",
+      "project": "src/Storage/Altinn.Platform.Storage.csproj"
+    },
+    {
+      "name": "porrey_PdfDocuments",
+      "repo": "porrey/PdfDocuments",
+      "commit": "92a31d6aeda775bc393cee8098060edb03957759",
+      "project": "Src/Library/PdfDocuments/PdfDocuments.csproj"
+    },
+    {
+      "name": "ajisaacs_OpenNest",
+      "repo": "ajisaacs/OpenNest",
+      "commit": "ceddd8cf931471e39bc9cbb8f713d09ce7ab609f",
+      "project": "OpenNest.Reporting/OpenNest.Reporting.csproj"
+    },
+    {
+      "name": "wieslawsoltes_PdfSpace",
+      "repo": "wieslawsoltes/PdfSpace",
+      "commit": "fe72ce8a27f9d49f757705d8e3238a1300bfbde5",
+      "project": "src/PdfSpace.Pdf/PdfSpace.Pdf.csproj"
+    },
+    {
+      "name": "homotechsual_dotMARC",
+      "repo": "homotechsual/dotMARC",
+      "commit": "a8da02871794cc13be3c96a5622788b9441a2abd",
+      "project": "src/DotMarc/DotMarc.csproj"
+    },
+    {
+      "name": "muratgul_PdfTool",
+      "repo": "muratgul/PdfTool",
+      "commit": "25a4fae063ec481eae91c97ec0a0ddd9748ca205",
+      "project": "PdfTool.csproj"
+    },
+    {
+      "name": "jonathanmadeley_hl-api-client-net",
+      "repo": "jonathanmadeley/hl-api-client-net",
+      "commit": "bd6483e9fa1f978d0bd17fcd6ac44d63854efba4",
+      "project": "src/HL.Client/HL.Client.csproj"
+    },
+    {
+      "name": "phongnguyend_DocumentKit",
+      "repo": "phongnguyend/DocumentKit",
+      "commit": "dc1e95178052417c1ee6050838a16c3d364e40cf",
+      "project": "src/Practical.PdfSharp/InsertQrCode/InsertQrCode.csproj"
+    },
+    {
+      "name": "YodasMyDad_Merchello",
+      "repo": "YodasMyDad/Merchello",
+      "commit": "b528affc607a07a25c4a3b852db8ed96de2abd0c",
+      "project": "src/Merchello.Core/Merchello.Core.csproj"
+    },
+    {
+      "name": "OpenAC-Net_OpenAC.Net.NFSe.Nacional",
+      "repo": "OpenAC-Net/OpenAC.Net.NFSe.Nacional",
+      "commit": "7c1948d34b95b361f343f7fb9b5a276c20f95849",
+      "project": "src/OpenAC.Net.NFSe.Nacional.DANFSe.PDFSharp/OpenAC.Net.NFSe.Nacional.DANFSe.PDFSharp.csproj"
+    },
+    {
+      "name": "hasanzadee_convertino",
+      "repo": "hasanzadee/convertino",
+      "commit": "6dba19002169cf50364524a51a2b6090c6172dd9",
+      "project": "src/Convertino.Core/Convertino.Core.csproj"
+    }
+  ]
+}
