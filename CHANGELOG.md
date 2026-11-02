@@ -19,6 +19,11 @@
   could not decrypt their content, and saving wrote the still-encrypted streams
   into an unencrypted file. These files now require the password and decrypt
   like any other. Found by the corpus round trip (`eng/research/CorpusCheck`).
+- Open documents with annotations of a subtype FreePDF does not model (private,
+  misspelled or missing subtypes). One such annotation made the whole document
+  fail with "Invalid annotation subtype"; it is now read as `PdfUnknownAnnotation`
+  and saved unchanged. Found by the corpus round trip, including files that pass
+  PDF/UA-1.
 
 ## 7.0.1
 
