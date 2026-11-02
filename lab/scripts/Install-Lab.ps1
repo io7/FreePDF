@@ -1,8 +1,11 @@
 # Run only after the operator approves the shared-host installation described in lab/README.md.
 # Requires elevated PowerShell 7. Creates new paths/tasks only; never upgrades an existing installation.
-param([string]$AppDirectory='D:\apps\FreePDFLab', [string]$DataDirectory='D:\data\FreePDFLab', [int]$Port=4817)
+# -AllowedRemoteAddress lists the trusted client ranges for the viewer's inbound firewall rule, for example 192.0.2.0/24.
+param([Parameter(Mandatory)][string[]]$AllowedRemoteAddress, [string]$AppDirectory='D:\apps\FreePDFLab', [string]$DataDirectory='D:\data\FreePDFLab', [int]$Port=4817)
 $ErrorActionPreference = 'Stop'
 if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Invalid port.' }
+if (!($AllowedRemoteAddress | Where-Object { $_ })) { throw 'Allowed remote address ranges are required.' }
+if ($AllowedRemoteAddress -contains 'Any') { throw 'The viewer is not intended for public hosting; list trusted ranges instead of Any.' }
 foreach ($path in @($AppDirectory,$DataDirectory)) { if (Test-Path $path) { throw "Path already exists: $path" } }
 foreach ($name in @('FreePDFLab-Viewer','FreePDFLab-Nightly')) { if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) { throw "Task already exists: $name" } }
 if (Get-NetFirewallRule -Name 'FreePDFLab-LAN' -ErrorAction SilentlyContinue) { throw 'Firewall rule already exists.' }
@@ -49,7 +52,7 @@ Register-ScheduledTask -TaskName 'FreePDFLab-Viewer' -Action $viewerAction -Trig
 $nightlyAction = New-ScheduledTaskAction -Execute "$PSHOME/pwsh.exe" -Argument "-NoProfile -File `"$AppDirectory/Run-Nightly.ps1`"" -WorkingDirectory $AppDirectory
 $nightlySettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -StartWhenAvailable -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName 'FreePDFLab-Nightly' -Action $nightlyAction -Trigger (New-ScheduledTaskTrigger -Daily -At '03:17') -Principal $principal -Settings $nightlySettings | Out-Null
-New-NetFirewallRule -Name 'FreePDFLab-LAN' -DisplayName 'FreePDF Lab LAN viewer' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress '192.168.1.0/24' -Profile Any | Out-Null
+New-NetFirewallRule -Name 'FreePDFLab-LAN' -DisplayName 'FreePDF Lab LAN viewer' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress $AllowedRemoteAddress -Profile Any | Out-Null
 Start-ScheduledTask -TaskName 'FreePDFLab-Viewer'
 Start-ScheduledTask -TaskName 'FreePDFLab-Nightly'
 Write-Output "Installed. Verify http://localhost:$Port/health and the first two recorded runs."

@@ -17,7 +17,7 @@ foreach ($engine in @('Reference','FreePDF')) {
     New-Item -ItemType Directory "$OutputDirectory/$destination/net462" -Force | Out-Null
     Copy-Item "$repo/lab/Generators/$engine/bin/Release/net462/*" "$OutputDirectory/$destination/net462" -Recurse
 }
-Copy-Item "$repo/lab/scripts/Install-Tomahawk.ps1", "$repo/lab/scripts/Install-RendererRuntime.ps1", "$repo/lab/scripts/Run-Nightly.ps1", "$repo/LICENSE", "$repo/PROVENANCE.md", "$repo/lab/README.md" $OutputDirectory
+Copy-Item "$repo/lab/scripts/Install-Lab.ps1", "$repo/lab/scripts/Install-RendererRuntime.ps1", "$repo/lab/scripts/Run-Nightly.ps1", "$repo/LICENSE", "$repo/PROVENANCE.md", "$repo/lab/README.md" $OutputDirectory
 $revision = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not identify source revision.' }
 $changes = @(& git -C $repo status --porcelain)
