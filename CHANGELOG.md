@@ -13,6 +13,12 @@
   `PdfDocument.SetPdfA()` (declares PDF/A-1b). The migration guide lists the
   remaining breaks and their fixes. The survey tool is `eng/research/Survey-Consumers.ps1`.
 - Fix `PdfAFormats.PdfA_2u`, which described PDF/A-2b.
+- Read encrypted files whose trailer holds the encryption dictionary directly
+  rather than by reference, as MuPDF writes them. The reader ignored such a
+  dictionary: it opened password-protected files without asking for the password,
+  could not decrypt their content, and saving wrote the still-encrypted streams
+  into an unencrypted file. These files now require the password and decrypt
+  like any other. Found by the corpus round trip (`eng/research/CorpusCheck`).
 
 ## 7.0.1
 

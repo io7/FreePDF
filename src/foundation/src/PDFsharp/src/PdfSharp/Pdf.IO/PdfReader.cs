@@ -329,8 +329,14 @@ namespace PdfSharp.Pdf.IO
                                                                 // Reference.Values available by now: All trailers and cross-reference streams (which are not encrypted by definition). 
 
                 // 2. Read the encryption dictionary, if existing.
-                // #US373: Should we expect references here?
-                if (_document.Trailer!.Elements[PdfTrailer.Keys.Encrypt] is PdfReference xrefEncrypt) // #US373 Expect a reference here.
+                // It may be an indirect reference or, as MuPDF writes it, a dictionary directly in the trailer.
+                // The trailer is never encrypted, so a direct dictionary is complete as parsed.
+                var encryptItem = _document.Trailer!.Elements[PdfTrailer.Keys.Encrypt];
+                if (encryptItem is PdfDictionary)
+                {
+                    _document.SecurityHandler.PrepareForReading();
+                }
+                else if (encryptItem is PdfReference xrefEncrypt)
                 {
 #if DEBUG_
                     if (xrefEncrypt.ObjectNumber == 96049)
