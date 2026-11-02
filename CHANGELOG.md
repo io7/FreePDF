@@ -67,6 +67,13 @@
   ("Unexpected token 'xref'"). This hit every new document that read
   `document.Outlines` without adding an item, and every opened file with an empty
   `/Outlines` dictionary. Found by mutation fuzzing (`CorpusCheck fuzz`).
+- Treat a dictionary entry whose value is `null`, or a reference to a missing
+  object, as absent when a typed value is read (ISO 32000-1 7.3.9). A catalog
+  `/Metadata` or `/Outlines` like that made opening or saving fail with a type
+  mismatch; it now reads as absent and is created on demand.
+- Refuse a document whose catalog has no page tree (`/Pages` absent, `null` or
+  dangling) with `PdfReaderException`. Such a file opened as an empty document,
+  and saving it dropped every page in the file.
 
 ## 7.0.1
 

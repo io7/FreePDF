@@ -1768,7 +1768,17 @@ namespace PdfSharp.Pdf
                 // Name.EnsureName(key) must be done by caller.
 
                 bool valueIsAlreadyOfSuitableType = false;
-                if (!_elements.TryGetValue(key, out var value))
+                _elements.TryGetValue(key, out var value);
+
+                // ISO 32000-1 7.3.9: an entry whose value is null is the same as an absent entry. The reader also stores
+                // references to missing objects as null (7.3.10).
+                if (value is PdfNull or PdfReference { Value: PdfNullObject }
+                    && valueType != null && valueType != typeof(PdfReference) && !valueType.IsInstanceOfType(value))
+                {
+                    value = null;
+                }
+
+                if (value == null)
                 {
                     // Case: Dictionary entry with specified key does not exist.
 

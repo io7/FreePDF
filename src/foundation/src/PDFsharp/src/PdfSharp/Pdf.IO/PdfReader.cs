@@ -443,6 +443,11 @@ namespace PdfSharp.Pdf.IO
 
                 RereadUnicodeStrings();
 
+                // ISO 32000-1 Table 28: the page tree is required. Without it the file's pages are unreachable, and
+                // Modify would drop them as unreachable objects.
+                if (_document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Pages) == null)
+                    throw new PdfReaderException("The document catalog has no page tree (/Pages).");
+
 #if DEBUG_ // TODO_OLD: Delete or rewrite.
                 // Some tests...
                 PdfReference[] reachables = document.xrefTable.TransitiveClosure(document.trailer);
