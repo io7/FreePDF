@@ -1,0 +1,13 @@
+<!-- GitHub social preview (1280x640), uploaded by hand under Settings > General > Social preview.
+     Text is set in Inter, so render it on a machine with Inter installed: Inkscape PNG export at 1280 x 640. -->
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <rect width="1280" height="640" fill="#16181D"/>
+  <g transform="translate(128 200) scale(1.875)">
+    <rect width="128" height="128" rx="24" fill="#A11F63"/>
+    <path d="M40 24H104V40H56V56H88V72H56V104H40Z" fill="#FFFFFF"/>
+  </g>
+  <text x="440" y="318" font-family="Inter" font-weight="700" font-size="112" fill="#FFFFFF">FreePDF</text>
+  <text x="444" y="388" font-family="Inter" font-weight="400" font-size="36" fill="#D3D6DC">PDF creation and document layout for .NET</text>
+  <text x="444" y="444" font-family="Inter" font-weight="400" font-size="28" fill="#8C93A1">MIT licence · maintained by io7</text>
+</svg>

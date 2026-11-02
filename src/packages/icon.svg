@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="128" height="128" viewBox="0 0 128 128"
+     role="img" aria-labelledby="title">
+  <title id="title">FreePDF</title>
+  <rect width="128" height="128" rx="24" fill="#A11F63"/>
+  <path d="M40 24H104V40H56V56H88V72H56V104H40Z" fill="#FFFFFF"/>
+</svg>

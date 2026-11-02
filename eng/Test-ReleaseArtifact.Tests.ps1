@@ -59,4 +59,31 @@ try {
         ($receipt.packages | Where-Object file -EQ "io7.FreePDF.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
     } 'Release package metadata mismatch:'
+    ExpectRejected 'missing-icon-with-valid-hash' {
+        param($directory)
+        $path = Join-Path $directory "io7.FreePDF.$Version.nupkg"
+        $archive = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Update)
+        try { $archive.GetEntry('icon.png').Delete() } finally { $archive.Dispose() }
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        ($receipt.packages | Where-Object file -EQ "io7.FreePDF.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Missing or invalid release package icon:'
+    ExpectRejected 'missing-icon-metadata-with-valid-hash' {
+        param($directory)
+        $path = Join-Path $directory "io7.FreePDF.Layout.$Version.nupkg"
+        $archive = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Update)
+        try {
+            $entry = $archive.GetEntry('io7.FreePDF.Layout.nuspec')
+            $reader = [IO.StreamReader]::new($entry.Open())
+            try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $metadata = $nuspec.package.metadata
+            $metadata.RemoveChild($metadata.SelectSingleNode("*[local-name()='icon']")) | Out-Null
+            $entry.Delete()
+            $writer = [IO.StreamWriter]::new($archive.CreateEntry('io7.FreePDF.Layout.nuspec').Open())
+            try { $writer.Write($nuspec.OuterXml) } finally { $writer.Dispose() }
+        } finally { $archive.Dispose() }
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Layout.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Release package icon metadata mismatch:'
 } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }

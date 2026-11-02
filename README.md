@@ -1,3 +1,5 @@
+<img src="src/packages/icon.svg" alt="" width="72" height="72" align="right">
+
 # FreePDF
 
 **PDF creation and document layout for .NET, under the MIT licence.**
