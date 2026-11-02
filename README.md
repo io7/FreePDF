@@ -12,6 +12,20 @@ The starting point is empira's MIT-licensed `v6.2.4` release. FreePDF preserves
 that source history and attribution. It is maintained independently by io7
 and is not an official empira release.
 
+## Coming from PDFsharp 6.2.4 or 6.5?
+
+PDFsharp 6.5.0 and 7.0.0 Preview 2 (October 2026) are licensed under the AGPL or
+a commercial licence, and the application must select a licence in code before
+first use. FreePDF continues the MIT line from 6.2.4: replace the PDFsharp
+packages with the matching `io7.FreePDF` packages and rebuild.
+
+In a [survey of 26 public projects](docs/research/consumer-survey/README.md)
+that use PDFsharp 6.2.4, 23 compiled against FreePDF with no changes. The
+[migration guide](docs/migrating-to-7.md#what-real-624-applications-hit) lists
+what the other three needed, each a one-line change or a font file you supply.
+Applications that fill forms through the legacy `PdfSharp.Pdf.AcroForms` model
+need more work; see [issue #9](https://github.com/io7/FreePDF/issues/9).
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries
