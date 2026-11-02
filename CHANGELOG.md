@@ -38,6 +38,11 @@
   (ISO 32000 treats such references as null); opening threw
   `ArgumentNullException`. References to missing or misplaced objects now fail
   with `PdfReaderException` instead of `AggregateException` (upstream issue 73).
+- Save pages whose `/Annots` array holds annotations directly rather than by
+  reference. Opening converted them to typed annotations but left the retired
+  dictionaries in the array, so saving failed with "This dictionary cannot be
+  used anymore". `/Annots` entries that are not dictionaries no longer stop the
+  document from opening.
 
 ## 7.0.1
 

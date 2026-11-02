@@ -188,26 +188,18 @@ namespace PdfSharp.Pdf.Annotations
                         {
                             var annot = annots.Elements.GetDictionary(idx);
 
-                            // Already handled in Acro fields.
-                            if (annot is PdfWidgetAnnotation widget)
+                            // Entries that are not dictionaries (null, numbers, strings, missing objects) are invalid
+                            // but must not stop the document; they are kept as read. Typed dictionaries were already
+                            // created elsewhere, for example widget annotations together with their form fields.
+                            if (annot == null || annot.GetType() != typeof(PdfDictionary))
                                 continue;
 
-                            Debug.Assert(annot is not PdfFormField);
+                            var annotation = PdfAnnotation.CreateAnnotation(annot);
 
-                            if (annot != null)
-                            {
-                                Debug.Assert(annot.IsIndirect);
-
-                                var type = annot.GetType();
-                                if (type != typeof(PdfDictionary))
-                                    throw new InvalidOperationException("Not a dictionary???");
-
-                                PdfAnnotation.CreateAnnotation(annot);
-                            }
-                            else
-                            {
-                                throw new InvalidOperationException("Not an annotation???");
-                            }
+                            // An indirect annotation's reference now points at the typed object. A direct one lives in
+                            // the array slot, which would otherwise keep the dictionary the transformation retired.
+                            if (!annot.IsIndirect)
+                                annots.Elements[idx] = annotation;
                         }
                     }
                 }
