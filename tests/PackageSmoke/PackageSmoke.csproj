@@ -31,6 +31,8 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
+    <!-- WPF projects drop System.IO from the implicit usings; the shared fixture code needs it in every variant. -->
+    <Using Include="System.IO" />
     <AssemblyMetadata Include="ExpectedFreePDFVersion" Value="$(FreePDFPackageVersion)" />
     <AssemblyMetadata Include="FreePDFAssemblySuffix" Value="$(FreePDFAssemblySuffix)" />
     <PackageReference Include="$(FreePDFLayoutPackage)" Version="$(FreePDFPackageVersion)" />
