@@ -28,6 +28,12 @@
   `%PDF-2.9`, which PDF/A-4 allows); they are read and saved as PDF 2.0. A file
   without a readable version header now fails with `PdfReaderException` instead
   of `InvalidOperationException`.
+- Open documents containing streams whose data is in an external file (`/F` in
+  the stream dictionary). The reader threw `NotImplementedException: File streams
+  are not yet implemented` for the whole document (upstream issue 389); such
+  streams are now parsed by `/Length` and saved with their `/F` entry. FreePDF
+  deliberately never loads the external file, so a PDF cannot make it read local
+  files.
 
 ## 7.0.1
 

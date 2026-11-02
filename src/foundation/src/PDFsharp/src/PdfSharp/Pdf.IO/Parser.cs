@@ -430,9 +430,9 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         int GetStreamLength(PdfDictionary dict, SuppressExceptions? suppressObjectOrderExceptions)
         {
-            //if (dict.Elements["/F"] != null) // TODO #US373 Just a null check.
-            if (dict.Elements.HasValue("/F")) // #US373
-                throw new NotImplementedException("File streams are not yet implemented.");
+            // A stream with /F keeps its data in an external file (ISO 32000-1 7.3.8.2); /Length still counts the bytes
+            // between 'stream' and 'endstream', so it is parsed like any other stream. The external file is never
+            // loaded: an untrusted PDF must not make the reader open local files.
 #if TEST_CODE_
             // By uncommenting this and the label below,
             // we simulate stream dictionaries without \Length entry.
