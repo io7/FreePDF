@@ -24,6 +24,10 @@
   fail with "Invalid annotation subtype"; it is now read as `PdfUnknownAnnotation`
   and saved unchanged. Found by the corpus round trip, including files that pass
   PDF/UA-1.
+- Open files whose header names a later PDF 2.x minor version (`%PDF-2.1` to
+  `%PDF-2.9`, which PDF/A-4 allows); they are read and saved as PDF 2.0. A file
+  without a readable version header now fails with `PdfReaderException` instead
+  of `InvalidOperationException`.
 
 ## 7.0.1
 

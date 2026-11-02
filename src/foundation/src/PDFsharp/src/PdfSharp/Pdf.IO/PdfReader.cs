@@ -151,6 +151,10 @@ namespace PdfSharp.Pdf.IO
                             var version = (major - '0') * 10 + (minor - '0');
                             if (version is >= 10 and <= 20)
                                 return version;
+                            // Later PDF 2.x minor versions (ISO 19005-4 allows "%PDF-2.n") are read as 2.0,
+                            // the version FreePDF implements, and saved as such.
+                            if (version is > 20 and <= 29)
+                                return 20;
                         }
                     }
                 }
@@ -311,7 +315,7 @@ namespace PdfSharp.Pdf.IO
                 var _ = stream.Read(header, 0, 1024);
                 _document.SetVersion(GetPdfFileVersion(header));
                 if (_document.Version == 0)
-                    throw new InvalidOperationException(PsMsgs.InvalidPdf);
+                    throw new PdfReaderException(PsMsgs.InvalidPdf);
 
                 // Set IsUnderConstruction for IrefTable to true. This allows Parser.ParseObject() to insert placeholder references for objects not yet known.
                 // This is necessary for documents with objects saved in objects streams, which are read and decoded after reading the file level PdfObjects.
