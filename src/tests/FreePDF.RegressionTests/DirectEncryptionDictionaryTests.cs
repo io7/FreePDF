@@ -17,6 +17,8 @@ public class DirectEncryptionDictionaryTests
     static byte[] DirectlyEncrypted(bool aes256, string userPassword)
     {
         using var document = new PdfDocument();
+        // The splice below edits the file as text; Debug builds default to the verbose layout with comments.
+        document.Options.Layout = PdfWriterLayout.Compact;
         var page = document.AddPage();
         using (var graphics = XGraphics.FromPdfPage(page))
             graphics.DrawRectangle(XBrushes.Red, 10, 10, 50, 50);

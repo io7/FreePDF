@@ -43,6 +43,12 @@
   dictionaries in the array, so saving failed with "This dictionary cannot be
   used anymore". `/Annots` entries that are not dictionaries no longer stop the
   document from opening.
+- The verbose writer layout's statistics comment no longer has fields for the
+  user and owner passwords; they read "(never written)". The security manager
+  behind them is still a stub that printed "(TODO)", so no password has been
+  written so far, but the comment is plain text in an encrypted file.
+- `OpenTypeFontFace.GetOrCreateFrom` returns the cached face of a font source
+  that already has one instead of failing a Debug assertion.
 
 ## 7.0.1
 

@@ -667,11 +667,12 @@ namespace PdfSharp.Pdf.IO
                 _stream.Position = _commentPosition + 9 * offset;
                 WriteRaw(Invariant($"Encryption type · {sm.EncryptionType}"));
 
+                // Never write the passwords themselves: the comment is plain text in an otherwise encrypted file.
                 _stream.Position = _commentPosition + 10 * offset;
-                WriteRaw(Invariant($"User password ··· {sm.UserPassword}"));
+                WriteRaw("User password ··· (never written)");
 
                 _stream.Position = _commentPosition + 11 * offset;
-                WriteRaw(Invariant($"Owner password ·· {sm.OwnerPassword}"));
+                WriteRaw("Owner password ·· (never written)");
 
                 //“” „“ ’ ‘’ ‚‘ »« ›‹ –
                 //· × ² ³ ½ € † …
