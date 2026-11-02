@@ -156,6 +156,16 @@ namespace PdfSharp.Pdf
             => GetPdfAManager().SetFormat(format);
 
         /// <summary>
+        /// PDFsharp 6.x source compatibility: makes the document PDF/A-1b.
+        /// PDFsharp 6.2.4 declared PDF/A-1a here without creating the tagged structure that level requires;
+        /// FreePDF declares PDF/A-1b, the level its release checks validate. Call
+        /// <see cref="SetPdfA(PdfAFormat)"/> to choose another part or level.
+        /// </summary>
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public void SetPdfA()
+            => SetPdfA(PdfAFormats.PdfA_1b);
+
+        /// <summary>
         /// Gets a value indicating that you create a PDF/A conform document.
         /// This function is temporary and will change in the future.
         /// </summary>

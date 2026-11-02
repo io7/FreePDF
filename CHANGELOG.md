@@ -19,6 +19,13 @@
   ordinary `System.Drawing.Bitmap` threw "ReadTrueColorMemoryBitmap: unsupported
   format". Found by the new GDI package consumer; PDFsharp 6.2.4 parsed these
   bitmaps inline and was not affected.
+- Restore PDFsharp 6.2.4 members that real applications still use, found by
+  compiling 26 public 6.2.4 projects against FreePDF (`docs/research/consumer-survey`):
+  `DictionaryElements.GetDateTime(string, DateTime)` returning UTC as 6.2.4 did,
+  the parameterless `CString`, `CInteger` and `CReal` constructors, and
+  `PdfDocument.SetPdfA()` (declares PDF/A-1b). The migration guide lists the
+  remaining breaks and their fixes. The survey tool is `eng/research/Survey-Consumers.ps1`.
+- Fix `PdfAFormats.PdfA_2u`, which described PDF/A-2b.
 
 ## 7.0.1
 
