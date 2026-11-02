@@ -3,19 +3,23 @@ param(
     [Parameter(Mandatory)][string]$PackageDirectory,
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$ExpectedRevision,
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
-    [string[]]$RequiredFrameworks = @('net8.0','net9.0','net10.0')
+    [string[]]$RequiredFrameworks = @('net8.0','net9.0','net10.0'),
+    # GDI/WPF package consumers; only Windows receipts carry them.
+    [string[]]$RequiredWindowsFrameworks = @()
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path $PackageDirectory).Path
 $receipt = Get-Content (Join-Path $root 'validation.json') -Raw | ConvertFrom-Json
 if ($receipt.sourceRevision -cne $ExpectedRevision) { throw 'Release source revision mismatch.' }
 if ($receipt.version -cne $Version) { throw 'Release version mismatch.' }
-foreach ($framework in $RequiredFrameworks) {
-    $consumers = @($receipt.consumers | Where-Object { $_.framework -ceq $framework })
-    if ($consumers.Count -ne 1 -or $consumers[0].status -cne 'passed') { throw "Missing successful consumer: $framework" }
+function ExpectConsumer([string]$variant, [string]$framework) {
+    $consumers = @($receipt.consumers | Where-Object { $_.framework -ceq $framework -and "$($_.variant)" -ceq $variant })
+    if ($consumers.Count -ne 1 -or $consumers[0].status -cne 'passed') { throw "Missing successful consumer: $variant $framework".Replace('  ', ' ') }
 }
-$expected = @("io7.FreePDF.$Version.nupkg", "io7.FreePDF.Layout.$Version.nupkg")
-if (@($receipt.packages).Count -ne 2 -or (Compare-Object ($expected | Sort-Object) (@($receipt.packages.file) | Sort-Object))) { throw 'Unexpected release package manifest.' }
+foreach ($framework in $RequiredFrameworks) { ExpectConsumer '' $framework }
+foreach ($framework in $RequiredWindowsFrameworks) { foreach ($variant in @('Gdi','Wpf')) { ExpectConsumer $variant $framework } }
+$expected = @('io7.FreePDF','io7.FreePDF.Layout','io7.FreePDF.Gdi','io7.FreePDF.Layout.Gdi','io7.FreePDF.Wpf','io7.FreePDF.Layout.Wpf') | ForEach-Object { "$_.$Version.nupkg" }
+if (@($receipt.packages).Count -ne $expected.Count -or (Compare-Object ($expected | Sort-Object) (@($receipt.packages.file) | Sort-Object))) { throw 'Unexpected release package manifest.' }
 $actual = @(Get-ChildItem -LiteralPath $root -File -Filter '*.nupkg' | ForEach-Object Name)
 if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object)) { throw 'Unexpected release package files.' }
 foreach ($package in $receipt.packages) {

@@ -7,7 +7,10 @@ assembly names does **not** make existing v6 binaries compatible.
 ## Packages and rebuilding
 
 Replace `PDFsharp` with `io7.FreePDF`, and `PDFsharp-MigraDoc` with
-`io7.FreePDF.Layout`. The latter depends on the former. FreePDF 7.0.0 named
+`io7.FreePDF.Layout`. The latter depends on the former. Windows applications on
+the GDI or WPF builds replace `PDFsharp-GDI`/`PDFsharp-MigraDoc-GDI` with
+`io7.FreePDF.Gdi`/`io7.FreePDF.Layout.Gdi`, and `PDFsharp-WPF`/`PDFsharp-MigraDoc-WPF`
+with `io7.FreePDF.Wpf`/`io7.FreePDF.Layout.Wpf` (since 7.1). FreePDF 7.0.0 named
 the layout package `io7.FreePDF.MigraDoc`; it was renamed before the first
 NuGet release. Remove upstream
 packages from the entire dependency graph, including transitive references,
@@ -18,11 +21,12 @@ Since 7.0.1, FreePDF assemblies are strong-named with io7's key (public key
 token `77af05c50284aa70`). 7.0.0 used empira's key (`f94615aa0424f9eb`), so
 rebuild anything compiled against 7.0.0 and do not mix the two versions.
 
-The packages contain the portable core, barcodes, charts, cryptography, document
-model, PDF renderer and RTF renderer. Upstream's Quality, Snippets and WPFonts
-helper assemblies are not shipped. GDI/WPF source variants are build-checked
-separately; these are not GDI/WPF NuGet packages. Configure an application-owned
-font resolver; test fixtures' fonts are not product dependencies.
+The packages contain the core, barcodes, charts, cryptography, document model,
+PDF renderer and RTF renderer for their variant. Upstream's Quality, Snippets and
+WPFonts helper assemblies are not shipped. The GDI and WPF packages keep upstream's
+assembly names (`PdfSharp-gdi`, `MigraDoc.Rendering-wpf` and so on), so binding
+redirects and reflection that name them keep working. Configure an application-owned
+font resolver for the portable packages; test fixtures' fonts are not product dependencies.
 
 ## Common source changes inherited from v7
 

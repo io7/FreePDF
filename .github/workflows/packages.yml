@@ -36,12 +36,14 @@ jobs:
         shell: pwsh
         run: |
           $frameworks = if ($IsWindows) { @('net8.0','net9.0','net10.0','net462','net472') } else { @('net8.0','net9.0','net10.0') }
-          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-packages" -Frameworks $frameworks
+          # GDI and WPF package consumers run on Windows only.
+          $windowsFrameworks = if ($IsWindows) { @('net8.0-windows','net472') } else { @() }
+          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-packages" -Frameworks $frameworks -WindowsFrameworks $windowsFrameworks
           [xml]$props = Get-Content src/FreePDF.Version.props
           if (!$props.Project.PropertyGroup.FreePDFVersionLabel) {
             $receipt = Get-Content "$env:RUNNER_TEMP/freepdf-packages/validation.json" -Raw | ConvertFrom-Json
-            ./eng/Test-ReleaseArtifact.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks
-            ./eng/Test-ReleaseArtifact.Tests.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks
+            ./eng/Test-ReleaseArtifact.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks -RequiredWindowsFrameworks $windowsFrameworks
+            ./eng/Test-ReleaseArtifact.Tests.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -ExpectedRevision $env:GITHUB_SHA -Version $receipt.version -RequiredFrameworks $frameworks -RequiredWindowsFrameworks $windowsFrameworks
           }
       - name: Audit public APIs against pinned MIT packages
         if: runner.os == 'Linux'
@@ -62,7 +64,8 @@ jobs:
         shell: pwsh
         run: |
           $frameworks = if ($IsWindows) { @('net10.0','net472') } else { @('net10.0') }
-          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-stable-rehearsal" -Frameworks $frameworks -StableRehearsal
+          $windowsFrameworks = if ($IsWindows) { @('net472') } else { @() }
+          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-stable-rehearsal" -Frameworks $frameworks -WindowsFrameworks $windowsFrameworks -StableRehearsal
       - name: Independently validate the stable rehearsal
         if: runner.os == 'Linux'
         shell: pwsh
@@ -74,7 +77,7 @@ jobs:
           path: |
             ${{ runner.temp }}/freepdf-packages/*.nupkg
             ${{ runner.temp }}/freepdf-packages/validation.json
-            ${{ runner.temp }}/freepdf-packages/library-advisories.json
+            ${{ runner.temp }}/freepdf-packages/library-advisories*.json
             ${{ runner.temp }}/freepdf-packages/library-dependencies/**
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: 14

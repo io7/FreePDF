@@ -2,6 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$OutputDirectory,
     [string[]]$Frameworks = @('net10.0'),
+    # GDI and WPF package consumers run on Windows only; the packages are built and inspected everywhere.
+    [string[]]$WindowsFrameworks = @('net8.0-windows','net472'),
     [switch]$StableRehearsal
 )
 $ErrorActionPreference = 'Stop'
@@ -17,15 +19,26 @@ $settings = $versionProps.Project.PropertyGroup
 $version = "$($settings.FreePDFVersionMajor).$($settings.FreePDFVersionMinor).$($settings.FreePDFVersionPatch)"
 if (!$StableRehearsal -and $settings.FreePDFVersionLabel) { $version += "-$($settings.FreePDFVersionLabel)" }
 [string[]]$versionProperties = if ($StableRehearsal) { @('-p:FreePDFVersionLabel=') } else { @() }
-foreach ($project in @('FreePDF','Layout')) {
+foreach ($project in @('FreePDF','Layout','FreePDF.Gdi','Layout.Gdi','FreePDF.Wpf','Layout.Wpf')) {
     & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
     if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
 }
 & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/packages/FreePDF/obj/project.assets.json" -OutputDirectory "$output/library-dependencies"
 & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
+foreach ($variant in @('Gdi','Wpf')) {
+    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF.$variant/FreePDF.$variant.csproj" -OutputPath "$output/library-advisories-$($variant.ToLowerInvariant()).json"
+}
+$portable = @('net8.0','net9.0','net10.0','netstandard2.0')
+$windows = @('net8.0-windows7.0','net9.0-windows7.0','net10.0-windows7.0','net462')
+function CoreAssemblies([string]$suffix) { @("PdfSharp$suffix",'PdfSharp.Shared','PdfSharp.System','PdfSharp.Imaging','PdfSharp.OpenType',"PdfSharp.BarCodes$suffix","PdfSharp.Charting$suffix",'PdfSharp.Cryptography') }
+function LayoutAssemblies([string]$suffix) { @('MigraDoc.DocumentObjectModel',"MigraDoc.Rendering$suffix","MigraDoc.RtfRendering$suffix") }
 $expected = @{
-    'io7.FreePDF' = @('PdfSharp','PdfSharp.Shared','PdfSharp.System','PdfSharp.Imaging','PdfSharp.OpenType','PdfSharp.BarCodes','PdfSharp.Charting','PdfSharp.Cryptography')
-    'io7.FreePDF.Layout' = @('MigraDoc.DocumentObjectModel','MigraDoc.Rendering','MigraDoc.RtfRendering')
+    'io7.FreePDF' = @{ assemblies = (CoreAssemblies ''); frameworks = $portable; dependsOn = '' }
+    'io7.FreePDF.Layout' = @{ assemblies = (LayoutAssemblies ''); frameworks = $portable; dependsOn = 'io7.FreePDF' }
+    'io7.FreePDF.Gdi' = @{ assemblies = (CoreAssemblies '-gdi'); frameworks = $windows; dependsOn = '' }
+    'io7.FreePDF.Layout.Gdi' = @{ assemblies = (LayoutAssemblies '-gdi'); frameworks = $windows; dependsOn = 'io7.FreePDF.Gdi' }
+    'io7.FreePDF.Wpf' = @{ assemblies = (CoreAssemblies '-wpf'); frameworks = $windows; dependsOn = '' }
+    'io7.FreePDF.Layout.Wpf' = @{ assemblies = (LayoutAssemblies '-wpf'); frameworks = $windows; dependsOn = 'io7.FreePDF.Wpf' }
 }
 foreach ($id in $expected.Keys) {
     $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $output "$id.$version.nupkg"))
@@ -38,14 +51,17 @@ foreach ($id in $expected.Keys) {
         $icon = $archive.GetEntry('icon.png')
         if (!$icon -or $icon.Length -eq 0 -or $icon.Length -gt 1MB) { throw "Missing or invalid package icon: $id" }
         foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
-        foreach ($tfm in @('net8.0','net9.0','net10.0','netstandard2.0')) {
+        $folders = @($archive.Entries | Where-Object { $_.FullName -like 'lib/*/*.dll' } | ForEach-Object { $_.FullName.Split('/')[1] } | Sort-Object -Unique)
+        if (Compare-Object ($expected[$id].frameworks | Sort-Object) $folders) { throw "Incorrect target frameworks in ${id}: $($folders -join ', ')" }
+        foreach ($tfm in $expected[$id].frameworks) {
             $names = @($archive.Entries | Where-Object { $_.FullName -like "lib/$tfm/*.dll" } | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.FullName) })
-            if (Compare-Object ($expected[$id] | Sort-Object) ($names | Sort-Object)) { throw "Incorrect assemblies in $id/$tfm" }
+            if (Compare-Object ($expected[$id].assemblies | Sort-Object) ($names | Sort-Object)) { throw "Incorrect assemblies in $id/$tfm" }
         }
         foreach ($group in $nuspec.package.metadata.dependencies.group) {
-            $dependencies = @($group.dependency)
+            $dependencies = @($group.dependency | Where-Object { $_ })
             if ($dependencies.id -match '^(PDFsharp|PDFsharp-MigraDoc)(-|$)') { throw 'Upstream package dependency is forbidden.' }
-            if ($id -eq 'io7.FreePDF.Layout' -and !($dependencies | Where-Object { $_.id -eq 'io7.FreePDF' -and $_.version -match [regex]::Escape($version) })) { throw 'Missing FreePDF dependency.' }
+            $core = $expected[$id].dependsOn
+            if ($core -and !($dependencies | Where-Object { $_.id -eq $core -and $_.version -match [regex]::Escape($version) })) { throw "Missing $core dependency in $id." }
         }
     } finally { $archive.Dispose() }
 }
@@ -67,19 +83,29 @@ try {
     finally { $certificate.Dispose() }
 } finally { $key.Dispose() }
 $results = @()
-foreach ($framework in $Frameworks) {
+$runs = @($Frameworks | ForEach-Object { @{ variant = ''; framework = $_ } })
+if ($IsWindows) { foreach ($variant in @('Gdi','Wpf')) { $runs += @($WindowsFrameworks | ForEach-Object { @{ variant = $variant; framework = $_ } }) } }
+foreach ($run in $runs) {
+    $framework = $run.framework
+    $variant = $run.variant
     if ($framework -match '^net4' -and !$IsWindows) { throw 'Framework execution requires Windows.' }
-    & dotnet restore $consumer --configfile $config --packages "$output/.packages" "-p:TargetFrameworks=$framework" "-p:FreePDFPackageVersion=$version"
-    if ($LASTEXITCODE -ne 0) { throw "Consumer restore failed: $framework" }
-    & dotnet build $consumer -c Release -f $framework --no-restore -m:1 "-p:TargetFrameworks=$framework" "-p:FreePDFPackageVersion=$version"
-    if ($LASTEXITCODE -ne 0) { throw "Consumer build failed: $framework" }
+    $properties = @("-p:TargetFrameworks=$framework", "-p:FreePDFPackageVersion=$version", "-p:FreePDFVariant=$variant")
+    & dotnet restore $consumer --configfile $config --packages "$output/.packages" @properties
+    if ($LASTEXITCODE -ne 0) { throw "Consumer restore failed: $variant $framework" }
+    & dotnet build $consumer -c Release -f $framework --no-restore -m:1 @properties
+    if ($LASTEXITCODE -ne 0) { throw "Consumer build failed: $variant $framework" }
     $binary = "$repo/tests/PackageSmoke/bin/Release/$framework/PackageSmoke"
-    $fixtures = Join-Path $output "consumer-$framework"
+    $name = if ($variant) { "consumer-$($variant.ToLowerInvariant())-$framework" } else { "consumer-$framework" }
+    $fixtures = Join-Path $output $name
     if ($framework -match '^net4') { & "$binary.exe" $fixtures $certificatePath } else { & dotnet "$binary.dll" $fixtures $certificatePath }
-    if ($LASTEXITCODE -ne 0) { throw "Installed package execution failed: $framework" }
+    if ($LASTEXITCODE -ne 0) { throw "Installed package execution failed: $variant $framework" }
     & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/tests/PackageSmoke/obj/project.assets.json" -OutputDirectory "$fixtures/dependencies"
-    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json"
-    $results += @{ framework=$framework; status='passed'; fixtures="consumer-$framework/consumer-results.xml" }
+    # dotnet list package takes no MSBuild properties; MSBuild reads the variant from the environment instead,
+    # so the project evaluates to the same package as the restore above.
+    $env:FreePDFVariant = $variant
+    try { & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project $consumer -OutputPath "$fixtures/advisories.json" }
+    finally { Remove-Item Env:FreePDFVariant -ErrorAction SilentlyContinue }
+    $results += @{ variant=$variant; framework=$framework; status='passed'; fixtures="$name/consumer-results.xml" }
 }
 if ((& git -C $repo rev-parse HEAD).Trim() -ne $revision) { throw 'Source revision changed during packaging; rebuild from one revision.' }
 $endedDirty = @(& git -C $repo status --porcelain).Count -ne 0
