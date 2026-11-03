@@ -12,6 +12,17 @@
   `io7.FreePDF.Layout.Wpf` replace `PDFsharp-WPF` and `PDFsharp-MigraDoc-WPF`.
   They target Windows .NET 8, 9, 10 and .NET Framework 4.6.2, keep upstream's
   assembly names, and are installed and run on Windows in CI.
+- Add `FacturXManager` for Factur-X / ZUGFeRD hybrid invoices.
+  `SetInvoice(xml, profile)` embeds the Cross Industry Invoice as `factur-x.xml`
+  (`xrechnung.xml` for XRechnung) with MIME type `text/xml` and the profile's
+  `/AFRelationship` (Data for MINIMUM and BASIC WL, Alternative otherwise, or the
+  caller's choice), lists it in the catalog `/AF`, makes the document PDF/A-3B
+  if it has no PDF/A format yet, and adds the Factur-X extension schema and
+  properties to the XMP metadata. It accepts only well-formed Cross Industry
+  Invoice XML. The package release check validates a Factur-X file with veraPDF.
+- `EmbeddedFilesManager.GetEmbeddedFileInfo` now reports the file's
+  `AFRelationship` (it always reported none) and its MIME type without the
+  leading slash of the PDF name, as they were set.
 - Fix the BMP importer's file-size check, which was inverted since the v7 import
   refactoring: it rejected bitmaps followed by extra bytes and accepted truncated
   ones. GDI+ and WPF images (`XImage.FromGdiPlusImage`, `XImage.FromBitmapSource`)
