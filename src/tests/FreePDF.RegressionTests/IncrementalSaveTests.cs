@@ -334,8 +334,10 @@ public class IncrementalSaveTests
         return output.ToArray();
     }
 
-    sealed record SignatureRange(long[] Range)
+    // A class, not a record: records need IsExternalInit, which .NET Framework 4.7.2 lacks.
+    sealed class SignatureRange(long[] range)
     {
+        public long[] Range { get; } = range;
         public long CoveredEnd => Range[2] + Range[3];
     }
 
