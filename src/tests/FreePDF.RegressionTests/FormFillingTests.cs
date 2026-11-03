@@ -133,4 +133,62 @@ public class FormFillingTests
         var refused = Assert.Throws<InvalidOperationException>(() => name.Text = "New");
         Assert.Contains("name", refused.Message);
     }
+
+    static string NormalAppearance(PdfDictionary widget)
+    {
+        var appearance = widget.Elements.GetDictionary("/AP")!.Elements.GetDictionary("/N")!;
+        Assert.Equal("/Form", appearance.Elements.GetName("/Subtype"));
+        return TestPdf.Latin1.GetString(appearance.Stream!.UnfilteredValue);
+    }
+
+    [Fact]
+    public void Filling_a_text_field_draws_its_appearance_with_the_default_appearance_font_and_colour()
+    {
+        using var document = Open();
+        ((PdfFormTextField)Fields(document)["name"]!).Text = "Ada (Countess) Lovelace";
+
+        using var reopened = SaveAndReopen(document);
+        var name = Fields(reopened)["name"]!;
+        var stream = NormalAppearance(name);
+        Assert.Contains("/Tx BMC", stream);
+        Assert.Contains("/Helv 12 Tf 0 0 1 rg", stream);
+        Assert.Contains(@"(Ada \(Countess\) Lovelace) Tj", stream);
+        var appearance = name.Elements.GetDictionary("/AP")!.Elements.GetDictionary("/N")!;
+        Assert.NotNull(appearance.Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!.Elements.GetDictionary("/Helv"));
+        Assert.False(reopened.Catalog.GetAcroForm()!.NeedAppearances);
+    }
+
+    [Fact]
+    public void Choice_fields_draw_the_selected_text_or_the_highlighted_list()
+    {
+        using var document = Open();
+        ((PdfFormComboBoxField)Fields(document)["country"]!).SelectedValue = "DK";
+        ((PdfFormListBoxField)Fields(document)["colour"]!).SelectedIndex = 1;
+
+        using var reopened = SaveAndReopen(document);
+        Assert.Contains("(Denmark) Tj", NormalAppearance(Fields(reopened)["country"]!));
+        var list = NormalAppearance(Fields(reopened)["colour"]!);
+        Assert.Contains("(Red) Tj", list);
+        Assert.Contains("(Blue) Tj", list);
+        Assert.Contains("0.6 0.75 0.86 rg", list);
+    }
+
+    [Fact]
+    public void Norwegian_letters_are_drawn_in_the_WinAnsi_encoding()
+    {
+        using var document = Open();
+        ((PdfFormTextField)Fields(document)["name"]!).Text = "Åse Ærø";
+
+        Assert.Contains("(\u00c5se \u00c6r\u00f8) Tj", NormalAppearance(Fields(document)["name"]!));
+        Assert.False(document.Catalog.GetAcroForm()!.NeedAppearances);
+    }
+
+    [Fact]
+    public void Text_the_form_font_cannot_encode_is_left_to_the_viewer()
+    {
+        using var document = Open();
+        ((PdfFormTextField)Fields(document)["name"]!).Text = "日本";
+
+        Assert.True(document.Catalog.GetAcroForm()!.NeedAppearances);
+    }
 }

@@ -34,6 +34,28 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// Writes a new value through <paramref name="setValue"/> and rebuilds the appearance of every widget. If the
+        /// appearance cannot be built (see <see cref="FieldAppearance.CanBuild"/>), viewers are asked to build it
+        /// (NeedAppearances); a PDF/A document, which does not allow that, refuses the value instead.
+        /// </summary>
+        internal void SetValueWithAppearance(FieldContent content, Action setValue)
+        {
+            var field = (PdfFormTextFieldBase)this;
+            bool canBuild = FieldAppearance.CanBuild(field, content);
+            if (!canBuild && PdfSharp.Pdf.PdfA.PdfAManager.ForDocument(Owner).IsPdfADocument)
+            {
+                throw new InvalidOperationException(
+                    $"The value of form field '{FullName}' cannot be shown in this PDF/A document: its default appearance " +
+                    "needs a font in the form's resources that can encode the text, and PDF/A does not allow NeedAppearances.");
+            }
+            setValue();
+            if (canBuild)
+                FieldAppearance.TryUpdate(field, content);
+            else
+                Owner.Catalog.GetOrCreateAcroForm().NeedAppearances = true;
+        }
+
+        /// <summary>
         /// Throws if the field is read only.
         /// </summary>
         internal void ThrowIfReadOnly()

@@ -17,7 +17,11 @@ namespace PdfSharp.Pdf.Forms
                 if (value == null!)
                     throw new ArgumentNullException(nameof(value));
                 ThrowIfReadOnly();
-                Elements[Keys.V] = new PdfString(value);
+                // A password field shows one asterisk per character.
+                var shown = value;
+                if (TestFlag(PdfFormFieldFlags.Password))
+                    shown = new string('*', value.Length);
+                SetValueWithAppearance(new FieldContent { Text = shown }, () => Elements[Keys.V] = new PdfString(value));
             }
         }
     }

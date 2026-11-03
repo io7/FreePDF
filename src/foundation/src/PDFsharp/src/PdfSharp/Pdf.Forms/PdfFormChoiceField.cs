@@ -41,8 +41,11 @@ namespace PdfSharp.Pdf.Forms
                     Elements.Remove("/I");
                     return;
                 }
-                Elements[Keys.V] = new PdfString(options[value].Export);
-                Elements["/I"] = new PdfArray(Owner, new PdfInteger(value));
+                SetValueWithAppearance(Content(options, value, options[value].Display), () =>
+                {
+                    Elements[Keys.V] = new PdfString(options[value].Export);
+                    Elements["/I"] = new PdfArray(Owner, new PdfInteger(value));
+                });
             }
         }
 
@@ -69,9 +72,22 @@ namespace PdfSharp.Pdf.Forms
                 if (!TestFlag(PdfFormFieldFlags.Edit))
                     throw new ArgumentException($"The choice field '{FullName}' has no option '{value}'.", nameof(value));
                 ThrowIfReadOnly();
-                Elements[Keys.V] = new PdfString(value);
-                Elements.Remove("/I");
+                SetValueWithAppearance(Content(ReadOptions(), -1, value), () =>
+                {
+                    Elements[Keys.V] = new PdfString(value);
+                    Elements.Remove("/I");
+                });
             }
+        }
+
+        /// <summary>
+        /// What the field shows: a list box shows its options with the selection, a combo box the selected text.
+        /// </summary>
+        FieldContent Content(List<(string Export, string Display)> options, int selectedIndex, string shownText)
+        {
+            if (this is PdfFormListBoxField)
+                return new FieldContent { Options = options.Select(option => option.Display).ToList(), SelectedIndex = selectedIndex };
+            return new FieldContent { Text = shownText };
         }
 
         List<(string Export, string Display)> ReadOptions()
