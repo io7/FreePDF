@@ -1153,7 +1153,7 @@ namespace PdfSharp.Pdf.IO
                     var suppressObjectOrderExceptions = new SuppressExceptions();
 
                     // Read the PdfObjectStream object.
-                    var objectStream = ReadObjectStream(objectStreamReference!, suppressObjectOrderExceptions);
+                    var objectStream = ReadObjectStream(objectStreamReference, suppressObjectOrderExceptions);
                     if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                     {
                         // Exceptional case: Reset objectStreamReference. Value back to null, because it could not be read
@@ -1227,7 +1227,7 @@ namespace PdfSharp.Pdf.IO
                         // Suppress exceptions that may be caused by not yet available objects.
                         var suppressObjectOrderExceptions = new SuppressExceptions();
 
-                        var objectStream = ReadObjectStream(objectStreamReference!, suppressObjectOrderExceptions);
+                        var objectStream = ReadObjectStream(objectStreamReference, suppressObjectOrderExceptions);
                         if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                         {
                             // Exceptional case: Reset objectStreamReference. Value back to null, because it could not be read
@@ -1271,8 +1271,11 @@ namespace PdfSharp.Pdf.IO
 #endif
         }
 
-        PdfObjectStream ReadObjectStream(PdfReference reference, SuppressExceptions? suppressObjectOrderExceptions)
+        PdfObjectStream ReadObjectStream(PdfReference? reference, SuppressExceptions? suppressObjectOrderExceptions)
         {
+            if (reference == null)
+                throw new PdfReaderException("An object stream named by the cross-reference data is missing from the file.");
+
             if (reference.Value == default!)
             {
                 ReadIndirectObject(reference, suppressObjectOrderExceptions);
@@ -1280,21 +1283,17 @@ namespace PdfSharp.Pdf.IO
                     return null!;
             }
 
-            Debug.Assert(reference.Value != null, "The object shall be read in by PdfReader.ReadIndirectObjectsFromIrefTable() before accessing it.");
-
             if (reference.Value is not PdfObjectStream pdfObjectStream)
             {
-                Debug.Assert(((PdfDictionary)reference.Value).Elements.GetName("/Type") == "/ObjStm");
+                // Only an untyped stream can become an object stream. Anything else (missing, not a stream, or an
+                // object that already has a type, such as the catalog) means the cross-reference data is damaged;
+                // converting it would destroy that object.
+                if (reference.Value is not PdfDictionary { Stream: not null } dict || dict.GetType() != typeof(PdfDictionary))
+                    throw new PdfReaderException($"Object {reference.ObjectNumber} is named as an object stream but is not one.");
 
-                pdfObjectStream = new PdfObjectStream((PdfDictionary)reference.Value, _documentParser);
+                pdfObjectStream = new PdfObjectStream(dict, _documentParser);
                 Debug.Assert(pdfObjectStream.Reference == reference);
-                // objectStream.Reference = iref; Superfluous, see Assert in line before.
-                Debug.Assert(pdfObjectStream.Reference.Value != null, "Something went wrong.");
             }
-            Debug.Assert(pdfObjectStream != null);
-
-            if (pdfObjectStream == null)
-                throw new Exception("Something went wrong here.");
 
             return pdfObjectStream;
         }
@@ -1315,12 +1314,10 @@ namespace PdfSharp.Pdf.IO
             for (int idx = 0; idx < n; idx++)
             {
                 int number = ReadInteger();
-#if DEBUG_
-                if (number == 1074)
-                    _ = typeof(int);
-#endif
-                int offset = ReadInteger() + first;  // Calculate absolute offset.
-                header[idx] = [number, offset];
+                int offset = ReadInteger();
+                if (number < 0 || offset < 0 || (long)offset + first > _lexer.PdfLength)
+                    throw new PdfReaderException($"Object stream header entry '{number} {offset}' is invalid.");
+                header[idx] = [number, offset + first];  // Absolute offset.
             }
             return header;
         }
