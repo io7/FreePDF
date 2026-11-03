@@ -66,6 +66,29 @@ namespace MigraDoc.Rendering
 
         internal override void Render()
         {
+            var structure = _documentRenderer.ContentStructure;
+            if (structure == null || _image.Decorative)
+            {
+                // Untagged output, or decoration: an artifact in a tagged PDF.
+                _documentRenderer.RenderAsArtifact(RenderImage);
+                return;
+            }
+
+            // A tagged PDF needs a text alternative for every image that carries information (ISO 14289-1 7.3).
+            if (String.IsNullOrWhiteSpace(_image.AlternativeText))
+                throw new InvalidOperationException(
+                    $"Image '{_image.Name}' has no alternative text. For a tagged PDF set Image.AlternativeText, or Image.Decorative if it is decoration only.");
+
+            ImageFormatInfo info = (ImageFormatInfo)_renderInfo.FormatInfo;
+            Area area = _renderInfo.LayoutInfo.ContentArea;
+            structure.BeginElement(PdfSharp.UniversalAccessibility.PdfIllustrationElementTag.Figure, _image.AlternativeText,
+                new XRect(area.X, area.Y, info.Width, info.Height));
+            RenderImage();
+            structure.End();
+        }
+
+        void RenderImage()
+        {
             RenderFilling();
 
             ImageFormatInfo formatInfo = (ImageFormatInfo)_renderInfo.FormatInfo;

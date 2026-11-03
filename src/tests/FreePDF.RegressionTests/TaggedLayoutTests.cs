@@ -110,6 +110,50 @@ public class TaggedLayoutTests
         Assert.Equal(pdf.PageCount * 2, types.Count(t => t == "/TH"));
     }
 
+    // A 2 x 2 pixel 8-bit RGB PNG, as MigraDoc's base64 image name.
+    const string Pixel = "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12N0a9rCwMDAxMDAwMDAAAARjAGAcK5hlwAAAABJRU5ErkJggg==";
+
+    [Fact]
+    public void An_image_with_alternative_text_is_a_figure_and_a_decorative_one_is_an_artifact()
+    {
+        var document = Invoice();
+        var logo = document.LastSection.AddImage(Pixel);
+        logo.AlternativeText = "Company logo";
+        document.LastSection.AddImage(Pixel).Decorative = true;
+
+        using var pdf = RenderAndReopen(document);
+
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(1, types.Count(t => t == "/Figure"));
+    }
+
+    [Fact]
+    public void An_image_without_alternative_text_stops_tagged_rendering()
+    {
+        var document = Invoice();
+        document.LastSection.AddImage(Pixel);
+        var renderer = new PdfDocumentRenderer { Document = document, TaggedPdf = true };
+
+        var refused = Assert.Throws<InvalidOperationException>(renderer.RenderDocument);
+        Assert.Contains("AlternativeText", refused.Message);
+    }
+
+    [Fact]
+    public void Alternative_text_and_decorative_survive_DDL_serialization()
+    {
+        var document = Invoice();
+        var logo = document.LastSection.AddImage(Pixel);
+        logo.AlternativeText = "Company logo";
+        logo.Decorative = true;
+
+        var ddl = MigraDoc.DocumentObjectModel.IO.DdlWriter.WriteToString(document);
+        var copy = MigraDoc.DocumentObjectModel.IO.DdlReader.DocumentFromString(ddl);
+
+        var image = copy.LastSection.Elements.OfType<MigraDoc.DocumentObjectModel.Shapes.Image>().Single();
+        Assert.Equal("Company logo", image.AlternativeText);
+        Assert.True(image.Decorative);
+    }
+
     [Fact]
     public void A_tagged_document_needs_a_title()
     {

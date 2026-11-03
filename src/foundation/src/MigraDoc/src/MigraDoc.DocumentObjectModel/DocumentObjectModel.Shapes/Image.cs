@@ -124,6 +124,26 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             get => Values.Interpolate ?? true;
             set => Values.Interpolate = value;
         }
+
+        /// <summary>
+        /// Gets or sets the alternative text: a short description of what the image shows, read by screen readers.
+        /// A tagged PDF (PdfDocumentRenderer.TaggedPdf) requires it for every image that is not decorative.
+        /// </summary>
+        public string AlternativeText
+        {
+            get => Values.AlternativeText ?? "";
+            set => Values.AlternativeText = value;
+        }
+
+        /// <summary>
+        /// Gets or sets whether the image is decoration only. In a tagged PDF a decorative image is an artifact,
+        /// which screen readers skip, and needs no alternative text.
+        /// </summary>
+        public bool Decorative
+        {
+            get => Values.Decorative ?? false;
+            set => Values.Decorative = value;
+        }
         //#endregion
 
         /// <summary>
@@ -146,6 +166,10 @@ namespace MigraDoc.DocumentObjectModel.Shapes
                 serializer.WriteSimpleAttribute("Resolution", Resolution);
             if (Values.Interpolate is not null)
                 serializer.WriteSimpleAttribute("Interpolate", Interpolate);
+            if (Values.AlternativeText is not null)
+                serializer.WriteSimpleAttribute("AlternativeText", AlternativeText);
+            if (Values.Decorative is not null)
+                serializer.WriteSimpleAttribute("Decorative", Decorative);
 
             Values.PictureFormat?.Serialize(serializer);
 
@@ -243,6 +267,18 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             /// See enclosing document object class for documentation of this property.
             /// </summary>
             public bool? Interpolate { get; set; }
+
+            /// <summary>
+            /// Gets or sets the internal nullable implementation value of the enclosing document object property.
+            /// See enclosing document object class for documentation of this property.
+            /// </summary>
+            public string? AlternativeText { get; set; }
+
+            /// <summary>
+            /// Gets or sets the internal nullable implementation value of the enclosing document object property.
+            /// See enclosing document object class for documentation of this property.
+            /// </summary>
+            public bool? Decorative { get; set; }
         }
     }
 }
