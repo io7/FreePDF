@@ -24,6 +24,10 @@
   `Flatten()` only marked the top-level fields read-only, and FreePDF 7.0 threw
   `InvalidOperationException`, so 6.2.4 code that called it compiled and then
   failed at run time.
+- Tagged PDF (`PdfDocumentRenderer.TaggedPdf`): a table that runs over several
+  pages is one Table element, and the heading rows repeated on later pages are
+  artifacts, so a screen reader meets the table and its headers once. Before,
+  each page's part was a separate Table with its own header cells.
 
 ## 7.1.1
 
