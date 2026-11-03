@@ -1,9 +1,11 @@
 # FreePDF
 
-FreePDF is io7's MIT continuation of the verified MIT PDFsharp/MigraDoc source.
-It is maintained independently by io7 and is not an empira release. Original
-copyright notices and the MIT licence are retained. New fixes use independent
-reproductions; see PROVENANCE.md.
+FreePDF is a drop-in replacement for PDFsharp and MigraDoc 6.2.4 that stays under
+the MIT licence. PDFsharp 6.5 and 7.0 are licensed under the AGPL or a commercial
+licence; FreePDF continues from the last MIT source, and most applications switch
+by replacing the package references. It is maintained independently by io7 and
+is not an empira release. Original copyright notices and the MIT licence are
+retained. New fixes use independent reproductions; see PROVENANCE.md.
 
 | Package | Replaces | Provides |
 | --- | --- | --- |
