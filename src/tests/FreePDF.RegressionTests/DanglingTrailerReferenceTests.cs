@@ -1,6 +1,7 @@
 // Trailer entries that reference objects missing from the file. ISO 32000-1 7.3.10 treats a reference to an
 // undefined object as null; the reader threw ArgumentNullException instead. Found by the corpus round trip.
 // Original fixtures; MIT, see LICENSE.
+using System.Text;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 using Xunit;
@@ -28,6 +29,16 @@ public class DanglingTrailerReferenceTests
         }
         using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), PdfDocumentOpenMode.Import);
         Assert.Equal("Set after opening", reopened.Info.Title);
+    }
+
+    [Theory]
+    [InlineData(PdfDocumentOpenMode.Import)]
+    [InlineData(PdfDocumentOpenMode.Modify)]
+    public void A_missing_catalog_is_a_reader_error(PdfDocumentOpenMode mode)
+    {
+        var text = Encoding.ASCII.GetString(TestPdf.Create(SimplePage)).Replace("/Root 1 0 R", "/Root 99 0 R");
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(Encoding.ASCII.GetBytes(text)), mode));
     }
 
     [Fact]

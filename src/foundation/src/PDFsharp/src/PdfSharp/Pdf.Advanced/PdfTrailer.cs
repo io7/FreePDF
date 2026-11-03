@@ -204,9 +204,13 @@ namespace PdfSharp.Pdf.Advanced
                 //if (iref != null && iref.Value == null)
                 if (iref is { Value: null })
                 {
-                    iref = Document.IrefTable[iref.ObjectID];
-                    Debug.Assert(iref is not null && iref.Value != null);
-                    currentTrailer.Elements[Keys.Root] = iref;
+                    var resolved = Document.IrefTable[iref.ObjectID];
+                    if (resolved?.Value != null)
+                        currentTrailer.Elements[Keys.Root] = resolved;
+                    else if (ReferenceEquals(currentTrailer, Document.Trailer))
+                        throw new PdfReaderException("The trailer's /Root refers to an object missing from the file.");
+                    else
+                        currentTrailer.Elements.Remove(Keys.Root); // Only an earlier revision's trailer; not used.
                 }
 
                 currentTrailer = currentTrailer.PreviousTrailer;
