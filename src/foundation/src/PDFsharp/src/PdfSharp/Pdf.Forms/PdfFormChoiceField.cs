@@ -1,12 +1,95 @@
-﻿// PDFsharp - A .NET library for processing PDF
+// PDFsharp - A .NET library for processing PDF
 // See the LICENSE file in the solution root for more information.
-
-using PdfSharp.Pdf.Advanced;
-using PdfSharp.Pdf.Annotations;
-using PdfSharp.Pdf.Internal;
-
-// v7.0.0 TODO review
 
 namespace PdfSharp.Pdf.Forms
 {
+    public abstract partial class PdfFormChoiceField
+    {
+        /// <summary>
+        /// Gets the options shown to the user, in /Opt order.
+        /// </summary>
+        public IReadOnlyList<string> Options => ReadOptions().Select(option => option.Display).ToList();
+
+        /// <summary>
+        /// Gets the export values of the options, in /Opt order. An option without a separate export value exports
+        /// its display text.
+        /// </summary>
+        public IReadOnlyList<string> ExportValues => ReadOptions().Select(option => option.Export).ToList();
+
+        /// <summary>
+        /// Gets or sets the index of the selected option, or -1 if none is selected. Setting it writes the export
+        /// value (/V) and the selected index (/I).
+        /// </summary>
+        public int SelectedIndex
+        {
+            get
+            {
+                var value = SelectedValue;
+                if (value == null)
+                    return -1;
+                return ExportValues.ToList().IndexOf(value);
+            }
+            set
+            {
+                ThrowIfReadOnly();
+                var options = ReadOptions();
+                if (value < -1 || value >= options.Count)
+                    throw new ArgumentOutOfRangeException(nameof(value), $"The choice field '{FullName}' has {options.Count} options.");
+                if (value == -1)
+                {
+                    Elements.Remove(Keys.V);
+                    Elements.Remove("/I");
+                    return;
+                }
+                Elements[Keys.V] = new PdfString(options[value].Export);
+                Elements["/I"] = new PdfArray(Owner, new PdfInteger(value));
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the export value of the selected option, or null if none is selected. Setting a value that is
+        /// not an option is allowed only for an editable combo box.
+        /// </summary>
+        public string? SelectedValue
+        {
+            get => GetElementsValue<PdfString>(Keys.V)?.Value;
+            set
+            {
+                if (value == null)
+                {
+                    SelectedIndex = -1;
+                    return;
+                }
+                var index = ExportValues.ToList().IndexOf(value);
+                if (index >= 0)
+                {
+                    SelectedIndex = index;
+                    return;
+                }
+                if (!TestFlag(PdfFormFieldFlags.Edit))
+                    throw new ArgumentException($"The choice field '{FullName}' has no option '{value}'.", nameof(value));
+                ThrowIfReadOnly();
+                Elements[Keys.V] = new PdfString(value);
+                Elements.Remove("/I");
+            }
+        }
+
+        List<(string Export, string Display)> ReadOptions()
+        {
+            var options = new List<(string, string)>();
+            var opt = GetElementsValue<PdfArray>("/Opt");
+            if (opt == null)
+                return options;
+            foreach (var item in opt.Elements)
+            {
+                var entry = item;
+                PdfSharp.Pdf.Advanced.PdfReference.Dereference(ref entry);
+                if (entry is PdfString text)
+                    options.Add((text.Value, text.Value));
+                else if (entry is PdfArray { Elements.Count: 2 } pair && pair.Elements[0] is PdfString export && pair.Elements[1] is PdfString display)
+                    options.Add((export.Value, display.Value));
+            }
+            return options;
+        }
+    }
 }

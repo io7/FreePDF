@@ -15,7 +15,7 @@ namespace PdfSharp.Pdf.Forms
     /// Base class for all interactive form (AcroForm) fields.
     /// Fields are always created as indirect objects.
     /// </summary>
-    public abstract class PdfFormField : PdfDictionary // TODO: FormsCleanUp: Move to own file.
+    public abstract partial class PdfFormField : PdfDictionary // TODO: FormsCleanUp: Move to own file.
     {
         // Reference 2.0: 12.7.4  Field dictionaries / Page 530
 
@@ -872,7 +872,7 @@ namespace PdfSharp.Pdf.Forms
 
 namespace PdfSharp.Pdf.Forms
 {
-    public class PdfFormCheckBoxField : PdfFormCheckBoxOrRadioButtonField // TODO: FormsCleanUp: Move to own file.
+    public partial class PdfFormCheckBoxField : PdfFormCheckBoxOrRadioButtonField // TODO: FormsCleanUp: Move to own file.
     {
         // Reference 2.0: 12.7.5.2.3 Check boxes / Page 536
 
@@ -903,7 +903,7 @@ namespace PdfSharp.Pdf.Forms
 
 namespace PdfSharp.Pdf.Forms
 {
-    public class PdfFormRadioButtonField : PdfFormCheckBoxOrRadioButtonField // TODO: FormsCleanUp: Move to own file.
+    public partial class PdfFormRadioButtonField : PdfFormCheckBoxOrRadioButtonField // TODO: FormsCleanUp: Move to own file.
     {
         // Reference 2.0: 12.7.5.2.4 Radio buttons / Page 538
 
@@ -936,7 +936,7 @@ namespace PdfSharp.Pdf.Forms
 
 namespace PdfSharp.Pdf.Forms
 {
-    public class PdfFormTextField : PdfFormTextFieldBase // TODO: FormsCleanUp: Move to own file.
+    public partial class PdfFormTextField : PdfFormTextFieldBase // TODO: FormsCleanUp: Move to own file.
     {
         // Reference 2.0: 12.7.5.3  Text fields / Page 539
 
@@ -994,7 +994,7 @@ namespace PdfSharp.Pdf.Forms
 
 namespace PdfSharp.Pdf.Forms
 {
-    public abstract class PdfFormChoiceField : PdfFormTextFieldBase // TODO: FormsCleanUp: Move to own file.
+    public abstract partial class PdfFormChoiceField : PdfFormTextFieldBase // TODO: FormsCleanUp: Move to own file.
     {
         // Reference 2.0: 12.7.5.4  Choice fields / Page 541
 
