@@ -119,7 +119,9 @@ the form already contains, under whatever on-state name it uses. Limits:
   font's `/Widths`. Since 7.1.1, the twelve Latin standard fonts (and Arial,
   Times New Roman and Courier New) use Adobe's metrics when they list no widths;
   other fonts without widths use an estimate.
-- Saving rewrites the file, so filling a signed form invalidates its signatures.
+- Saving a document opened in `Modify` mode rewrites the file, which invalidates
+  its signatures. Open a signed form with `PdfDocumentOpenMode.Append` to fill it
+  in; see [Signed documents](#signed-documents).
 - `Flatten()` draws each visible widget's appearance where the widget sits and
   removes the form and its widgets; other annotations stay. Text and choice fields
   without an up-to-date appearance (for example a `/V` written directly with
@@ -169,6 +171,44 @@ that page, which also comes along when you split. Since 7.3, `AppendPages` and
   copied page. JavaScript that refers to a renamed field by name is not updated.
 - A PDF/UA document refuses copied pages, as it refuses `AddPage(page)`.
 
+## Signed documents
+
+PDFsharp 6.2.4 always writes a new file, so saving a signed document after any
+change breaks its signatures, and a signed document cannot be signed a second
+time. FreePDF adds `PdfDocumentOpenMode.Append` for this:
+
+```csharp
+using var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append);
+((PdfFormTextField)document.Catalog.GetAcroForm()!.Fields["name"]!).Text = "Ada Lovelace";
+document.Save("signed-filled.pdf");
+
+using var approved = PdfReader.Open("signed-filled.pdf", PdfDocumentOpenMode.Append);
+DigitalSignatureHandler.ForDocument(approved, signer, options);
+await approved.SaveAsync("approved.pdf");
+```
+
+- Saving writes the original file byte for byte, then an incremental update with
+  only the new and changed objects, their cross-reference section (a table or a
+  stream, as the file uses) and a trailer that points back to the previous one.
+  Object numbers and the page tree stay as they are in the file.
+- The signatures in the file stay valid. A new signature covers the whole file,
+  earlier signatures included.
+- Whether a validator accepts what you changed after a signature depends on the
+  signature's permissions and on the validator. Filling in fields and adding
+  signatures are permitted changes for an ordinary (approval) signature. Adding
+  comments is permitted by Acrobat, but some validators, such as pyHanko, report
+  any added comment. FreePDF does not check a certification signature's
+  permissions (DocMDP); a document certified with "no changes allowed" should not
+  be changed at all.
+- A document with no changes is saved as it was. Otherwise the document
+  information gets a new modification date and FreePDF as its producer.
+- Encrypted documents cannot be opened in `Append` mode yet, nor can files whose
+  cross-reference table names the wrong objects; open those with `Modify` to save
+  a new file. A document opened in `Append` mode cannot be given a password.
+- Pages can be added and removed when all pages hang directly under the page
+  tree's root, which is the common case; when the page tree is nested, inserting,
+  removing or moving pages throws `NotSupportedException`.
+
 ## Repeatable API evidence
 
 `eng/Test-PublicApi.ps1` compares all eleven packaged assemblies for all four
@@ -191,9 +231,9 @@ compiler-generated extension marker is preserved as well.
 
 ## Behaviour to verify in your application
 
-Saving rewrites the file. Importing incremental PDFs does not implement
-incremental saving or preserve existing digital signatures. Sign the final
-output. Use a fresh document per concurrent operation; sharing a mutable document
+Saving a document opened in `Modify` mode rewrites the file and does not
+preserve existing digital signatures; open it in `Append` mode to keep them (see
+[Signed documents](#signed-documents)). Use a fresh document per concurrent operation; sharing a mutable document
 between threads is unsupported. Retest pagination and font selection when
 upgrading: reference output containing a known defect is not the correct output.
 

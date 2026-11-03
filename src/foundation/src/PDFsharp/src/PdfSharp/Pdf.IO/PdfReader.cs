@@ -550,6 +550,10 @@ namespace PdfSharp.Pdf.IO
 
                 if (openMode == PdfDocumentOpenMode.Append)
                 {
+                    // Saving prepares the catalog (pages, metadata, form fields, outline, structure tree) and may
+                    // rewrite objects nobody changed, such as outline items. Preparing once now makes those rewrites
+                    // part of the recorded state, so that only real changes differ when the document is saved.
+                    _document.Catalog.PrepareForSave();
                     _document.IncrementalUpdate = new PdfIncrementalUpdate(original!, parser.StartXRef, crossReferenceStream, size,
                         GetPdfFileVersion(header));
                     _document.IncrementalUpdate.RecordOriginalObjects(_document, fileObjects);

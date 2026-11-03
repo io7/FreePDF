@@ -1,6 +1,22 @@
 # FreePDF changelog
 
-## 7.3.0
+## Unreleased
+
+- `PdfDocumentOpenMode.Append` opens a document so that saving it writes an
+  incremental update: the original bytes unchanged, then only the new and
+  changed objects, a cross-reference table or stream (as the file uses) and a
+  trailer pointing back to the previous one. Signatures in the file stay valid,
+  so a signed form can be filled in and a signed document signed again; the new
+  signature covers the whole file. Object numbers, identifiers and the page tree
+  are kept; a document with no changes is saved as it was. Encrypted documents
+  and files whose cross-reference table names the wrong objects are refused, a
+  password cannot be added, and pages cannot be inserted, removed or moved when
+  the page tree is nested. PDFsharp 6.2.4 has no incremental saving.
+- Opening a form no longer sets a new modification date (`/M`) on fields that
+  are also widgets. The date was written on the next save although the field had
+  not changed, and signature validators count it as an unexplained change.
+- Pages of a document opened with `Append` get no transparency group (`/Group`)
+  added when saved; other documents keep getting one, as before.
 
 - Saved documents name FreePDF as the application that wrote them. The
   Producer is now `FreePDF 7.x.y+<commit>` and the default Creator
