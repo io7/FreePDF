@@ -381,69 +381,72 @@ namespace PdfSharp.Pdf
 
         void ParsePageDestination(PdfArray destination)  // Reference: 8.2  Destination syntax / Page 582
         {
-            // The destination page may not yet have been transformed to PdfPage.
-            var destPage = (PdfDictionary)((PdfReference)destination.Elements[0]).Value;
-            if (destPage is not PdfPage page)
-                page = new PdfPage(destPage);
+            // A destination FreePDF cannot use (no page, a page number for a remote document, an unknown type) is
+            // ignored; missing or non-numeric parameters read as null, which viewers treat as "unchanged".
+            if (destination.Elements.Count < 2 || destination.Elements[1] is not PdfName type)
+                return;
+            if (!Enum.TryParse(type.Value.Substring(1), true, out PdfPageDestinationType destinationType)
+                || !Enum.IsDefined(typeof(PdfPageDestinationType), destinationType))
+            {
+                return;
+            }
+            var page = DestinationPageOf(destination.Elements[0]);
+            if (page == null)
+                return;
 
             DestinationPage = page;
-            var itemCount = destination.Elements.Count;
-            if (destination.Elements[1] is PdfName type)
+            PageDestinationType = destinationType;
+            switch (destinationType)
             {
-                PageDestinationType = (PdfPageDestinationType)Enum.Parse(typeof(PdfPageDestinationType), type.Value.Substring(1), true);
-                switch (PageDestinationType)
-                {
-                    // [page /XYZ left top zoom] -- left, top, and zoom can be null.
-                    // TODO Crashes with entries like "/Dest [ 5 0 R /XYZ ]".
-                    case PdfPageDestinationType.Xyz:
-                        Left = destination.Elements.GetNullableReal(2);
-                        Top = destination.Elements.GetNullableReal(3);
-                        Zoom = destination.Elements.GetNullableReal(4); // For this parameter, null and 0 have the same meaning.
-                        break;
+                // [page /XYZ left top zoom] -- left, top, and zoom can be null.
+                case PdfPageDestinationType.Xyz:
+                    Left = Number(destination, 2);
+                    Top = Number(destination, 3);
+                    Zoom = Number(destination, 4); // For this parameter, null and 0 have the same meaning.
+                    break;
 
-                    // [page /Fit]
-                    case PdfPageDestinationType.Fit:
-                        // /Fit has no parameters.
-                        break;
+                // [page /FitH top] and [page /FitBH top] -- top can be null.
+                case PdfPageDestinationType.FitH:
+                case PdfPageDestinationType.FitBH:
+                    Top = Number(destination, 2);
+                    break;
 
-                    // [page /FitH top] -- top can be null.
-                    case PdfPageDestinationType.FitH:
-                        Top = destination.Elements.GetNullableReal(2);
-                        break;
+                // [page /FitV left] and [page /FitBV left] -- left can be null.
+                case PdfPageDestinationType.FitV:
+                case PdfPageDestinationType.FitBV:
+                    Left = Number(destination, 2);
+                    break;
 
-                    // [page /FitV left] -- left can be null.
-                    case PdfPageDestinationType.FitV:
-                        Left = destination.Elements.GetNullableReal(2);
-                        break;
-
-                    // [page /FitR left bottom right top] -- left, bottom, right, and top must not be null.
-                    // TODO_OLD An exception in GetReal leads to an inconsistent document. Deal with that - e.g. by registering the corruption and preventing the user from saving the corrupted document.
-                    case PdfPageDestinationType.FitR:
-                        Left = destination.Elements.GetReal(2);
-                        Bottom = destination.Elements.GetReal(3);
-                        Right = destination.Elements.GetReal(4);
-                        Top = destination.Elements.GetReal(5);
-                        break;
-
-                    // [page /FitB]
-                    case PdfPageDestinationType.FitB:
-                        // /Fit has no parameters.
-                        break;
-
-                    // [page /FitBH top] -- top can be null.
-                    case PdfPageDestinationType.FitBH:
-                        Top = destination.Elements.GetReal(2);
-                        break;
-
-                    // [page /FitBV left] -- left can be null.
-                    case PdfPageDestinationType.FitBV:
-                        Left = destination.Elements.GetReal(2);
-                        break;
-
-                    default:
-                        throw new ArgumentOutOfRangeException(nameof(PageDestinationType), "Invalid page destination " + PageDestinationType);
-                }
+                // [page /FitR left bottom right top] -- all four are required; a missing one reads as 0.
+                case PdfPageDestinationType.FitR:
+                    Left = Number(destination, 2) ?? 0;
+                    Bottom = Number(destination, 3) ?? 0;
+                    Right = Number(destination, 4) ?? 0;
+                    Top = Number(destination, 5) ?? 0;
+                    break;
             }
+        }
+
+        /// <summary>
+        /// Gets the page a destination names, or null if it names no page of this document. A page dictionary that
+        /// has no type yet is typed; any other object is left alone, because converting it would destroy it.
+        /// </summary>
+        static PdfPage? DestinationPageOf(PdfItem item)
+        {
+            if (item is not PdfReference reference)
+                return null;
+            if (reference.Value is PdfPage page)
+                return page;
+            if (reference.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary) && dict.Elements.GetName("/Type") == "/Page")
+                return new PdfPage(dict);
+            return null;
+        }
+
+        static double? Number(PdfArray array, int index)
+        {
+            if (index < array.Elements.Count && array.Elements.TryGetReal(index, out var value))
+                return value;
+            return null;
         }
 
         void InitializeChildren()

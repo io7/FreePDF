@@ -110,31 +110,36 @@ namespace PdfSharp.Pdf.Forms
             /// <param name="doc">The document.</param>
             static void CreateAcroFieldObjects(PdfDocument doc)
             {
-                var catalog = doc.Catalog;
-                var acroForm = catalog.GetAcroForm();
-
-                var fields = acroForm?.Elements.GetArray(PdfForm.Keys.Fields);
+                var fields = doc.Catalog.GetAcroForm()?.Elements.GetArray(PdfForm.Keys.Fields);
                 if (fields != null)
-                {
-                    var fieldCount = fields.Elements.Count;
-                    for (int idx = 0; idx < fieldCount; idx++)
-                    {
-                        var field = fields.Elements.GetRequiredDictionary(idx);
-                        CreateDerivedField(fields, idx);
+                    PrepareFields(fields, new HashSet<PdfReference>());
+            }
 
-                        var acroField = fields.Elements.GetRequiredDictionary<PdfFormField>(idx);
-#if DEBUG
-                        if (!ReferenceEquals(field, acroField))
-                        {
-                            if (field.IsIndirect)
-                            {
-                                Debug.Assert(ReferenceEquals(field.RequiredReference, acroField.RequiredReference));
-                            }
-                        }
-#endif
-                        HandleAP(acroField);
-                        HandleKids(acroField);
+            /// <summary>
+            /// Types the fields of a /Fields or /Kids array and their descendants. Entries that cannot be fields
+            /// (numbers, missing objects, objects that already have another type such as a page) and entries already
+            /// seen (a loop through /Kids) are dropped: they carry no field, and converting them would destroy them
+            /// or never end.
+            /// </summary>
+            static void PrepareFields(PdfArray fields, HashSet<PdfReference> seen)
+            {
+                for (int idx = 0; idx < fields.Elements.Count; idx++)
+                {
+                    var dict = fields.Elements.GetDictionary(idx);
+                    bool usable = dict is PdfFormField || dict?.GetType() == typeof(PdfDictionary);
+                    if (!usable || (dict!.Reference != null && !seen.Add(dict.Reference)))
+                    {
+                        PdfSharpLogHost.Logger.LogWarning("Dropped a form field array entry that is not a field or is listed twice.");
+                        fields.Elements.RemoveAt(idx--);
+                        continue;
                     }
+
+                    CreateDerivedField(fields, idx);
+                    var acroField = fields.Elements.GetRequiredDictionary<PdfFormField>(idx);
+                    HandleAP(acroField);
+                    var kids = acroField.Elements.GetArray(PdfFormField.Keys.Kids);
+                    if (kids != null)
+                        PrepareFields(kids, seen);
                 }
             }
 
@@ -247,34 +252,6 @@ namespace PdfSharp.Pdf.Forms
                             dict.Elements.CreateContainer(typeof(PdfFormXObject), dict, true);
                             Debug.Assert(dict.IsDead);
                         }
-                    }
-                }
-            }
-
-            static void HandleKids(PdfFormField field)
-            {
-                // Don't use GetKids() here, as elements are pure dictionaries by now.
-                var kids = field.Elements.GetArray(PdfFormField.Keys.Kids);
-                var hasKids = field.HasKids;
-                Debug.Assert(kids == null || (hasKids && kids.Elements.Count > 0) || (!hasKids && kids.Elements.Count == 0));
-                if (kids != null)
-                {
-                    // Transform kids to Acro fields.
-                    var count = kids.Elements.Count;
-                    for (int idx = 0; idx < count; idx++)
-                    {
-                        CreateDerivedField(kids, idx);
-                    }
-
-                    for (int idx = 0; idx < count; idx++)
-                    {
-                        var acroField2 = kids.Elements.GetDictionary(idx);
-                        if (acroField2 is not PdfFormField)
-                            _ = typeof(int);
-
-                        var acroField = kids.Elements.GetRequiredDictionary<PdfFormField>(idx);
-                        HandleAP(acroField);
-                        HandleKids(acroField);
                     }
                 }
             }

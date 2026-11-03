@@ -1381,7 +1381,9 @@ namespace PdfSharp.Pdf.IO
 
                 // ReSharper disable once CompareOfFloatsByEqualityOperator
                 Debug.Assert(_tokenAsReal == Double.Parse(_token.ToString(), CultureInfo.InvariantCulture));
-                return _tokenAsReal;
+                // ISO 32000-1 Annex C limits reals to the single-precision range (about ±3.403e38). A longer number in
+                // a damaged file is clamped to that range instead of failing the reader.
+                return Math.Max(Single.MinValue, Math.Min(Single.MaxValue, _tokenAsReal));
             }
         }
 
