@@ -36,6 +36,13 @@ using SHA-256/384/512. Original PDF/A-1b, 2b and 3b fixtures are independently
 validated. PDF/A conformance is a property of each output document; validate
 your own output, fonts and images before archival use.
 
+Merging and splitting with `PdfDocument.AppendPages` and `ExtractPages` carry
+form fields, bookmarks, links and GoTo actions; regression tests cover them, and
+a corpus of 2,943 veraPDF and producer files was appended and split without
+errors before the 7.3.0 release. Tags (the structure tree), page labels,
+optional content settings and XFA are not carried, and copied signatures cannot
+be valid in the new file.
+
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 `/AF` and declared in the XMP extension schema. FreePDF only checks that the XML
@@ -60,7 +67,7 @@ PDF-format operations and checksums, never as the recommended signature digest.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, preservation of existing signatures,
 incremental saving, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
-script shaping are not promised in 7.2. Placeholder inherited types are not
+script shaping are not promised in 7.3. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security

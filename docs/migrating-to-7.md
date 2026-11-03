@@ -197,8 +197,8 @@ output. Use a fresh document per concurrent operation; sharing a mutable documen
 between threads is unsupported. Retest pagination and font selection when
 upgrading: reference output containing a known defect is not the correct output.
 
-Documents name FreePDF, not PDFsharp, as their Producer and Creator (since the
-release after 7.2.0; see the [changelog](../CHANGELOG.md)). Code or tests that
+Documents name FreePDF, not PDFsharp, as their Producer and Creator (since
+7.3.0; see the [changelog](../CHANGELOG.md)). Code or tests that
 recognise their own output by a Producer starting with "PDFsharp", or that compare
 it with `PdfSharpProductVersionInformation.Title`, should expect "FreePDF".
 
