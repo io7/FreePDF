@@ -15,6 +15,11 @@ static class TestFonts
     static TestFonts() => GlobalFontSettings.FontResolver = new SyntheticResolver();
     public static void Initialize() { }
 
+    /// <summary>
+    /// Sets the synthetic resolver again after a test reset the font management.
+    /// </summary>
+    public static void Reinstall() => GlobalFontSettings.FontResolver = new SyntheticResolver();
+
     sealed class SyntheticResolver : IFontResolver
     {
         public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new("synthetic", bold, italic);

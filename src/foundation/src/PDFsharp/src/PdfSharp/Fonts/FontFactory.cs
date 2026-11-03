@@ -278,9 +278,14 @@ namespace PdfSharp.Fonts
                 PsGlobals.Global.Fonts.FontResolverInfosByName.Clear();
                 PsGlobals.Global.Fonts.FontSourcesByName.Clear();
                 PsGlobals.Global.Fonts.FontSourcesByKey.Clear();
+                // FreePDF: typefaces and families resolved before the reset must not be served after it.
+                PsGlobals.Global.Fonts.GlyphTypefacesByKey.Clear();
+                PsGlobals.Global.Fonts.FontFamiliesByName.Clear();
 #if CORE
                 // Also requires a reset.
                 PlatformFontResolver.Reset();
+                SystemFontResolver.Instance.Reset();
+                PsGlobals.Global.Fonts.SystemFontsDisabled = false;
 #endif
             }
             finally { Locks.ExitFontManagement(); }
