@@ -54,8 +54,9 @@
 - Save pages whose `/Annots` array holds annotations directly rather than by
   reference. Opening converted them to typed annotations but left the retired
   dictionaries in the array, so saving failed with "This dictionary cannot be
-  used anymore". `/Annots` entries that are not dictionaries no longer stop the
-  document from opening.
+  used anymore". `/Annots` entries that are not dictionaries (null, numbers,
+  strings, missing objects) are dropped when the document opens; they stopped it
+  from opening, and iterating `PdfPage.Annotations` threw on them.
 - The verbose writer layout's statistics comment no longer has fields for the
   user and owner passwords; they read "(never written)". The security manager
   behind them is still a stub that printed "(TODO)", so no password has been
@@ -79,6 +80,32 @@
   a link to the catalog or a page converted that object into an outline item, so
   saving failed; a link to a number threw `InvalidCastException`. The outline now
   ends at such a link.
+- Resolve references to missing objects as `null` at any depth (ISO 32000-1
+  7.3.10). Inside a direct array or dictionary, such as a page's `/Annots`, they
+  stayed references without a value, and reading them threw
+  `InvalidOperationException`.
+- Read a page without a `/MediaBox`, own or inherited, as US Letter
+  (612 x 792 points) as Poppler and MuPDF do, and write that box on save.
+  Opening threw `InvalidOperationException`.
+- Recover the length of a stream whose indirect `/Length` is not an integer by
+  searching for `endstream`, as for a missing `/Length`; the parser threw
+  `InvalidCastException`.
+- Damaged files now fail with `PdfReaderException` instead of
+  other exception types from inside the reader: cross-reference streams whose
+  `/Size`, `/W`, `/Index` or `/Prev` is missing, mistyped or larger than the
+  data; object streams with an invalid `/N`, `/First` or header, or whose
+  container is missing or not a stream; cross-reference and object streams that
+  cannot be decoded (unknown filter, corrupt Flate data); a trailer `/Root` that
+  refers to a missing object; a `stream` keyword inside an array or dictionary;
+  a number with two decimal points; an AES-256 `/Perms` that is not 16 bytes.
+  Before, these threw `InvalidOperationException`, `IndexOutOfRangeException`,
+  `OverflowException`, `NullReferenceException`, `ArgumentNullException`,
+  `NotImplementedException`, `InvalidDataException`, `CryptographicException` or
+  `ContentReaderException`. A damaged object stream `/N` also no longer
+  allocates its header before anything is read. All found by mutation fuzzing.
+- Read cross-reference stream entries without a type field (`/W` starting with
+  0) as in-use objects, as ISO 32000-1 Table 17 specifies; they were read as
+  free.
 
 ## 7.0.1
 
