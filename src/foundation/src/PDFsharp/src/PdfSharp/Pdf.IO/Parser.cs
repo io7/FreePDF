@@ -1637,49 +1637,52 @@ namespace PdfSharp.Pdf.IO
             //_ = typeof(int);
             byte[] bytes = xrefStream.Stream.UnfilteredValue;
 
-            // We found PDF files with invalid size entry.
-            int size = xrefStream.Elements.GetInteger(PdfCrossReferenceStream.Keys.Size, false, Int32.MaxValue);
-            if (size == Int32.MaxValue)
-            {
-                var value = xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Size, VCF.NoTransform)?.ToString() ?? "(no value)";
-                throw new InvalidOperationException(
-                    $"The /Size entry in a cross-reference stream has the invalid value '{value}'.");
-            }
-            var index = xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Index) as PdfArray;
-            int prev = xrefStream.Elements.GetInteger(PdfCrossReferenceStream.Keys.Prev);
-            var w = (PdfArray?)xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.W);
-            // May look like this:
-            // W[1 2 1] ¤ Index[7 12] ¤ Size 19
+            // The dictionary must describe the data (ISO 32000-1 7.5.8.2): /Size, /W with three widths and optional
+            // /Index pairs, all direct non-negative integers, and enough data for every entry. Anything else is a
+            // damaged file. May look like this: W[1 2 1] ¤ Index[7 12] ¤ Size 19
+            static int Count(PdfItem? item, string key)
+                => item is PdfInteger { Value: >= 0 } integer
+                    ? integer.Value
+                    : throw new PdfReaderException($"The {key} entry of a cross-reference stream is invalid: '{item?.ToString() ?? "(no value)"}'.");
+
+            int size = Count(xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Size, VCF.NoTransform), "/Size");
+            var index = xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Index, VCF.NoTransform);
+            var w = xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.W, VCF.NoTransform) as PdfArray;
+            if (w is not { Elements.Count: 3 })
+                throw new PdfReaderException($"The /W entry of a cross-reference stream is invalid: '{w?.ToString() ?? "(no value)"}'.");
+            if (xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Prev, VCF.NoTransform) is { } prev and not PdfInteger { Value: >= 0 })
+                throw new PdfReaderException($"The /Prev entry of a cross-reference stream is invalid: '{prev}'.");
 
             // Setup subsections.
             int subsectionCount;
-            int[][] subsections = null!;
-            int subsectionEntryCount = 0;
+            int[][] subsections;
+            long subsectionEntryCount = 0;
             if (index == null)
             {
-                // Setup with default values.
+                // Default: one subsection for objects 0 to /Size - 1.
                 subsectionCount = 1;
                 subsections = new int[subsectionCount][];
-                subsections[0] = [0, size]; // HACK_OLD: What is size? Contradiction in PDF reference.
+                subsections[0] = [0, size];
                 subsectionEntryCount = size;
             }
-            else
+            else if (index is PdfArray { Elements.Count: > 0 } indexArray && indexArray.Elements.Count % 2 == 0)
             {
-                // Read subsections from array.
-                Debug.Assert(index.Elements.Count % 2 == 0);
-                subsectionCount = index.Elements.Count / 2;
+                subsectionCount = indexArray.Elements.Count / 2;
                 subsections = new int[subsectionCount][];
                 for (int idx = 0; idx < subsectionCount; idx++)
                 {
-                    subsections[idx] = [index.Elements.GetInteger(2 * idx), index.Elements.GetInteger(2 * idx + 1)];
+                    subsections[idx] = [Count(indexArray.Elements[2 * idx], "/Index"), Count(indexArray.Elements[2 * idx + 1], "/Index")];
                     subsectionEntryCount += subsections[idx][1];
                 }
             }
+            else
+                throw new PdfReaderException($"The /Index entry of a cross-reference stream is invalid: '{index}'.");
 
-            // W key.
-            Debug.Assert(w?.Elements.Count == 3);
-            int[] wsize = [w.Elements.GetInteger(0), w.Elements.GetInteger(1), w.Elements.GetInteger(2)];
-            int wsum = StreamHelper.WSize(wsize);
+            int[] wsize = [Count(w.Elements[0], "/W"), Count(w.Elements[1], "/W"), Count(w.Elements[2], "/W")];
+            long wsum = (long)wsize[0] + wsize[1] + wsize[2];
+            if (wsum == 0 || wsum * subsectionEntryCount > bytes.Length)
+                throw new PdfReaderException(
+                    $"A cross-reference stream has {bytes.Length} bytes of data, but its /W and /Index describe {subsectionEntryCount} entries of {wsum} bytes.");
 #if DEBUG_
             if (wsum * subsectionEntryCount != bytes.Length)
                 _ = typeof(int);
@@ -1727,11 +1730,14 @@ namespace PdfSharp.Pdf.IO
                 {
                     index2++;
 
+                    // Fits in int: wsum * entries is at most bytes.Length, checked above.
+                    int start = index2 * (int)wsum;
                     PdfCrossReferenceStream.CrossReferenceStreamEntry item = new()
                     {
-                        Type = StreamHelper.ReadBytes(bytes, index2 * wsum, wsize[0]),
-                        Field2 = StreamHelper.ReadBytes(bytes, index2 * wsum + wsize[0], wsize[1]),
-                        Field3 = StreamHelper.ReadBytes(bytes, index2 * wsum + wsize[0] + wsize[1], wsize[2])
+                        // ISO 32000-1 Table 17: without a type field, every entry is type 1.
+                        Type = wsize[0] == 0 ? 1 : StreamHelper.ReadBytes(bytes, start, wsize[0]),
+                        Field2 = StreamHelper.ReadBytes(bytes, start + wsize[0], wsize[1]),
+                        Field3 = StreamHelper.ReadBytes(bytes, start + wsize[0] + wsize[1], wsize[2])
                     };
 
                     xrefStream.Entries.Add(item);
