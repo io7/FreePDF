@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.3.0
 
 - Saved documents name FreePDF as the application that wrote them. The
   Producer is now `FreePDF 7.x.y+<commit>` and the default Creator
