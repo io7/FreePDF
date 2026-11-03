@@ -254,6 +254,19 @@ public class TaggedLayoutTests
     }
 
     [Fact]
+    public void A_clone_of_a_rendered_document_can_be_rendered_again()
+    {
+        // Document.Clone kept the original's renderer binding, although the binding error tells users to clone.
+        var document = Invoice();
+        new PdfDocumentRenderer { Document = document }.RenderDocument();
+
+        var copy = document.Clone();
+        var renderer = new PdfDocumentRenderer { Document = copy, TaggedPdf = true };
+        renderer.RenderDocument();
+        Assert.True(renderer.PdfDocument.PageCount > 0);
+    }
+
+    [Fact]
     public void A_tagged_document_needs_a_title()
     {
         var renderer = new PdfDocumentRenderer { Document = Invoice(title: ""), TaggedPdf = true };

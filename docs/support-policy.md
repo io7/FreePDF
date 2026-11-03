@@ -41,6 +41,16 @@ PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 is a well-formed Cross Industry Invoice; it does not validate invoice content
 against EN 16931, a profile or a national CIUS such as XRechnung.
 
+Tagged PDF/UA-1 output from the layout engine (`PdfDocumentRenderer.TaggedPdf`)
+covers headings (outline levels 1 to 6), paragraphs, lists, tables with heading
+rows, images and charts with alternative text, hyperlinks and text frames;
+headers, footers, borders and shading are artifacts. A multi-page fixture with
+all of these is validated by veraPDF's PDF/UA-1 profile in CI. veraPDF checks
+what a machine can check; reading order, alternative text quality and heading
+structure need human review (the Matterhorn Protocol lists these checks). Nested list
+levels are tagged as items of one list, a table split across pages is one
+Table element per page, and PDF/UA-2 is not covered.
+
 The signing checks verify cryptographic integrity and tamper detection using
 synthetic self-signed certificates. They do not establish trusted identity,
 revocation checking, timestamp-authority behaviour, PAdES/LTV or a legal
@@ -48,7 +58,7 @@ signature status. No FIPS certification is claimed. MD5 exists only for legacy
 PDF-format operations and checksums, never as the recommended signature digest.
 
 General typed form filling/flattening, preservation of existing signatures,
-incremental saving, PDF/UA accessibility, arbitrary PDF/A conversion and complex
+incremental saving, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
 script shaping are not promised in 7.0.0. Placeholder inherited types are not
 evidence that those features are complete.
 

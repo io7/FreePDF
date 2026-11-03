@@ -44,6 +44,26 @@ well-formed Cross Industry Invoice; checking its content against EN 16931 and
 the profile's business rules is up to your invoicing software. CI validates
 the generated PDF/A-3 file with veraPDF.
 
+## Accessible PDF (PDF/UA-1)
+
+The layout engine writes tagged PDF for PDF/UA-1, for documents that must be
+accessible, for example under the European Accessibility Act:
+
+```csharp
+document.Info.Title = "Invoice 2026-001";                 // required
+document.Culture = CultureInfo.GetCultureInfo("nb-NO");   // the document language
+logo.AlternativeText = "Example Ltd logo";                // every image and chart, or Decorative = true
+var renderer = new PdfDocumentRenderer { Document = document, TaggedPdf = true };
+renderer.RenderDocument();
+```
+
+Headings (paragraphs with an outline level), paragraphs, lists, tables, images,
+charts and links are tagged; headers, footers, borders and shading become
+artifacts that screen readers skip. Rendering stops with an explanation if an
+image has neither alternative text nor `Decorative`, rather than writing a file
+that does not conform. CI validates a tagged multi-page invoice with veraPDF.
+See the [support policy](docs/support-policy.md) for what is covered.
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries

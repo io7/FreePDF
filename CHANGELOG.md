@@ -20,6 +20,28 @@
   if it has no PDF/A format yet, and adds the Factur-X extension schema and
   properties to the XMP metadata. It accepts only well-formed Cross Industry
   Invoice XML. The package release check validates a Factur-X file with veraPDF.
+- Write tagged PDF for PDF/UA-1 from the layout engine:
+  `PdfDocumentRenderer.TaggedPdf`. Paragraphs become P and outline levels 1 to 6
+  H1 to H6; consecutive list paragraphs become one L of LI items with Lbl and
+  LBody; tables become Table, TR, TH (with `/Scope`) and TD, each page's part
+  repeating its header cells; images and charts become a Figure with alternative
+  text; hyperlinks become Link elements that own their annotations; headers,
+  footers, borders, shading and text-frame outlines are artifacts. The title
+  comes from `Document.Info.Title` (required) and the language from
+  `Document.Culture`. New `Shape.AlternativeText` and `Shape.Decorative`; an
+  image or chart with neither stops tagged rendering. Tagged and untagged output
+  look the same. The package release check validates a tagged multi-page
+  invoice with veraPDF's PDF/UA-1 profile.
+- `Document.Clone()` returns a document that is not bound to a renderer. The
+  copy kept the original's binding, so rendering it failed with "The document
+  is already bound to another renderer", whose advice is to clone.
+- Tagged documents built with `UAManager` now get XMP metadata that declares
+  PDF/UA-1 (`pdfuaid:part`), with the PDF/A extension schema for it when the
+  document is also PDF/A, and saving a figure tagged through `StructureBuilder`
+  no longer fails ("A direct object can only be added once to a container").
+  New `StructureBuilder.SetScope`, `BeginLinkElement` and `AddLinkAnnotation`.
+  A tagged Factur-X invoice declares its extension schemas in one list and
+  passes PDF/UA-1 and PDF/A-3b.
 - `EmbeddedFilesManager.GetEmbeddedFileInfo` now reports the file's
   `AFRelationship` (it always reported none) and its MIME type without the
   leading slash of the PDF name, as they were set.
