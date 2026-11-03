@@ -400,6 +400,43 @@ namespace PdfSharp.Pdf.Forms
             base.WriteObject(writer);
         }
 
+        static string NameValue(PdfItem? item)
+        {
+            if (item is PdfName name)
+                return name.Value;
+            if (item is PdfNameObject nameObject)
+                return nameObject.Value;
+            return "";
+        }
+
+        static int IntegerValue(PdfItem? item)
+        {
+            if (item is PdfInteger integer)
+                return integer.Value;
+            if (item is PdfIntegerObject integerObject)
+                return integerObject.Value;
+            return 0;
+        }
+
+        /// <summary>
+        /// Gets the value of a key from the dictionary, or with inheritance from its nearest ancestor that has it.
+        /// </summary>
+        static PdfItem? FieldValue(PdfDictionary dict, string key, bool inherited)
+        {
+            if (!inherited)
+                return dict.Elements.GetValue(key, VCF.NoTransform);
+
+            // The depth limit guards against /Parent loops in damaged files.
+            for (int depth = 0; dict != null! && depth < 32; depth++)
+            {
+                var value = dict.Elements.GetValue(key, VCF.NoTransform);
+                if (value != null)
+                    return value;
+                dict = dict.Elements.GetDictionary(Keys.Parent)!;
+            }
+            return null;
+        }
+
         /// <summary>
         /// Gets the derived type of PdfFormField.
         /// Returns field type and a flag that indicates if the field is also a widget.
@@ -407,8 +444,11 @@ namespace PdfSharp.Pdf.Forms
         internal static (Type Type, bool IsWidget) GetAcroFieldType(PdfDictionary dict)
         {
             bool isWidget = dict.Elements.GetName(PdfAnnotation.Keys.Subtype) == "/Widget";
-            string ft = dict.Elements.GetName(Keys.FT);
-            PdfFormFieldFlags flags = (PdfFormFieldFlags)dict.Elements.GetInteger(Keys.Ff);
+            // /FT and /Ff are inheritable (ISO 32000-1 Table 220). A named kid such as "city" of "address" takes them
+            // from its ancestors; an unnamed kid is only a widget of its parent field.
+            bool named = !String.IsNullOrEmpty(dict.Elements.GetString(Keys.T));
+            string ft = NameValue(FieldValue(dict, Keys.FT, named));
+            var flags = (PdfFormFieldFlags)IntegerValue(FieldValue(dict, Keys.Ff, named));
             switch (ft)
             {
                 case PdfFormFieldType.ButtonLiteral:
