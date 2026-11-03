@@ -390,7 +390,9 @@ namespace PdfSharp.Pdf.Annotations
                 PdfAnnotationTypeNames.RichMedia
                     => new PdfRichMediaAnnotation(dict),
 
-                _ => throw new InvalidOperationException($"Invalid annotation subtype '{subtype}'.")
+                // Private, misspelled or missing subtypes: keep the annotation as read instead of failing the
+                // whole document (ISO 32000 asks readers to tolerate annotation types they do not recognize).
+                _ => new PdfUnknownAnnotation(dict)
             };
 #endif
             if (page != null)

@@ -151,6 +151,10 @@ namespace PdfSharp.Pdf.IO
                             var version = (major - '0') * 10 + (minor - '0');
                             if (version is >= 10 and <= 20)
                                 return version;
+                            // Later PDF 2.x minor versions (ISO 19005-4 allows "%PDF-2.n") are read as 2.0,
+                            // the version FreePDF implements, and saved as such.
+                            if (version is > 20 and <= 29)
+                                return 20;
                         }
                     }
                 }
@@ -311,7 +315,7 @@ namespace PdfSharp.Pdf.IO
                 var _ = stream.Read(header, 0, 1024);
                 _document.SetVersion(GetPdfFileVersion(header));
                 if (_document.Version == 0)
-                    throw new InvalidOperationException(PsMsgs.InvalidPdf);
+                    throw new PdfReaderException(PsMsgs.InvalidPdf);
 
                 // Set IsUnderConstruction for IrefTable to true. This allows Parser.ParseObject() to insert placeholder references for objects not yet known.
                 // This is necessary for documents with objects saved in objects streams, which are read and decoded after reading the file level PdfObjects.
@@ -329,8 +333,14 @@ namespace PdfSharp.Pdf.IO
                                                                 // Reference.Values available by now: All trailers and cross-reference streams (which are not encrypted by definition). 
 
                 // 2. Read the encryption dictionary, if existing.
-                // #US373: Should we expect references here?
-                if (_document.Trailer!.Elements[PdfTrailer.Keys.Encrypt] is PdfReference xrefEncrypt) // #US373 Expect a reference here.
+                // It may be an indirect reference or, as MuPDF writes it, a dictionary directly in the trailer.
+                // The trailer is never encrypted, so a direct dictionary is complete as parsed.
+                var encryptItem = _document.Trailer!.Elements[PdfTrailer.Keys.Encrypt];
+                if (encryptItem is PdfDictionary)
+                {
+                    _document.SecurityHandler.PrepareForReading();
+                }
+                else if (encryptItem is PdfReference xrefEncrypt)
                 {
 #if DEBUG_
                     if (xrefEncrypt.ObjectNumber == 96049)
@@ -433,6 +443,13 @@ namespace PdfSharp.Pdf.IO
 
                 RereadUnicodeStrings();
 
+                // ISO 32000-1 Table 28: the page tree is required. Without it the file's pages are unreachable, and
+                // Modify would drop them as unreachable objects.
+                // A /Pages naming an object that already has another type (the catalog itself, say) is no page tree.
+                var pages = _document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Pages);
+                if (pages == null || (pages.GetType() != typeof(PdfDictionary) && pages is not PdfPages))
+                    throw new PdfReaderException("The document catalog has no page tree (/Pages).");
+
 #if DEBUG_ // TODO_OLD: Delete or rewrite.
                 // Some tests...
                 PdfReference[] reachables = document.xrefTable.TransitiveClosure(document.trailer);
@@ -503,8 +520,6 @@ namespace PdfSharp.Pdf.IO
         {
             Debug.Assert(_document.IrefTable.IsUnderConstruction);
 
-            // TODO: Can a direct container in a top-level object also contain references to be updated?
-
             foreach (var iref in _document.IrefTable.AllReferences)
             {
                 var pdfObject = iref.Value;
@@ -515,41 +530,54 @@ namespace PdfSharp.Pdf.IO
                 if (pdfObject.IsDead)
                     throw new InvalidOperationException("TODO: REPORT A BUG"); // TODO
 
-                // Update all references to PdfDictionary’s and PdfArray’s child objects.
-                switch (pdfObject)
-                {
-                    case PdfDictionary dictionary:
-                        // Dictionary elements are modified inside the loop. Avoid "Collection was modified; enumeration operation may not execute" error occuring in net 4.6.2.
-                        // There is no way to access KeyValuePairs via index natively to use a for loop with.
-                        // Instead, enumerate Keys and get value via Elements[key], which should be O(1).
-                        foreach (var key in dictionary.Elements.Keys)
-                        {
-                            var item = dictionary.Elements[key]; // #US373 ??? Do not use GetValue - see below.
-
-                            // Replace each reference with its final item, if necessary.
-                            if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
-                                dictionary.Elements[key] = finalItem;
-                        }
-                        break;
-
-                    case PdfArray array:
-                        var elements = array.Elements;
-                        for (var i = 0; i < elements.Count; i++)
-                        {
-                            var item = elements[i];
-
-                            // Replace each reference with its final item, if necessary.
-                            if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
-                                elements[i] = finalItem;
-                        }
-                        break;
-                }
+                FinalizeReferencesIn(pdfObject);
             }
 
             _document.IrefTable.IsUnderConstruction = false;
 
             // Fix references of trailer values and then objects and irefs are consistent.
             _document.Trailer.Finish();
+        }
+
+        /// <summary>
+        /// Replaces the references in a dictionary or array, and in the direct dictionaries and arrays it contains
+        /// (for example a page's /Annots array), by their final items. Indirect children are handled as top-level
+        /// objects of their own.
+        /// </summary>
+        void FinalizeReferencesIn(PdfItem container)
+        {
+            switch (container)
+            {
+                case PdfDictionary dictionary:
+                    // Dictionary elements are modified inside the loop. Avoid "Collection was modified; enumeration operation may not execute" error occuring in net 4.6.2.
+                    // There is no way to access KeyValuePairs via index natively to use a for loop with.
+                    // Instead, enumerate Keys and get value via Elements[key], which should be O(1).
+                    foreach (var key in dictionary.Elements.Keys)
+                    {
+                        var item = dictionary.Elements[key]; // #US373 ??? Do not use GetValue - see below.
+
+                        // Replace each reference with its final item, if necessary.
+                        if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
+                            dictionary.Elements[key] = finalItem;
+                        else if (item is PdfContainer { IsIndirect: false } child)
+                            FinalizeReferencesIn(child);
+                    }
+                    break;
+
+                case PdfArray array:
+                    var elements = array.Elements;
+                    for (var i = 0; i < elements.Count; i++)
+                    {
+                        var item = elements[i];
+
+                        // Replace each reference with its final item, if necessary.
+                        if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
+                            elements[i] = finalItem;
+                        else if (item is PdfContainer { IsIndirect: false } child)
+                            FinalizeReferencesIn(child);
+                    }
+                    break;
+            }
         }
 
         /// <summary>

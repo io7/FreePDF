@@ -237,6 +237,7 @@
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfAnnotations.cs" Link="Pdf.Annotations\PdfAnnotations.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\Pdf3DAnnotation.cs" Link="Pdf.Annotations\Pdf3DAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfCaretAnnotation.cs" Link="Pdf.Annotations\PdfCaretAnnotation.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Annotations\PdfUnknownAnnotation.cs" Link="Pdf.Annotations\PdfUnknownAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfFileAttachmentAnnotation.cs" Link="Pdf.Annotations\PdfFileAttachmentAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfFreeTextAnnotation.cs" Link="Pdf.Annotations\PdfFreeTextAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfInkAnnotation.cs" Link="Pdf.Annotations\PdfInkAnnotation.cs" />

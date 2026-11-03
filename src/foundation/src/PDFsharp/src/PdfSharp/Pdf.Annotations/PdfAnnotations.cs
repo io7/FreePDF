@@ -183,31 +183,29 @@ namespace PdfSharp.Pdf.Annotations
                     var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
                     if (annots != null)
                     {
-                        var count = annots.Elements.Count;
-                        for (int idx = 0; idx < count; idx++)
+                        for (int idx = 0; idx < annots.Elements.Count; idx++)
                         {
                             var annot = annots.Elements.GetDictionary(idx);
 
-                            // Already handled in Acro fields.
-                            if (annot is PdfWidgetAnnotation widget)
+                            // Entries that are not dictionaries (null, numbers, strings, missing objects) cannot be
+                            // annotations. Drop them, so that the page's Annotations hold only annotations.
+                            if (annot == null)
+                            {
+                                annots.Elements.RemoveAt(idx--);
+                                continue;
+                            }
+
+                            // Typed dictionaries were already created elsewhere, for example widget annotations
+                            // together with their form fields.
+                            if (annot.GetType() != typeof(PdfDictionary))
                                 continue;
 
-                            Debug.Assert(annot is not PdfFormField);
+                            var annotation = PdfAnnotation.CreateAnnotation(annot);
 
-                            if (annot != null)
-                            {
-                                Debug.Assert(annot.IsIndirect);
-
-                                var type = annot.GetType();
-                                if (type != typeof(PdfDictionary))
-                                    throw new InvalidOperationException("Not a dictionary???");
-
-                                PdfAnnotation.CreateAnnotation(annot);
-                            }
-                            else
-                            {
-                                throw new InvalidOperationException("Not an annotation???");
-                            }
+                            // An indirect annotation's reference now points at the typed object. A direct one lives in
+                            // the array slot, which would otherwise keep the dictionary the transformation retired.
+                            if (!annot.IsIndirect)
+                                annots.Elements[idx] = annotation;
                         }
                     }
                 }

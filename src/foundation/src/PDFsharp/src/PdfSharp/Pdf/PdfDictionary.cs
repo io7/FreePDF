@@ -1028,12 +1028,12 @@ namespace PdfSharp.Pdf
 
                 PdfRectangle? FromArray(PdfArray array)
                 {
-                    if (array.Elements.Count == 4)
+                    // TryGet must not throw for a non-number, so read the values with TryGetReal.
+                    if (array.Elements.Count == 4
+                        && array.Elements.TryGetReal(0, out var x1) && array.Elements.TryGetReal(1, out var y1)
+                        && array.Elements.TryGetReal(2, out var x2) && array.Elements.TryGetReal(3, out var y2))
                     {
-                        var rectangle = new PdfRectangle(array.Elements.GetReal(0), array.Elements.GetReal(1),
-                            array.Elements.GetReal(2), array.Elements.GetReal(3));
-
-                        return rectangle;
+                        return new PdfRectangle(x1, y1, x2, y2);
                     }
                     return Fail("A PdfRectangle expects a PdfArray with 4 real values.");
                 }
@@ -1742,6 +1742,13 @@ namespace PdfSharp.Pdf
 
             // ===== Internal =====
 
+            /// <summary>
+            /// True if the container already has a specific type that the requested type neither is nor derives from.
+            /// </summary>
+            static bool HasUnrelatedType(PdfContainer container, Type type)
+                => container.GetType() != typeof(PdfDictionary) && container.GetType() != typeof(PdfArray)
+                   && !type.IsInstanceOfType(container) && !container.GetType().IsAssignableFrom(type);
+
             /// <summary>  // TODO more docs
             /// Gets the value for the specified key.
             /// If the value does not exist, it is optionally created.
@@ -1768,7 +1775,28 @@ namespace PdfSharp.Pdf
                 // Name.EnsureName(key) must be done by caller.
 
                 bool valueIsAlreadyOfSuitableType = false;
-                if (!_elements.TryGetValue(key, out var value))
+                _elements.TryGetValue(key, out var value);
+
+                // ISO 32000-1 7.3.9: an entry whose value is null is the same as an absent entry. The reader also stores
+                // references to missing objects as null (7.3.10).
+                if (value is PdfNull or PdfReference { Value: PdfNullObject }
+                    && valueType != null && valueType != typeof(PdfReference) && !valueType.IsInstanceOfType(value))
+                {
+                    value = null;
+                }
+
+                // An object that already has a type unrelated to the requested one (in a damaged file, for example the
+                // catalog named as /Outlines, or a cross-reference stream as /Info) cannot be both. Converting it
+                // would destroy the object in its first role, so treat the entry as absent. Upgrading to a more
+                // derived type stays possible.
+                if (valueType != null && typeof(PdfContainer).IsAssignableFrom(valueType)
+                    && (value is PdfReference reference ? reference.Value : value) is PdfContainer typed
+                    && HasUnrelatedType(typed, valueType))
+                {
+                    value = null;
+                }
+
+                if (value == null)
                 {
                     // Case: Dictionary entry with specified key does not exist.
 
@@ -1985,6 +2013,11 @@ namespace PdfSharp.Pdf
                                         if (type != typeof(PdfDictionary) && type != typeof(PdfArray))
                                             value.SetTransformed();
                                     }
+                                    else if (value is PdfContainer unrelated && HasUnrelatedType(unrelated, type))
+                                    {
+                                        // Already has an unrelated type (damaged file): an untyped read returns it as
+                                        // it is; a typed read treated the entry as absent above.
+                                    }
                                     else if (value is PdfContainer cont)
                                     {
                                         // Case: Transform array or dictionary.
@@ -2002,8 +2035,8 @@ namespace PdfSharp.Pdf
                                     }
                                     else if (value is PdfPrimitiveObject)
                                     {
-                                        throw new InvalidOperationException(
-                                            $"Primitive indirect object of type '{value.GetType().FullName}' cannot be transformed to type '{type.FullName}'.");
+                                        // A number, name or string cannot become a container. Leave it as it is: an
+                                        // untyped read returns it, and a typed read reports the mismatch below.
                                     }
                                     else
                                     {
@@ -2033,9 +2066,10 @@ namespace PdfSharp.Pdf
                         // creates a less derived container (e.g. in unit tests).
                         if (options != VCF.NoTransform)
                         {
-                            // Try transformation only once. If it fails, don’t try again.
-                            // Should we try transformation?
-                            if (value.ShouldTryTransformation)
+                            // Try a transformation from metadata only once. A type the caller asks for explicitly is
+                            // always tried, as for indirect objects above: an earlier untyped read must not make a
+                            // later typed read fail.
+                            if (value.ShouldTryTransformation || valueType != null)
                             {
                                 // Get type from parameter or metadata.
                                 var type = valueType ?? GetValueType(key);
@@ -2066,6 +2100,11 @@ namespace PdfSharp.Pdf
                                         // Set to transformed, but only if the requested type is not one of the base types.
                                         if (type != typeof(PdfDictionary) && type != typeof(PdfArray))
                                             value.SetTransformed();
+                                    }
+                                    else if (value is PdfContainer unrelated && HasUnrelatedType(unrelated, type))
+                                    {
+                                        // Already has an unrelated type (damaged file): an untyped read returns it as
+                                        // it is; a typed read treated the entry as absent above.
                                     }
                                     else if (value is PdfContainer cont)
                                     {
