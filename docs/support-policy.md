@@ -59,7 +59,7 @@ PDF-format operations and checksums, never as the recommended signature digest.
 
 General typed form filling/flattening, preservation of existing signatures,
 incremental saving, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
-script shaping are not promised in 7.0.0. Placeholder inherited types are not
+script shaping are not promised in 7.1. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security

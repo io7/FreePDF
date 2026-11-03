@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.1.0
 
 - Add a shared FreePDF package icon for NuGet and Visual Studio, with an SVG
   source, reproducible PNG generation and package-content checks. The README

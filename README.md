@@ -70,8 +70,11 @@ FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries
 our earlier fixes, and adds independently implemented reader, image, signature,
 font-cache and layout corrections. 7.0.1 gives the assemblies io7's own
 strong-name key and FreePDF/io7 product metadata; FreePDF is not an empira
-release. See the release notes for [7.0.1](docs/releases/7.0.1.md) and
-[7.0.0](docs/releases/7.0.0.md), the [changelog](CHANGELOG.md) and
+release. 7.1.0 adds the GDI and WPF packages, Factur-X / ZUGFeRD invoices,
+tagged PDF/UA-1 output and the fixes from a real-PDF corpus round trip and
+parser fuzzing. See the release notes for [7.1.0](docs/releases/7.1.0.md),
+[7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
+[changelog](CHANGELOG.md) and
 [upstream feature tracking](docs/upstream-feature-tracking.md).
 Published versions are listed in [GitHub Releases](https://github.com/io7/FreePDF/releases)
 and NuGet; CI artifacts alone are not a public release.
