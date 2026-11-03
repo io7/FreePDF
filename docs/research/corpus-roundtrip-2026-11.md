@@ -93,8 +93,12 @@ read as free objects; ISO 32000-1 Table 17 makes them in-use objects.
 After these fixes the veraPDF corpus and the producer set give the same results as before them (2,899 ok, 3
 password, 4 rejected; 32 ok, 12 password).
 
-## Open
+## Debug-only test failures on main
 
-- `SemanticRoundTripTests` fails in Debug builds only (`/EmbeddedFiles` typed as `PdfDictionary` when the verbose
-  statistics read the embedded file count during save). Release builds, which the packages use, pass; the cause of
-  the Debug-only difference is not yet found.
+- `CompositeGlyphTests` failed a Debug assertion in `OpenTypeFontFace.GetOrCreateFrom` for a font source that already
+  had a face; it now returns the cached face.
+- `SemanticRoundTripTests` failed in Debug builds because a Debug-only path read the direct `/EmbeddedFiles`
+  dictionary untyped first. That marked it "transformation tried", and the typed read that counts embedded files then
+  failed with a type mismatch. Any caller could trigger the same with an untyped read, in any build. A type the caller
+  asks for explicitly is now always tried, as it already was for indirect objects. Debug and Release both pass all
+  298 tests.

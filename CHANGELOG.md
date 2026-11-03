@@ -106,6 +106,11 @@
 - Read cross-reference stream entries without a type field (`/W` starting with
   0) as in-use objects, as ISO 32000-1 Table 17 specifies; they were read as
   free.
+- A typed read of a direct dictionary or array (for example
+  `GetDictionary<PdfEmbeddedFiles>`) now converts it even after an untyped read
+  of the same entry. The untyped read marked it as tried, and the typed read
+  failed with a type mismatch; Debug builds hit this when saving a read document
+  with embedded files.
 
 ## 7.0.1
 

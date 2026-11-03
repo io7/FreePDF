@@ -2043,9 +2043,10 @@ namespace PdfSharp.Pdf
                         // creates a less derived container (e.g. in unit tests).
                         if (options != VCF.NoTransform)
                         {
-                            // Try transformation only once. If it fails, don’t try again.
-                            // Should we try transformation?
-                            if (value.ShouldTryTransformation)
+                            // Try a transformation from metadata only once. A type the caller asks for explicitly is
+                            // always tried, as for indirect objects above: an earlier untyped read must not make a
+                            // later typed read fail.
+                            if (value.ShouldTryTransformation || valueType != null)
                             {
                                 // Get type from parameter or metadata.
                                 var type = valueType ?? GetValueType(key);

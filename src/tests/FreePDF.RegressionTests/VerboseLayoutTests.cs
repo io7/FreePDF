@@ -44,6 +44,18 @@ public class VerboseLayoutTests
     }
 
     [Fact]
+    public void A_typed_read_after_an_untyped_read_of_a_direct_dictionary_still_works()
+    {
+        // Debug builds read /EmbeddedFiles untyped before the verbose layout counts the files; that read marked the
+        // direct dictionary as "transformation tried", and the typed read then failed with a type mismatch.
+        using var document = PdfReader.Open(new MemoryStream(PreservationFixtures.Semantic()), PdfDocumentOpenMode.Modify);
+        var names = document.Catalog.Elements.GetDictionary("/Names")!;
+        Assert.NotNull(names.Elements.GetValue("/EmbeddedFiles"));
+
+        Assert.Equal(1, EmbeddedFilesManager.ForDocument(document).FileCount);
+    }
+
+    [Fact]
     public void Verbose_layout_saves_a_read_document_with_embedded_files()
     {
         using var document = PdfReader.Open(new MemoryStream(PreservationFixtures.Semantic()), PdfDocumentOpenMode.Modify);
