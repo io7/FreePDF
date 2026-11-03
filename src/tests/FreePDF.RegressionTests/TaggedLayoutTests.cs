@@ -110,6 +110,47 @@ public class TaggedLayoutTests
         Assert.Equal(pdf.PageCount * 2, types.Count(t => t == "/TH"));
     }
 
+    static void AddList(Section section, ListType type, int items)
+    {
+        for (var i = 0; i < items; i++)
+        {
+            var item = section.AddParagraph($"Item {i + 1}");
+            item.Format.ListInfo.ListType = type;
+            item.Format.LeftIndent = "1cm";
+        }
+    }
+
+    [Fact]
+    public void Consecutive_list_paragraphs_form_one_list_of_labelled_items()
+    {
+        var document = Invoice();
+        AddList(document.LastSection, ListType.BulletList1, 2);
+        document.LastSection.AddParagraph("Between the lists");
+        AddList(document.LastSection, ListType.NumberList1, 1);
+
+        using var pdf = RenderAndReopen(document);
+
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).SkipWhile(t => t != "/L").ToArray();
+        Assert.Equal(new[] {
+            "/L", "/LI", "/Lbl", "/LBody", "/LI", "/Lbl", "/LBody",
+            "/P",
+            "/L", "/LI", "/Lbl", "/LBody" }, types);
+    }
+
+    [Fact]
+    public void A_list_that_crosses_a_page_break_stays_one_list()
+    {
+        var document = Invoice();
+        AddList(document.LastSection, ListType.BulletList1, 80);
+
+        using var pdf = RenderAndReopen(document);
+
+        Assert.True(pdf.PageCount > 1);
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(1, types.Count(t => t == "/L"));
+        Assert.Equal(80, types.Count(t => t == "/LI"));
+    }
+
     // A 2 x 2 pixel 8-bit RGB PNG, as MigraDoc's base64 image name.
     const string Pixel = "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12N0a9rCwMDAxMDAwMDAAAARjAGAcK5hlwAAAABJRU5ErkJggg==";
 

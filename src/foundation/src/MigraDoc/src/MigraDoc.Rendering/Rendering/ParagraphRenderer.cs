@@ -115,9 +115,23 @@ namespace MigraDoc.Rendering
             });
 
             var structure = _documentRenderer.ContentStructure;
-            structure?.BeginElement(StructureTag());
-
             ParagraphFormatInfo parFormatInfo = (ParagraphFormatInfo)_renderInfo.FormatInfo;
+
+            // A run of consecutive list paragraphs is one L; each paragraph is an LI with its symbol as Lbl and its
+            // text as LBody. The elements stay open across page breaks until the paragraph (and the run) ends.
+            _tagsListItem = structure != null && IsListParagraph(_paragraph);
+            if (_tagsListItem)
+            {
+                if (parFormatInfo.IsStarting)
+                {
+                    if (!IsListParagraph(Sibling(-1)))
+                        structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.List);
+                    structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.ListItem);
+                }
+            }
+            else
+                structure?.BeginElement(StructureTag());
+
             for (int idx = 0; idx < parFormatInfo.LineCount; idx++)
             {
                 LineInfo lineInfo = parFormatInfo.GetLineInfo(idx);
@@ -130,7 +144,36 @@ namespace MigraDoc.Rendering
                 RenderLine(lineInfo);
             }
 
-            structure?.End();
+            if (_tagsListItem)
+            {
+                if (parFormatInfo.IsEnding)
+                {
+                    structure!.End(); // LBody
+                    structure.End();  // LI
+                    if (!IsListParagraph(Sibling(1)))
+                        structure.End(); // L
+                }
+            }
+            else
+                structure?.End();
+        }
+
+        // True while this paragraph is rendered as a list item of a tagged PDF.
+        bool _tagsListItem;
+
+        static bool IsListParagraph(DocumentObject? documentObject)
+            => documentObject is Paragraph paragraph
+               && paragraph.Format.Values.ListInfo is { } listInfo && !listInfo.IsNull();
+
+        /// <summary>
+        /// Gets the element before (-1) or after (1) this paragraph in its container, or null.
+        /// </summary>
+        DocumentObject? Sibling(int offset)
+        {
+            if (DocumentRelations.GetParent(_paragraph) is not DocumentObjectCollection elements)
+                return null;
+            var index = elements.IndexOf(_paragraph) + offset;
+            return index >= 0 && index < elements.Count ? elements[index] : null;
         }
 
         /// <summary>
@@ -2063,15 +2106,20 @@ namespace MigraDoc.Rendering
 
         void RenderListSymbol()
         {
+            var structure = _tagsListItem ? _documentRenderer.ContentStructure : null;
             if (GetListSymbol(out var symbol, out var font))
             {
+                structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Label);
                 var brush = FontHandler.FontColorToXBrush(_paragraph.Format.Font);
                 _gfx.DrawString(symbol, font, brush, _currentXPosition, CurrentBaselinePosition);
+                structure?.End();
                 _currentXPosition += _gfx.MeasureString(symbol, font, StringFormat).Width;
                 var tabOffset = NextTabOffset();
                 _currentXPosition += tabOffset.Offset;
                 _lastTabPosition = _currentXPosition;
             }
+            // The rest of the list item is its body.
+            structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.ListBody);
         }
 
         void FormatListSymbol()
