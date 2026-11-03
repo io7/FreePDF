@@ -105,10 +105,11 @@ namespace PdfSharp.Internal.Imaging
             switch (colorType)
             {
                 case 0:
-                    // Each pixel is a grayscale sample. 1,2,4,8,16.
+                    // Each pixel is a grayscale sample. 1,2,4,8,16. The decoder reduces 16-bit samples to 8 bits.
                     switch (bitDepth)
                     {
                         case 8:
+                        case 16:
                             ii.ImageFormat = ImageFormats.Gray8;
                             break;
                         default:
@@ -124,6 +125,7 @@ namespace PdfSharp.Internal.Imaging
                     switch (bitDepth)
                     {
                         case 8:
+                        case 16:
                             ii.ImageFormat = ImageFormats.Bgr32;
                             break;
                         default:
@@ -154,6 +156,7 @@ namespace PdfSharp.Internal.Imaging
                     switch (bitDepth)
                     {
                         case 8:
+                        case 16:
                             ii.ImageFormat = ImageFormats.Gray8;
                             break;
                         default:
@@ -166,6 +169,7 @@ namespace PdfSharp.Internal.Imaging
                     switch (bitDepth)
                     {
                         case 8:
+                        case 16:
                             ii.ImageFormat = ImageFormats.Bgra32;
                             break;
                         default:

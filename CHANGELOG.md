@@ -12,6 +12,11 @@
   `io7.FreePDF.Layout.Wpf` replace `PDFsharp-WPF` and `PDFsharp-MigraDoc-WPF`.
   They target Windows .NET 8, 9, 10 and .NET Framework 4.6.2, keep upstream's
   assembly names, and are installed and run on Windows in CI.
+- Import PNG images with 16 bits per sample (grayscale, gray with alpha, RGB,
+  RGBA). The importer refused them with "Unsupported bit depth 16", although
+  its decoder reads them; they are now embedded with 8 bits per component,
+  which every PDF/A part allows. Image editors and screenshot tools commonly
+  write 16-bit PNGs.
 - Add `FacturXManager` for Factur-X / ZUGFeRD hybrid invoices.
   `SetInvoice(xml, profile)` embeds the Cross Industry Invoice as `factur-x.xml`
   (`xrechnung.xml` for XRechnung) with MIME type `text/xml` and the profile's
