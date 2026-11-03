@@ -10,6 +10,10 @@ namespace MigraDoc
     /// <summary>
     /// Version information for all MigraDoc related assemblies.
     /// </summary>
+    /// <remarks>
+    /// The layout engine ships as io7.FreePDF.Layout, and its documents name it as their Creator,
+    /// so these names are FreePDF's and io7's, never empira MigraDoc. empira's copyright is kept.
+    /// </remarks>
     // TODO_OLD: These literals are not completely in sync with the NuGet metadata. Should be reviewed and fixed.
     public static class MigraDocProductVersionInformation
     {
@@ -18,7 +22,7 @@ namespace MigraDoc
         /// <summary>
         /// The title of the product.
         /// </summary>
-        public const string Title = "empira MigraDoc";
+        public const string Title = "FreePDF Layout";
 
         /// <summary>
         /// A characteristic description of the product.
@@ -47,7 +51,7 @@ namespace MigraDoc
 
         /// <summary>
         /// The PDF creator application information string.
-        /// The PDF producer (created by) is PDFsharp anyway.
+        /// The PDF producer (created by) is FreePDF anyway.
         /// </summary>
         public static readonly string Creator = $"{Title} {SemVersionInformation.InformationalVersion} ({Url})";
 
@@ -69,7 +73,7 @@ namespace MigraDoc
         /// <summary>
         /// The home page of this product.
         /// </summary>
-        public const string Url = "www.pdfsharp.com";
+        public const string Url = "https://github.com/io7/FreePDF";
 
         /// <summary>
         /// Unused.
@@ -77,24 +81,24 @@ namespace MigraDoc
         public const string Configuration = "";
 
         /// <summary>
-        /// The company that created/owned the product.
+        /// The company that maintains the product.
         /// </summary>
-        public const string Company = "empira Software GmbH, Troisdorf (Cologne Area), Germany";
+        public const string Company = "io7";
 
         /// <summary>
         /// The name of the product.
         /// </summary>
-        public const string Product = "empira MigraDoc";
+        public const string Product = "FreePDF Layout";
 
         /// <summary>
         /// The copyright information.
         /// </summary>
-        public const string Copyright = "Copyright © 2001-2026 empira Software GmbH."; // Not used as NuGet Copyright. See Directory.Build.Props.
+        public const string Copyright = "Copyright © 2001-2026 empira Software GmbH; FreePDF changes © 2026 io7"; // Not used as NuGet Copyright. See Directory.Build.Props.
 
         /// <summary>
         /// The trademark of the product.
         /// </summary>
-        public const string Trademark = "empira MigraDoc";
+        public const string Trademark = "FreePDF Layout";
 
         /// <summary>
         /// Unused.
