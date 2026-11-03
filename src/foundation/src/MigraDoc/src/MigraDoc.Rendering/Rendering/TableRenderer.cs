@@ -88,10 +88,38 @@ namespace MigraDoc.Rendering
         void RenderCell(Cell cell)
         {
             var innerRect = GetInnerRect(CalcStartingHeight(), cell);
-            RenderShading(cell, innerRect);
+            var structure = _documentRenderer.ContentStructure;
+            Debug.Assert(cell.Row != null, "cell.Row != null");
+
+            // In a tagged PDF a new row starts a TR; cells are TH in heading rows and TD otherwise.
+            if (structure != null && cell.Row.Index != _taggedRowIndex)
+            {
+                if (_taggedRowIndex >= 0)
+                    structure.End();
+                structure.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableRow);
+                _taggedRowIndex = cell.Row.Index;
+            }
+
+            _documentRenderer.RenderAsArtifact(() => RenderShading(cell, innerRect));
+            if (structure != null)
+            {
+                structure.BeginElement(cell.Row.Index <= _lastHeaderRow
+                    ? PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableHeaderCell
+                    : PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableDataCell);
+                if (cell.Row.Index <= _lastHeaderRow)
+                    structure.SetScope(PdfSharp.UniversalAccessibility.PdfTableHeaderScope.Column);
+                if (cell.MergeRight > 0)
+                    structure.SetColSpan(cell.MergeRight + 1);
+                if (cell.MergeDown > 0)
+                    structure.SetRowSpan(cell.MergeDown + 1);
+            }
             RenderContent(cell, innerRect);
-            RenderBorders(cell, innerRect);
+            structure?.End();
+            _documentRenderer.RenderAsArtifact(() => RenderBorders(cell, innerRect));
         }
+
+        // The row whose TR element is open while a tagged table is rendered, or -1.
+        int _taggedRowIndex = -1;
 
         static void EqualizeRoundedCornerBorders(Cell cell)
         {
@@ -292,7 +320,25 @@ namespace MigraDoc.Rendering
         internal override void Render()
         {
             InitRendering();
+            var structure = _documentRenderer.ContentStructure;
+            structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Table);
+            _taggedRowIndex = -1;
+
+            // Each page's part of a tagged table is its own Table element, so heading rows repeated on later pages are
+            // tagged as header cells again: every part has the headers its data cells refer to.
             RenderHeaderRows();
+            RenderContentRows();
+
+            if (structure != null)
+            {
+                if (_taggedRowIndex >= 0)
+                    structure.End();
+                structure.End();
+            }
+        }
+
+        void RenderContentRows()
+        {
             if (_startRow < _table.Rows.Count)
             {
                 Cell cell; // = _table[_startRow, 0];

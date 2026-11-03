@@ -70,6 +70,14 @@ namespace PdfSharp.Pdf.Structure
             [KeyInfo(KeyType.Integer | KeyType.Optional)]
             public const string ColSpan = "/ColSpan";
 
+            /// <summary>
+            /// (Optional; not inheritable; PDF 1.5) A name specifying whether a header cell applies to the rest of
+            /// the cells in its row (Row), its column (Column), or both (Both). Applies only to TH cells.
+            /// PDF/UA-1 requires it when the table's structure cannot be derived otherwise (ISO 14289-1 7.5).
+            /// </summary>
+            [KeyInfo("1.5", KeyType.Name | KeyType.Optional)]
+            public const string Scope = "/Scope";
+
             // ReSharper restore InconsistentNaming
         }
     }

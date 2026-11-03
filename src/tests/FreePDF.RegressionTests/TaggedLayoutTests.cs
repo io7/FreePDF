@@ -30,6 +30,26 @@ public class TaggedLayoutTests
         return document;
     }
 
+    static Document InvoiceWithTable(int rows)
+    {
+        var document = Invoice();
+        var table = document.LastSection.AddTable();
+        table.Borders.Width = 0.5;
+        table.AddColumn("4cm");
+        table.AddColumn("3cm");
+        var head = table.AddRow();
+        head.HeadingFormat = true;
+        head.Cells[0].AddParagraph("Item");
+        head.Cells[1].AddParagraph("Amount");
+        for (var r = 0; r < rows; r++)
+        {
+            var row = table.AddRow();
+            row.Cells[0].AddParagraph($"Item {r + 1}");
+            row.Cells[1].AddParagraph("10");
+        }
+        return document;
+    }
+
     static PdfDocument RenderAndReopen(Document document)
     {
         var renderer = new PdfDocumentRenderer { Document = document, TaggedPdf = true };
@@ -68,6 +88,26 @@ public class TaggedLayoutTests
         Assert.True(pdf.Catalog.Elements.GetDictionary("/ViewerPreferences")!.Elements.GetBoolean("/DisplayDocTitle"));
         var xmp = System.Text.Encoding.UTF8.GetString(pdf.Catalog.Elements.GetDictionary("/Metadata")!.Stream!.Value);
         Assert.Contains("<pdfuaid:part>1</pdfuaid:part>", xmp);
+    }
+
+    [Fact]
+    public void Tables_are_tagged_with_rows_header_cells_and_data_cells()
+    {
+        using var pdf = RenderAndReopen(InvoiceWithTable(rows: 1));
+
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(new[] { "/Table", "/TR", "/TH", "/P", "/TH", "/P", "/TR", "/TD", "/P", "/TD", "/P" }, types.SkipWhile(t => t != "/Table"));
+    }
+
+    [Fact]
+    public void Each_page_of_a_long_table_repeats_its_header_cells()
+    {
+        using var pdf = RenderAndReopen(InvoiceWithTable(rows: 80));
+
+        Assert.True(pdf.PageCount > 1);
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(pdf.PageCount, types.Count(t => t == "/Table"));
+        Assert.Equal(pdf.PageCount * 2, types.Count(t => t == "/TH"));
     }
 
     [Fact]

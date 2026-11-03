@@ -195,6 +195,12 @@ namespace PdfSharp.UniversalAccessibility
             => _elementStack.MostInnerStructureElement.TableAttributes.Elements.SetInteger(PdfTableAttributes.Keys.ColSpan, colSpan);
 
         /// <summary>
+        /// Sets the scope of a table header cell (TH): the cells of its row, its column, or both.
+        /// </summary>
+        public void SetScope(PdfTableHeaderScope scope)
+            => _elementStack.MostInnerStructureElement.TableAttributes.Elements.SetName(PdfTableAttributes.Keys.Scope, "/" + scope);
+
+        /// <summary>
         /// Starts the marked content. Used for every marked content with an MCID.
         /// </summary>
         /// <param name="steItem">The StructureElementItem to create a marked content for.</param>
