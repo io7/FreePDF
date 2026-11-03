@@ -1245,22 +1245,12 @@ namespace PdfSharp.Pdf.IO
             if (position < 0)
                 position = Position;
 
-            SizeType start = position - range;
-            int tagIndex = range;
-            int length = 2 * range;
-
-            // Too close to the beginning of the stream?
-            if (start < 0)
-            {
-                tagIndex += (int)start;
-                length += (int)start;
-                start = 0;
-            }
-
-            // Too close to the end of the stream?
-            SizeType overhang = _pdfLength - (position + range);
-            if (overhang < 0)
-                length += (int)overhang;
+            // Clamp the window to the stream. A damaged offset can point far outside it; then the dump is empty
+            // instead of failing while an error message is built.
+            SizeType start = Math.Min(Math.Max(position - range, 0), _pdfLength);
+            SizeType end = Math.Min(Math.Max(position + range, start), _pdfLength);
+            int length = (int)(end - start);
+            int tagIndex = (int)Math.Min(Math.Max(position - start, -1), length);
 
             _pdfStream.Position = start;
             var bytes = new byte[length];

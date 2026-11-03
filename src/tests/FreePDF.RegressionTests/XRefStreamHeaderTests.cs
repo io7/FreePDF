@@ -13,7 +13,7 @@ public class XRefStreamHeaderTests
     // Catalog, page tree and page, then the cross-reference stream as object 4. Each entry is a type byte (left out
     // when typeField is false), a 2-byte offset and a generation byte; entries cover objects 0 to 4 unless
     // firstObject skips the free entry for object 0.
-    static byte[] File(string entries, int keepEntries = 5, bool typeField = true, int firstObject = 0, string filter = "/ASCIIHexDecode")
+    static byte[] File(string entries, int keepEntries = 5, bool typeField = true, int firstObject = 0, string filter = "/ASCIIHexDecode", int pageOffset = -1)
     {
         var objects = new[] {
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -28,6 +28,8 @@ public class XRefStreamHeaderTests
         }
         var xref = text.Length;
         offsets.Add(xref);
+        if (pageOffset >= 0)
+            offsets[2] = pageOffset;
 
         var rows = new List<string> { (typeField ? "00" : "") + "000000" };
         rows.AddRange(offsets.Select(o => (typeField ? "01" : "") + $"{o:X4}00"));
@@ -78,6 +80,13 @@ public class XRefStreamHeaderTests
     public void Data_that_cannot_be_decoded_is_a_reader_error(string filter)
     {
         Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", filter: filter)));
+    }
+
+    [Fact]
+    public void An_offset_far_beyond_the_end_of_the_file_is_a_reader_error()
+    {
+        // Building the error message dumped the bytes around the offset and overflowed for offsets outside the file.
+        Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", pageOffset: 0xFFF0)));
     }
 
     [Fact]

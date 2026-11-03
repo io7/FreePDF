@@ -111,6 +111,14 @@
   of the same entry. The untyped read marked it as tried, and the typed read
   failed with a type mismatch; Debug builds hit this when saving a read document
   with embedded files.
+- A typed read no longer converts an object that already has an unrelated type.
+  In a damaged file where `/Outlines` or `/Info` names the catalog or a
+  cross-reference stream, the conversion destroyed that object and opening or
+  saving failed with "This dictionary cannot be used anymore"; the entry now
+  reads as absent. An untyped read of an indirect number, name or string where
+  metadata expects a dictionary returns it instead of throwing, so a `/Pages`
+  that names one is reported as a missing page tree. The parser's error message
+  no longer overflows for offsets far outside the file.
 
 ## 7.0.1
 

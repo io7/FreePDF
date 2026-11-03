@@ -1778,6 +1778,18 @@ namespace PdfSharp.Pdf
                     value = null;
                 }
 
+                // An object that already has a type unrelated to the requested one (in a damaged file, for example the
+                // catalog named as /Outlines, or a cross-reference stream as /Info) cannot be both. Converting it
+                // would destroy the object in its first role, so treat the entry as absent. Upgrading to a more
+                // derived type stays possible.
+                if (valueType != null && typeof(PdfContainer).IsAssignableFrom(valueType)
+                    && (value is PdfReference reference ? reference.Value : value) is PdfContainer typed
+                    && typed.GetType() != typeof(PdfDictionary) && typed.GetType() != typeof(PdfArray)
+                    && !valueType.IsInstanceOfType(typed) && !typed.GetType().IsAssignableFrom(valueType))
+                {
+                    value = null;
+                }
+
                 if (value == null)
                 {
                     // Case: Dictionary entry with specified key does not exist.
@@ -2012,8 +2024,8 @@ namespace PdfSharp.Pdf
                                     }
                                     else if (value is PdfPrimitiveObject)
                                     {
-                                        throw new InvalidOperationException(
-                                            $"Primitive indirect object of type '{value.GetType().FullName}' cannot be transformed to type '{type.FullName}'.");
+                                        // A number, name or string cannot become a container. Leave it as it is: an
+                                        // untyped read returns it, and a typed read reports the mismatch below.
                                     }
                                     else
                                     {
