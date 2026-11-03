@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.2.0
 
 - Text works without a font resolver in the portable packages. With no
   `GlobalFontSettings.FontResolver` set, FreePDF uses the TrueType fonts
