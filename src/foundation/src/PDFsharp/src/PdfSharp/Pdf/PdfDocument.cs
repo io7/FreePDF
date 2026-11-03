@@ -205,7 +205,12 @@ namespace PdfSharp.Pdf
 
         static int _nameCount;
 
-        internal bool CanModify => OpenMode == PdfDocumentOpenMode.Modify;
+        internal bool CanModify => OpenMode is PdfDocumentOpenMode.Modify or PdfDocumentOpenMode.Append;
+
+        /// <summary>
+        /// Gets the incremental update a document opened with <see cref="PdfDocumentOpenMode.Append"/> is saved as.
+        /// </summary>
+        internal PdfIncrementalUpdate? IncrementalUpdate { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether to save a document even if it is imported.
@@ -305,6 +310,8 @@ namespace PdfSharp.Pdf
 
             // Get security handler if document gets encrypted.
             var effectiveSecurityHandler = SecuritySettings.EffectiveSecurityHandler;
+            if (IncrementalUpdate != null && effectiveSecurityHandler != null)
+                throw new NotSupportedException("A document opened with PdfDocumentOpenMode.Append cannot be encrypted, because an update cannot encrypt the original part of the file.");
 
             PdfWriter? writer = null;
             try
@@ -358,58 +365,15 @@ namespace PdfSharp.Pdf
                 if (DigitalSignatureHandler != null)
                     await DigitalSignatureHandler.AddSignatureComponentsAsync().ConfigureAwait(false);
 
-                // Remove XRefTrailer
-                if (Trailer is PdfCrossReferenceStream crossReferenceStream)
+                if (IncrementalUpdate != null)
                 {
-                    Trailer = new PdfTrailer(crossReferenceStream);
-                }
-
-                var effectiveSecurityHandler = _securitySettings?.EffectiveSecurityHandler;
-                if (effectiveSecurityHandler != null)
-                {
-                    if (effectiveSecurityHandler.Reference == null)
-                        IrefTable.Add(effectiveSecurityHandler);
-                    else
-                        Debug.Assert(IrefTable.Contains(effectiveSecurityHandler.ObjectID));
-                    Trailer.Elements[PdfTrailer.Keys.Encrypt] = _securitySettings!.SecurityHandler.RequiredReference;
+                    // The original bytes stay as they are; new and changed objects follow in one update.
+                    IncrementalUpdate.RecordDocumentInformationChange(this);
+                    PrepareForSave();
+                    IncrementalUpdate.Write(this, writer);
                 }
                 else
-                    Trailer.Elements.Remove(PdfTrailer.Keys.Encrypt);
-
-                PrepareForSave();
-
-                effectiveSecurityHandler?.PrepareForWriting();
-
-                writer.WriteFileHeader(this);
-                var irefs = IrefTable.AllReferences;
-                int count = irefs.Length;
-                for (int idx = 0; idx < count; idx++)
-                {
-                    PdfReference iref = irefs[idx];
-#if DEBUG_
-                    if (iref.ObjectNumber == 18)
-                        _ = typeof(int);
-#endif
-                    iref.Position = writer.Position;
-
-                    var obj = iref.Value;
-
-                    // Enter indirect object in SecurityHandler to allow object encryption key generation for this object.
-                    effectiveSecurityHandler?.EnterObject(obj.ObjectID);
-
-                    obj.WriteObject(writer);
-                }
-
-                // Leaving only the last indirect object in SecurityHandler is sufficient, as this is the first time no indirect object is entered anymore.
-                effectiveSecurityHandler?.LeaveObject();
-
-                // ReSharper disable once RedundantCast because it is redundant only if SizeType is 64 bit.
-                var startXRef = (SizeType)writer.Position;
-                IrefTable.WriteObject(writer);
-                writer.WriteRaw("trailer\n");
-                Trailer.Elements.SetInteger("/Size", count + 1);
-                Trailer.WriteObject(writer);
-                writer.WriteEof(this, startXRef);
+                    WriteFile(writer);
 
                 // #Signature: What about encryption + signing ??
                 // Prepare for signing.
@@ -429,6 +393,65 @@ namespace PdfSharp.Pdf
                 // Do not close the stream writer here.
                 State |= DocumentState.Saved;
             }
+        }
+
+        /// <summary>
+        /// Writes the whole document: header, all objects, cross-reference table and trailer.
+        /// </summary>
+        void WriteFile(PdfWriter writer)
+        {
+            // Remove XRefTrailer
+            if (Trailer is PdfCrossReferenceStream crossReferenceStream)
+            {
+                Trailer = new PdfTrailer(crossReferenceStream);
+            }
+
+            var effectiveSecurityHandler = _securitySettings?.EffectiveSecurityHandler;
+            if (effectiveSecurityHandler != null)
+            {
+                if (effectiveSecurityHandler.Reference == null)
+                    IrefTable.Add(effectiveSecurityHandler);
+                else
+                    Debug.Assert(IrefTable.Contains(effectiveSecurityHandler.ObjectID));
+                Trailer.Elements[PdfTrailer.Keys.Encrypt] = _securitySettings!.SecurityHandler.RequiredReference;
+            }
+            else
+                Trailer.Elements.Remove(PdfTrailer.Keys.Encrypt);
+
+            PrepareForSave();
+
+            effectiveSecurityHandler?.PrepareForWriting();
+
+            writer.WriteFileHeader(this);
+            var irefs = IrefTable.AllReferences;
+            int count = irefs.Length;
+            for (int idx = 0; idx < count; idx++)
+            {
+                PdfReference iref = irefs[idx];
+#if DEBUG_
+                if (iref.ObjectNumber == 18)
+                    _ = typeof(int);
+#endif
+                iref.Position = writer.Position;
+
+                var obj = iref.Value;
+
+                // Enter indirect object in SecurityHandler to allow object encryption key generation for this object.
+                effectiveSecurityHandler?.EnterObject(obj.ObjectID);
+
+                obj.WriteObject(writer);
+            }
+
+            // Leaving only the last indirect object in SecurityHandler is sufficient, as this is the first time no indirect object is entered anymore.
+            effectiveSecurityHandler?.LeaveObject();
+
+            // ReSharper disable once RedundantCast because it is redundant only if SizeType is 64 bit.
+            var startXRef = (SizeType)writer.Position;
+            IrefTable.WriteObject(writer);
+            writer.WriteRaw("trailer\n");
+            Trailer.Elements.SetInteger("/Size", count + 1);
+            Trailer.WriteObject(writer);
+            writer.WriteEof(this, startXRef);
         }
 
         void PrepareForPdfA() // Just a first hack.
@@ -530,6 +553,9 @@ namespace PdfSharp.Pdf
             // #PDF-UA  // TODO rewrite
             // Create PdfMetadata now to include the final document information in XMP generation.
             //Catalog.Elements.SetReference(PdfCatalog.Keys.Metadata, new PdfMetadata(this));
+            // An update keeps object numbers; unreachable objects are simply not written.
+            if (IncrementalUpdate != null)
+                return;
 #if true
             // Remove all unreachable objects (e.g. from deleted pages).
             int removed = IrefTable.Compact();
@@ -679,7 +705,7 @@ namespace PdfSharp.Pdf
         /// <summary>
         /// Returns a value indicating whether the document is read only or can be modified.
         /// </summary>
-        public bool IsReadOnly => (OpenMode != PdfDocumentOpenMode.Modify);
+        public bool IsReadOnly => !CanModify;
 
         /// <summary>
         /// Gets information about the document.

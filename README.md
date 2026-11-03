@@ -86,6 +86,22 @@ buttons and bookmarks lead to the pages in the new file, and a split file does
 not carry hidden copies of the pages it left out. `AddPage(page)` keeps PDFsharp 6.2.4's
 behaviour; see [Merging and splitting](docs/migrating-to-7.md#merging-and-splitting).
 
+## Fill in or sign a signed PDF without breaking its signatures
+
+```csharp
+using var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append);
+((PdfFormTextField)document.Catalog.GetAcroForm()!.Fields["name"]!).Text = "Ada Lovelace";
+DigitalSignatureHandler.ForDocument(document, signer, options);   // optional: sign it again
+document.Save("signed-filled.pdf");
+```
+
+In `Append` mode, saving keeps the original file byte for byte and adds only the
+new and changed objects after it, as an incremental update. The signatures
+already in the file stay valid, and a new signature covers the whole file,
+earlier signatures included. A document with no changes is saved as it was.
+Encrypted documents cannot be opened in `Append` mode yet. See
+[Signed documents](docs/migrating-to-7.md#signed-documents).
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries

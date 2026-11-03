@@ -613,7 +613,8 @@ namespace PdfSharp.Pdf.IO
             WriteRaw(startxref.ToString(CultureInfo.InvariantCulture));
             WriteRaw("\n%%EOF\n");
             SizeType fileSize = (SizeType)_stream.Position;
-            if (IsVerboseLayout)
+            // An incremental update writes no header, so there is no comment section to fill in.
+            if (IsVerboseLayout && _commentPosition > 0)
             {
                 // Note
                 // Without InvariantCulture parameter the following code fails if the current culture is e.g.

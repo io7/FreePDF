@@ -43,6 +43,18 @@ errors before the 7.3.0 release. Tags (the structure tree), page labels,
 optional content settings and XFA are not carried, and copied signatures cannot
 be valid in the new file.
 
+Saving a document opened with `PdfDocumentOpenMode.Append` writes an incremental
+update and keeps existing signatures valid. Regression tests check that the
+original bytes stay unchanged, that only new and changed objects are written, and
+that a signature made before filling in a field or adding a second signature
+still verifies. The release checks also validated signed, filled and
+countersigned files with poppler's pdfsig and pyHanko (whose difference analysis
+rated the changes as signing and form filling), countersigned a file that pyHanko
+had signed, and saved each of 2,930 veraPDF and producer files unchanged (same
+bytes) and with one change (only the changed objects written). Encrypted
+documents are refused, and certification signature permissions (DocMDP) are not
+checked.
+
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 `/AF` and declared in the XMP extension schema. FreePDF only checks that the XML
@@ -65,8 +77,8 @@ revocation checking, timestamp-authority behaviour, PAdES/LTV or a legal
 signature status. No FIPS certification is claimed. MD5 exists only for legacy
 PDF-format operations and checksums, never as the recommended signature digest.
 
-Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, preservation of existing signatures,
-incremental saving, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
+Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
+encrypted documents, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
 script shaping are not promised in 7.3. Placeholder inherited types are not
 evidence that those features are complete.
 

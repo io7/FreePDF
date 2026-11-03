@@ -35,5 +35,14 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         [Obsolete("InformationOnly is not implemented, use Import instead.")]
         InformationOnly,
+
+        /// <summary>
+        /// The PDF stream is completely read into memory and can be modified, and saving the document writes an
+        /// incremental update: the original bytes are kept unchanged and only new and changed objects are appended.
+        /// Existing digital signatures therefore stay valid, and a further signature can be added. Object numbers
+        /// and the page tree are kept. Encrypted documents are not supported, and pages cannot be inserted,
+        /// removed or moved when the document has a nested page tree.
+        /// </summary>
+        Append,
     }
 }
