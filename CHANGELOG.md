@@ -15,8 +15,8 @@
 - Import PNG images with 16 bits per sample (grayscale, gray with alpha, RGB,
   RGBA). The importer refused them with "Unsupported bit depth 16", although
   its decoder reads them; they are now embedded with 8 bits per component,
-  which every PDF/A part allows. Image editors and screenshot tools commonly
-  write 16-bit PNGs.
+  which every PDF/A part allows. Photo editors and imaging tools write 16-bit
+  PNGs when a project uses 16 bits per channel.
 - Add `FacturXManager` for Factur-X / ZUGFeRD hybrid invoices.
   `SetInvoice(xml, profile)` embeds the Cross Industry Invoice as `factur-x.xml`
   (`xrechnung.xml` for XRechnung) with MIME type `text/xml` and the profile's
