@@ -1391,7 +1391,9 @@ namespace MigraDoc.Rendering
                     var linkElement = _linkElements.Dequeue();
                     if (annotation != null)
                     {
-                        var target = String.IsNullOrEmpty(hyperlink.Filename) ? hyperlink.BookmarkName : hyperlink.Filename;
+                        var target = hyperlink.Filename;
+                        if (String.IsNullOrEmpty(target))
+                            target = hyperlink.BookmarkName;
                         structure.AddLinkAnnotation(linkElement, annotation, target);
                     }
                 }

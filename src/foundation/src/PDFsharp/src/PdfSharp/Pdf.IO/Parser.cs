@@ -1649,9 +1649,11 @@ namespace PdfSharp.Pdf.IO
             // /Index pairs, all direct non-negative integers, and enough data for every entry. Anything else is a
             // damaged file. May look like this: W[1 2 1] ¤ Index[7 12] ¤ Size 19
             static int Count(PdfItem? item, string key)
-                => item is PdfInteger { Value: >= 0 } integer
-                    ? integer.Value
-                    : throw new PdfReaderException($"The {key} entry of a cross-reference stream is invalid: '{item?.ToString() ?? "(no value)"}'.");
+            {
+                if (item is PdfInteger { Value: >= 0 } integer)
+                    return integer.Value;
+                throw new PdfReaderException($"The {key} entry of a cross-reference stream is invalid: '{item?.ToString() ?? "(no value)"}'.");
+            }
 
             int size = Count(xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Size, VCF.NoTransform), "/Size");
             var index = xrefStream.Elements.GetValue(PdfCrossReferenceStream.Keys.Index, VCF.NoTransform);
@@ -1742,8 +1744,8 @@ namespace PdfSharp.Pdf.IO
                     int start = index2 * (int)wsum;
                     PdfCrossReferenceStream.CrossReferenceStreamEntry item = new()
                     {
-                        // ISO 32000-1 Table 17: without a type field, every entry is type 1.
-                        Type = wsize[0] == 0 ? 1 : StreamHelper.ReadBytes(bytes, start, wsize[0]),
+                        // ISO 32000-1 Table 17: without a type field (width 0), every entry is type 1.
+                        Type = StreamHelper.EntryType(bytes, start, wsize[0]),
                         Field2 = StreamHelper.ReadBytes(bytes, start + wsize[0], wsize[1]),
                         Field3 = StreamHelper.ReadBytes(bytes, start + wsize[0] + wsize[1], wsize[2])
                     };
@@ -2001,6 +2003,16 @@ namespace PdfSharp.Pdf.IO
 
     static class StreamHelper
     {
+        /// <summary>
+        /// Reads the type field of a cross-reference stream entry; an entry without one (width 0) is type 1.
+        /// </summary>
+        public static uint EntryType(byte[] bytes, int index, int width)
+        {
+            if (width == 0)
+                return 1;
+            return ReadBytes(bytes, index, width);
+        }
+
         public static int WSize(int[] w)
         {
             Debug.Assert(w.Length == 3);
