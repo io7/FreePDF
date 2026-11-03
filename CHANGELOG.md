@@ -74,6 +74,11 @@
 - Refuse a document whose catalog has no page tree (`/Pages` absent, `null` or
   dangling) with `PdfReaderException`. Such a file opened as an empty document,
   and saving it dropped every page in the file.
+- Read an outline only as far as its `/First` and `/Next` links lead to outline
+  items. A link back to an earlier item made opening loop until memory ran out;
+  a link to the catalog or a page converted that object into an outline item, so
+  saving failed; a link to a number threw `InvalidCastException`. The outline now
+  ends at such a link.
 
 ## 7.0.1
 

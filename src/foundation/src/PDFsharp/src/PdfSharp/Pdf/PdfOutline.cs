@@ -450,26 +450,15 @@ namespace PdfSharp.Pdf
 
         void InitializeChildren()
         {
-            var firstRef = Elements.GetReference(Keys.First);
-            //var lastRef = Elements.GetReference(Keys.Last);
-            var current = firstRef;
-            while (current != null)
+            // Follow /First and /Next only to dictionaries that have no type yet. A link to a non-dictionary, or to an
+            // object that already has one (the catalog, a page, an item read earlier in a loop), ends the chain:
+            // converting it would destroy that object or never stop.
+            var current = Elements.GetReference(Keys.First);
+            while (current?.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary))
             {
-                // Create item and add it to outline items dictionary.
-                var item = new PdfOutline((PdfDictionary)current.Value);
+                var item = new PdfOutline(dict);
                 Outlines.Add(item);
-
                 current = item.Elements.GetReference(Keys.Next);
-#if DEBUG_
-                if (current == null)
-                {
-                    if (item.Reference != lastRef)
-                    {
-                        // Word produces PDFs that come to this case.
-                        _ = typeof(int);
-                    }
-                }
-#endif
             }
         }
 
