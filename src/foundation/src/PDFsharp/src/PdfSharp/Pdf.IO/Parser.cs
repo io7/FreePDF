@@ -801,10 +801,8 @@ namespace PdfSharp.Pdf.IO
                         items.Add(dict);
                         break;
 
-                    case Symbol.BeginStream:
-                        throw new NotImplementedException();
-
-                    // Not expected here:
+                    // Not expected here (a stream follows only a top-level dictionary):
+                    //case Symbol.BeginStream:
                     //case Symbol.None:
                     //case Symbol.Keyword:
                     //case Symbol.EndStream:
