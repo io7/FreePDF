@@ -29,6 +29,9 @@ static class ReleaseWorkflows
         "<ram:GuidelineSpecifiedDocumentContextParameter><ram:ID>urn:cen.eu:en16931:2017</ram:ID></ram:GuidelineSpecifiedDocumentContextParameter>" +
         "</rsm:ExchangedDocumentContext><rsm:ExchangedDocument><ram:ID>INV-2026-002</ram:ID><ram:TypeCode>380</ram:TypeCode></rsm:ExchangedDocument></rsm:CrossIndustryInvoice>";
 
+    // A 2 x 2 pixel 8-bit RGB PNG as a MigraDoc base64 image name.
+    const string TaggedLogo = "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12N0a9rCwMDAxMDAwMDAAAARjAGAcK5hlwAAAABJRU5ErkJggg==";
+
     internal static void Run(string output, string certificatePath, string version)
     {
         Directory.CreateDirectory(output);
@@ -132,6 +135,27 @@ static class ReleaseWorkflows
             Record("facturx-en16931", 1, new[] { "FACTUR-X ORIGINAL" }, profile: "3b", attachment: true, attachmentName: "factur-x.xml", attachmentContent: FacturXInvoice);
         }
 
+        // Tagged PDF/UA-1: the invoice with a heading, a logo, a list and a link, rendered with TaggedPdf over several pages;
+        // veraPDF validates it with the PDF/UA-1 profile.
+        var tagged = invoice.Clone();
+        tagged.Info.Title = "Tagged invoice fixture";
+        tagged.Culture = CultureInfo.GetCultureInfo("nb-NO");
+        var taggedSection = tagged.LastSection;
+        ((Paragraph)taggedSection.Elements[0]!).Format.OutlineLevel = OutlineLevel.Level1;
+        taggedSection.AddImage(TaggedLogo).AlternativeText = "Blue square logo";
+        foreach (var item in new[] { "Delivery within 5 days", "Two-year warranty" })
+        {
+            var listItem = taggedSection.AddParagraph(item);
+            listItem.Format.ListInfo.ListType = ListType.BulletList1;
+            listItem.Format.LeftIndent = Unit.FromCentimeter(1);
+        }
+        taggedSection.AddParagraph("Terms: ").AddHyperlink("https://github.com/io7/FreePDF", HyperlinkType.Web).AddText("github.com/io7/FreePDF");
+        var taggedRenderer = new PdfDocumentRenderer { Document = tagged, TaggedPdf = true };
+        taggedRenderer.RenderDocument();
+        var taggedPages = taggedRenderer.PdfDocument.PageCount;
+        taggedRenderer.PdfDocument.Save(Path.Combine(output, "invoice-tagged.pdf"));
+        Record("invoice-tagged", taggedPages, new[] { "Invoice INV-2026-001" }, profile: "ua1");
+
 #pragma warning disable SYSLIB0057 // Cross-target test consumer includes Framework.
         using var certificate = new X509Certificate2(certificatePath, "test-only");
 #pragma warning restore SYSLIB0057
@@ -154,7 +178,7 @@ static class ReleaseWorkflows
             File.WriteAllBytes(Path.Combine(output, "negative", name + "-tampered.pdf"), changed);
         }
         new XDocument(manifest).Save(Path.Combine(output, "consumer-results.xml"));
-        Console.WriteLine("PASS: invoice/RTF, attachments, merge/stamp, AES-128/256, PDF/A generation, a Factur-X invoice and three cryptographically verified PDF signatures.");
+        Console.WriteLine("PASS: invoice/RTF, attachments, merge/stamp, AES-128/256, PDF/A generation, a Factur-X invoice, a tagged PDF/UA invoice and three cryptographically verified PDF signatures.");
     }
 
     static PdfDocument Basic(string text, int archivalPart = 0)

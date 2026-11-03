@@ -124,6 +124,7 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             get => Values.Interpolate ?? true;
             set => Values.Interpolate = value;
         }
+
         //#endregion
 
         /// <summary>

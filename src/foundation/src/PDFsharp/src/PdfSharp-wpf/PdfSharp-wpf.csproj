@@ -454,6 +454,7 @@
     <Compile Include="..\PdfSharp\UniversalAccessibility\enums\PdfBlockLevelElementTag.cs" Link="UniversalAccessibility\enums\PdfBlockLevelElementTag.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\enums\PdfGroupingElementTag.cs" Link="UniversalAccessibility\enums\PdfGroupingElementTag.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\enums\PdfIllustrationElementTag.cs" Link="UniversalAccessibility\enums\PdfIllustrationElementTag.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\enums\PdfTableHeaderScope.cs" Link="UniversalAccessibility\enums\PdfTableHeaderScope.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\enums\PdfInlineLevelElementTag.cs" Link="UniversalAccessibility\enums\PdfInlineLevelElementTag.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfRendererExtensions.cs" Link="UniversalAccessibility\PdfRendererExtensions.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\StructureBuilder.cs" Link="UniversalAccessibility\StructureBuilder.cs" />

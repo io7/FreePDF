@@ -39,7 +39,14 @@ namespace PdfSharp.Pdf.Metadata
             InstanceID = document.Internals.SecondDocumentID;
             var pdfaManager = PdfAManager.ForDocument(document);
             PdfAFormat = pdfaManager.IsPdfADocument ? pdfaManager.Format : null;
+            IsPdfUA = document.UAManager != null;
         }
+
+        /// <summary>
+        /// Gets a value indicating whether the document is tagged for PDF/UA-1 (it has a UAManager).
+        /// Corresponds to the “pdfuaid:part” entry in the document’s metadata stream.
+        /// </summary>
+        public bool IsPdfUA { get; }
 
         // Reference 2.0: Table 349 — Entries in the document information dictionary / Page 716
         // The names of the properties comes from the document information dictionary.

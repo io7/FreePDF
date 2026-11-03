@@ -107,10 +107,31 @@ namespace MigraDoc.Rendering
             if ((int)_paragraph.Format.OutlineLevel >= 1 && _gfx.PdfPage != null) // Don’t call GetOutlineTitle() in vain
                 DocumentRenderer.AddOutline((int)_paragraph.Format.OutlineLevel, GetOutlineTitle(), _gfx.PdfPage, GetDestinationPosition());
 
-            RenderShading();
-            RenderBorders();
+            // Shading and borders are decoration: artifacts in a tagged PDF.
+            _documentRenderer.RenderAsArtifact(() =>
+            {
+                RenderShading();
+                RenderBorders();
+            });
 
+            var structure = _documentRenderer.ContentStructure;
             ParagraphFormatInfo parFormatInfo = (ParagraphFormatInfo)_renderInfo.FormatInfo;
+
+            // A run of consecutive list paragraphs is one L; each paragraph is an LI with its symbol as Lbl and its
+            // text as LBody. The elements stay open across page breaks until the paragraph (and the run) ends.
+            _tagsListItem = structure != null && IsListParagraph(_paragraph);
+            if (_tagsListItem)
+            {
+                if (parFormatInfo.IsStarting)
+                {
+                    if (!IsListParagraph(Sibling(-1)))
+                        structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.List);
+                    structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.ListItem);
+                }
+            }
+            else
+                structure?.BeginElement(StructureTag());
+
             for (int idx = 0; idx < parFormatInfo.LineCount; idx++)
             {
                 LineInfo lineInfo = parFormatInfo.GetLineInfo(idx);
@@ -122,6 +143,49 @@ namespace MigraDoc.Rendering
 
                 RenderLine(lineInfo);
             }
+
+            if (_tagsListItem)
+            {
+                if (parFormatInfo.IsEnding)
+                {
+                    structure!.End(); // LBody
+                    structure.End();  // LI
+                    if (!IsListParagraph(Sibling(1)))
+                        structure.End(); // L
+                }
+            }
+            else
+                structure?.End();
+        }
+
+        // True while this paragraph is rendered as a list item of a tagged PDF.
+        bool _tagsListItem;
+
+        static bool IsListParagraph(DocumentObject? documentObject)
+            => documentObject is Paragraph paragraph
+               && paragraph.Format.Values.ListInfo is { } listInfo && !listInfo.IsNull();
+
+        /// <summary>
+        /// Gets the element before (-1) or after (1) this paragraph in its container, or null.
+        /// </summary>
+        DocumentObject? Sibling(int offset)
+        {
+            if (DocumentRelations.GetParent(_paragraph) is not DocumentObjectCollection elements)
+                return null;
+            var index = elements.IndexOf(_paragraph) + offset;
+            return index >= 0 && index < elements.Count ? elements[index] : null;
+        }
+
+        /// <summary>
+        /// The structure type of this paragraph in a tagged PDF: H1 to H6 for outline levels 1 to 6 (deeper levels are
+        /// H6), P for body text.
+        /// </summary>
+        PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag StructureTag()
+        {
+            var level = (int)_paragraph.Format.OutlineLevel;
+            if (level < 1)
+                return PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Paragraph;
+            return PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Heading1 + (Math.Min(level, 6) - 1);
         }
 
         static bool IsRenderedField(DocumentObject docObj)
@@ -808,13 +872,37 @@ namespace MigraDoc.Rendering
                 // If a DocumentObjectCollection is returned as a leaf, it is obviously empty.
                 // There is no need to render an empty DocumentObjectCollection. Also, RenderElement() will throw an exception, because it doesn’t contain implementations for DocumentObjectCollections. So we better won¹t call it for them.
                 if (_currentLeaf.Current is not DocumentObjectCollection)
+                {
+                    TagHyperlinkTransition(GetHyperlink());
                     RenderElement(_currentLeaf.Current);
+                }
 
                 _currentLeaf = _currentLeaf.GetNextLeaf();
             }
+            // Link annotations are made per line, so a tagged link element ends with the line too.
+            TagHyperlinkTransition(null);
             _currentYPosition += lineInfo.Vertical.Height;
             _isFirstLine = false;
         }
+
+        /// <summary>
+        /// In a tagged PDF, ends the open Link element and starts one for the next hyperlink, before the element that
+        /// changes the hyperlink is drawn. The annotations, made after their text, are attached in EndHyperlink.
+        /// </summary>
+        void TagHyperlinkTransition(Hyperlink? hyperlink)
+        {
+            var structure = _documentRenderer.ContentStructure;
+            if (structure == null || hyperlink == _taggedHyperlink)
+                return;
+            if (_taggedHyperlink != null)
+                structure.End();
+            _taggedHyperlink = hyperlink;
+            if (hyperlink != null)
+                _linkElements.Enqueue(structure.BeginLinkElement());
+        }
+
+        Hyperlink? _taggedHyperlink;
+        readonly Queue<PdfSharp.Pdf.Structure.PdfStructureElement> _linkElements = new();
 
         void ReMeasureLine(ref LineInfo lineInfo)
         {
@@ -1259,6 +1347,7 @@ namespace MigraDoc.Rendering
             {
                 XRect rect = _gfx.Transformer.WorldToDefaultPage(_hyperlinkRect);
 
+                PdfSharp.Pdf.Annotations.PdfLinkAnnotation? annotation = null;
                 switch (hyperlink.Type)
                 {
                     case HyperlinkType.Local:
@@ -1267,32 +1356,44 @@ namespace MigraDoc.Rendering
                         var pdfDocument = _gfx.PdfPage?.Owner;
                         if (pdfDocument != null)
                         {
-                            page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.BookmarkName);
+                            annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.BookmarkName);
                         }
                         // Otherwise use page from bookmark’s fieldInfo.
                         else
                         {
                             var pageRef = _fieldInfos?.GetPhysicalPageNumber(hyperlink.BookmarkName) ?? NRT.ThrowOnNull<int>();
                             if (pageRef > 0)
-                                page.AddDocumentLink(new PdfRectangle(rect.AsXRect), pageRef);
+                                annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), pageRef);
                         }
                         break;
 
                     case HyperlinkType.ExternalBookmark:
-                        page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
+                        annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
                         break;
 
                     case HyperlinkType.EmbeddedDocument:
-                        page.AddEmbeddedDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
+                        annotation = page.AddEmbeddedDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
                         break;
 
                     case HyperlinkType.Web:
-                        page.AddWebLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
+                        annotation = page.AddWebLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
                         break;
 
                     case HyperlinkType.File:
-                        page.AddFileLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
+                        annotation = page.AddFileLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
                         break;
+                }
+
+                // In a tagged PDF the annotation belongs to the Link element begun before its text was drawn.
+                var structure = _documentRenderer.ContentStructure;
+                if (structure != null && _linkElements.Count > 0)
+                {
+                    var linkElement = _linkElements.Dequeue();
+                    if (annotation != null)
+                    {
+                        var target = String.IsNullOrEmpty(hyperlink.Filename) ? hyperlink.BookmarkName : hyperlink.Filename;
+                        structure.AddLinkAnnotation(linkElement, annotation, target);
+                    }
                 }
                 _hyperlinkRect = new XRect();
             }
@@ -2042,15 +2143,20 @@ namespace MigraDoc.Rendering
 
         void RenderListSymbol()
         {
+            var structure = _tagsListItem ? _documentRenderer.ContentStructure : null;
             if (GetListSymbol(out var symbol, out var font))
             {
+                structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Label);
                 var brush = FontHandler.FontColorToXBrush(_paragraph.Format.Font);
                 _gfx.DrawString(symbol, font, brush, _currentXPosition, CurrentBaselinePosition);
+                structure?.End();
                 _currentXPosition += _gfx.MeasureString(symbol, font, StringFormat).Width;
                 var tabOffset = NextTabOffset();
                 _currentXPosition += tabOffset.Offset;
                 _lastTabPosition = _currentXPosition;
             }
+            // The rest of the list item is its body.
+            structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.ListBody);
         }
 
         void FormatListSymbol()

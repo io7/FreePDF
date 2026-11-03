@@ -55,7 +55,12 @@ namespace PdfSharp.Pdf.Metadata
         /// <summary>
         /// Adjusts the document metadata strategy for PDF/A generation if a PDF/A format is set.
         /// </summary>
-        internal void AdjustStrategyForPdfA()
+        internal void AdjustStrategyForPdfA() => AdjustStrategyForStandard("PDF/A");
+
+        /// <summary>
+        /// Makes sure XMP metadata is written for a standard that requires it (PDF/A, PDF/UA).
+        /// </summary>
+        internal void AdjustStrategyForStandard(string standard)
         {
             _strategy = _strategy switch
             {
@@ -72,7 +77,7 @@ namespace PdfSharp.Pdf.Metadata
             DocumentMetadataStrategy Fail()
             {
                 throw new InvalidOperationException(
-                    $"With a document metadata strategy of '{_strategy}' the document cannot be a PDF/A document.");
+                    $"With a document metadata strategy of '{_strategy}' the document cannot be a {standard} document.");
             }
         }
 

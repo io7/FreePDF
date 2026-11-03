@@ -46,6 +46,8 @@ namespace MigraDoc.DocumentObjectModel
         protected override object DeepCopy()
         {
             var document = (Document)base.DeepCopy();
+            // A copy is a new document for a new renderer; MemberwiseClone copied the original's binding.
+            document._renderer = null;
             if (document.Values.Info != null)
             {
                 document.Values.Info = document.Values.Info.Clone();

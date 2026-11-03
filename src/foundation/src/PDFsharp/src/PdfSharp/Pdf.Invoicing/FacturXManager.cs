@@ -119,7 +119,16 @@ namespace PdfSharp.Pdf.Invoicing
             var end = xml.IndexOf("</rdf:RDF>", StringComparison.Ordinal);
             if (end < 0)
                 throw new InvalidOperationException("The default XMP metadata has no rdf:RDF element.");
-            e.Metadata.SetMetadata(xml[..end] + FacturXDescriptions() + xml[end..]);
+
+            // XMP allows a property only once per resource. If the default metadata already declares extension
+            // schemas (PDF/UA does), the Factur-X schema joins that list instead of adding a second one.
+            var schemas = xml.IndexOf("<pdfaExtension:schemas>", StringComparison.Ordinal);
+            var bagEnd = schemas < 0 ? -1 : xml.IndexOf("</rdf:Bag>", schemas, StringComparison.Ordinal);
+            if (bagEnd >= 0 && bagEnd < end)
+                xml = xml[..bagEnd] + SchemaEntry + xml[bagEnd..end] + FacturXProperties() + xml[end..];
+            else
+                xml = xml[..end] + ExtensionSchemas + FacturXProperties() + xml[end..];
+            e.Metadata.SetMetadata(xml);
         }
 
         string ConformanceLevel => Profile switch
@@ -133,12 +142,9 @@ namespace PdfSharp.Pdf.Invoicing
             _ => throw new InvalidOperationException("No Factur-X profile is set."),
         };
 
-        // The PDF/A extension schema declaring the fx properties (PDF/A only allows declared custom XMP properties),
-        // followed by the properties themselves.
-        string FacturXDescriptions() => $"""
-                <rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
-                  <pdfaExtension:schemas>
-                    <rdf:Bag>
+        // The PDF/A extension schema entry declaring the fx properties (PDF/A only allows declared custom XMP
+        // properties).
+        const string SchemaEntry = $"""
                       <rdf:li rdf:parseType="Resource">
                         <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>
                         <pdfaSchema:namespaceURI>{XmpNamespace}</pdfaSchema:namespaceURI>
@@ -172,9 +178,20 @@ namespace PdfSharp.Pdf.Invoicing
                           </rdf:Seq>
                         </pdfaSchema:property>
                       </rdf:li>
-                    </rdf:Bag>
+
+            """;
+
+        const string ExtensionSchemas = $"""
+                <rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+                  <pdfaExtension:schemas>
+                    <rdf:Bag>
+            {SchemaEntry}        </rdf:Bag>
                   </pdfaExtension:schemas>
                 </rdf:Description>
+
+            """;
+
+        string FacturXProperties() => $"""
                 <rdf:Description rdf:about="" xmlns:fx="{XmpNamespace}">
                   <fx:DocumentType>INVOICE</fx:DocumentType>
                   <fx:DocumentFileName>{FileName}</fx:DocumentFileName>

@@ -120,7 +120,9 @@ namespace PdfSharp.Pdf.Structure
                 // Remove the array and directly add its first item if there is only one item.
                 if (array.Elements.Count == 1)
                 {
+                    // Take the item out of the array first: a direct dictionary can have only one container.
                     var item = array.Elements[0];
+                    array.Elements.RemoveAt(0);
                     Elements[Keys.A] = item;
                 }
                 // Remove the key, if the array is empty.

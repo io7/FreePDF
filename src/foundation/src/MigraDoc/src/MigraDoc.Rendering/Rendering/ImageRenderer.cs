@@ -64,7 +64,9 @@ namespace MigraDoc.Rendering
             }
         }
 
-        internal override void Render()
+        internal override void Render() => RenderPicture(RenderImage);
+
+        void RenderImage()
         {
             RenderFilling();
 

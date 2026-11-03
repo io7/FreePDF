@@ -116,6 +116,14 @@ namespace MigraDoc.Rendering
             }
         }
         /// <summary>
+        /// Gets or sets whether the document is rendered as a tagged PDF for PDF/UA-1. Paragraphs and headings are
+        /// tagged with their structure (outline levels 1 to 6 become H1 to H6), and headers, footers, borders and
+        /// shading are marked as artifacts. The document needs a title (Document.Info.Title); its language comes from
+        /// Document.Culture. Set it before rendering.
+        /// </summary>
+        public bool TaggedPdf { get; set; }
+
+        /// <summary>
         /// Renders the document into a PdfDocument containing all pages of the document.
         /// </summary>
         public void RenderDocument()
@@ -206,6 +214,18 @@ namespace MigraDoc.Rendering
                 PrepareDocumentRenderer();
 
             _pdfDocument ??= CreatePdfDocument();
+
+            if (TaggedPdf && DocumentRenderer.StructureBuilder == null)
+            {
+                // PDF/UA-1 requires a title shown in the window title, and a natural language.
+                if (String.IsNullOrWhiteSpace(_pdfDocument.Info.Title))
+                    throw new InvalidOperationException("A tagged PDF (PDF/UA-1) needs a document title. Set Document.Info.Title.");
+                var ua = PdfSharp.UniversalAccessibility.UAManager.ForDocument(_pdfDocument);
+                var language = _document?.EffectiveCulture.Name;
+                if (!String.IsNullOrEmpty(language))
+                    ua.SetDocumentLanguage(language);
+                DocumentRenderer.StructureBuilder = ua.StructureBuilder;
+            }
 
             DocumentRenderer.PrintDate = DateTimeOffset.Now;
             for (int pageNr = startPage; pageNr <= endPage; ++pageNr)
