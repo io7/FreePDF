@@ -103,11 +103,13 @@ namespace MigraDoc.Rendering
             _documentRenderer.RenderAsArtifact(() => RenderShading(cell, innerRect));
             if (structure != null)
             {
-                structure.BeginElement(cell.Row.Index <= _lastHeaderRow
-                    ? PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableHeaderCell
-                    : PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableDataCell);
                 if (cell.Row.Index <= _lastHeaderRow)
+                {
+                    structure.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableHeaderCell);
                     structure.SetScope(PdfSharp.UniversalAccessibility.PdfTableHeaderScope.Column);
+                }
+                else
+                    structure.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.TableDataCell);
                 if (cell.MergeRight > 0)
                     structure.SetColSpan(cell.MergeRight + 1);
                 if (cell.MergeDown > 0)

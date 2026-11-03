@@ -61,9 +61,7 @@ namespace PdfSharp.Pdf.Invoicing
             EnsurePdfA3();
 
             Profile = profile;
-            relationship ??= profile is FacturXProfile.Minimum or FacturXProfile.BasicWL
-                ? PdfAFRelationship.Data
-                : PdfAFRelationship.Alternative;
+            relationship ??= DefaultRelationship(profile);
             var now = DateTimeOffset.Now;
             EmbeddedFilesManager.ForDocument(Document).AddFile(new EmbeddedFileInfo
             {
@@ -80,6 +78,17 @@ namespace PdfSharp.Pdf.Invoicing
             // The XMP metadata is created at save; add the Factur-X declaration to it then.
             MetadataManager.ForDocument(Document).Strategy = DocumentMetadataStrategy.UserGenerated;
             Document.Events.CreateDocumentMetadata += AddFacturXMetadata;
+        }
+
+        /// <summary>
+        /// The associated-file relationship Factur-X prescribes: Data for MINIMUM and BASIC WL, whose XML is not a
+        /// complete invoice, and Alternative for the other profiles.
+        /// </summary>
+        static string DefaultRelationship(FacturXProfile profile)
+        {
+            if (profile is FacturXProfile.Minimum or FacturXProfile.BasicWL)
+                return PdfAFRelationship.Data;
+            return PdfAFRelationship.Alternative;
         }
 
         static void EnsureCrossIndustryInvoice(byte[] xml)
@@ -123,7 +132,9 @@ namespace PdfSharp.Pdf.Invoicing
             // XMP allows a property only once per resource. If the default metadata already declares extension
             // schemas (PDF/UA does), the Factur-X schema joins that list instead of adding a second one.
             var schemas = xml.IndexOf("<pdfaExtension:schemas>", StringComparison.Ordinal);
-            var bagEnd = schemas < 0 ? -1 : xml.IndexOf("</rdf:Bag>", schemas, StringComparison.Ordinal);
+            var bagEnd = -1;
+            if (schemas >= 0)
+                bagEnd = xml.IndexOf("</rdf:Bag>", schemas, StringComparison.Ordinal);
             if (bagEnd >= 0 && bagEnd < end)
                 xml = xml[..bagEnd] + SchemaEntry + xml[bagEnd..end] + FacturXProperties() + xml[end..];
             else

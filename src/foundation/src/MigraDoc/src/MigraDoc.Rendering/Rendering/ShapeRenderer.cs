@@ -195,7 +195,9 @@ namespace MigraDoc.Rendering
             }
             if (String.IsNullOrWhiteSpace(_shape.AlternativeText))
             {
-                var name = _shape is Image image ? $"Image '{image.Name}'" : _shape.GetType().Name;
+                var name = _shape.GetType().Name;
+                if (_shape is Image image)
+                    name = $"Image '{image.Name}'";
                 throw new InvalidOperationException(
                     $"{name} has no alternative text. For a tagged PDF set AlternativeText, or Decorative if it is decoration only.");
             }
