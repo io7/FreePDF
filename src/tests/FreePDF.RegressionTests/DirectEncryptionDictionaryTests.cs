@@ -29,19 +29,19 @@ public class DirectEncryptionDictionaryTests
         using var stream = new MemoryStream();
         document.Save(stream);
 
-        var text = Encoding.Latin1.GetString(stream.ToArray());
+        var text = TestPdf.Latin1.GetString(stream.ToArray());
         var trailerAt = text.LastIndexOf("trailer", StringComparison.Ordinal);
         Assert.True(trailerAt > 0, "Expected a classic trailer.");
-        var reference = Regex.Match(text[trailerAt..], @"/Encrypt\s+(\d+)\s+(\d+)\s+R");
+        var reference = Regex.Match(text.Substring(trailerAt), @"/Encrypt\s+(\d+)\s+(\d+)\s+R");
         Assert.True(reference.Success, "Expected an indirect /Encrypt in the trailer.");
         var body = Regex.Match(text, $@"(?<!\d){reference.Groups[1].Value}\s+{reference.Groups[2].Value}\s+obj\s*(<<.*?>>)\s*endobj", RegexOptions.Singleline);
         Assert.True(body.Success, "Expected the encryption dictionary object.");
-        var trailer = text[trailerAt..].Replace(reference.Value, "/Encrypt " + body.Groups[1].Value);
-        return Encoding.Latin1.GetBytes(text[..trailerAt] + trailer);
+        var trailer = text.Substring(trailerAt).Replace(reference.Value, "/Encrypt " + body.Groups[1].Value);
+        return TestPdf.Latin1.GetBytes(text.Substring(0, trailerAt) + trailer);
     }
 
     static string Content(PdfDocument document) =>
-        Encoding.Latin1.GetString(document.Pages[0].Contents.Elements.GetDictionary(0)!.Stream!.UnfilteredValue);
+        TestPdf.Latin1.GetString(document.Pages[0].Contents.Elements.GetDictionary(0)!.Stream!.UnfilteredValue);
 
     [Theory]
     [InlineData(false)]

@@ -24,12 +24,12 @@ public class DamagedPermsTests
         using var stream = new MemoryStream();
         document.Save(stream);
 
-        var text = Encoding.Latin1.GetString(stream.ToArray());
+        var text = TestPdf.Latin1.GetString(stream.ToArray());
         var match = Regex.Match(text, @"/Perms\s*(<[0-9A-Fa-f]*>|\((?:\\.|[^\\)])*\))", RegexOptions.Singleline);
         Assert.True(match.Success, "Expected a /Perms string.");
         var value = match.Groups[1];
         Assert.True(perms.Length <= value.Length);
-        return Encoding.Latin1.GetBytes(text[..value.Index] + perms.PadRight(value.Length) + text[(value.Index + value.Length)..]);
+        return TestPdf.Latin1.GetBytes(text.Substring(0, value.Index) + perms.PadRight(value.Length) + text.Substring(value.Index + value.Length));
     }
 
     [Theory]

@@ -28,7 +28,7 @@ public class VerboseLayoutTests
         using var saved = new MemoryStream();
         document.Save(saved);
 
-        var text = Encoding.Latin1.GetString(saved.ToArray());
+        var text = TestPdf.Latin1.GetString(saved.ToArray());
         Assert.DoesNotContain("secret-user-4711", text);
         Assert.DoesNotContain("secret-owner-0815", text);
         using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), "secret-user-4711", PdfDocumentOpenMode.Import);
