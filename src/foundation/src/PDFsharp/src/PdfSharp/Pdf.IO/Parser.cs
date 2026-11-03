@@ -494,10 +494,13 @@ namespace PdfSharp.Pdf.IO
                     RestoreState(state);
                 }
 
-                int length = ((PdfIntegerObject)lengthObject).Value;
-                // Reset Length to a direct object.
-                dict.Elements["/Length"] = new PdfInteger(length);
-                return length;
+                if (lengthObject is PdfIntegerObject { Value: >= 0 } lengthInteger)
+                {
+                    // Reset Length to a direct object.
+                    dict.Elements["/Length"] = new PdfInteger(lengthInteger.Value);
+                    return lengthInteger.Value;
+                }
+                // Not a byte count: recover the length from 'endstream' as for a missing /Length.
             }
 
             // The dictionary obviously has not even the required /Length entry 🤯.
