@@ -22,6 +22,11 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// What a text or choice field shows for its current value, to draw its appearance; null for other fields.
+        /// </summary>
+        internal virtual FieldContent? CurrentContent() => null;
+
+        /// <summary>
         /// Gets the name of a check box or radio button widget's on state: the key of its normal appearance other
         /// than /Off (ISO 32000-1 12.7.4.2.3). Producers choose it freely, so it is not assumed to be /Yes.
         /// </summary>

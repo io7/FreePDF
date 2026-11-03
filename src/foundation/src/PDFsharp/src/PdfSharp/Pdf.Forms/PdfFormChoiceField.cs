@@ -80,6 +80,15 @@ namespace PdfSharp.Pdf.Forms
             }
         }
 
+        internal override FieldContent? CurrentContent()
+        {
+            var options = ReadOptions();
+            int selectedIndex = SelectedIndex;
+            if (selectedIndex >= 0)
+                return Content(options, selectedIndex, options[selectedIndex].Display);
+            return Content(options, -1, SelectedValue ?? "");
+        }
+
         /// <summary>
         /// What the field shows: a list box shows its options with the selection, a combo box the selected text.
         /// </summary>
