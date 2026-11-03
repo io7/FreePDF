@@ -107,8 +107,15 @@ namespace MigraDoc.Rendering
             if ((int)_paragraph.Format.OutlineLevel >= 1 && _gfx.PdfPage != null) // Don’t call GetOutlineTitle() in vain
                 DocumentRenderer.AddOutline((int)_paragraph.Format.OutlineLevel, GetOutlineTitle(), _gfx.PdfPage, GetDestinationPosition());
 
-            RenderShading();
-            RenderBorders();
+            // Shading and borders are decoration: artifacts in a tagged PDF.
+            _documentRenderer.RenderAsArtifact(() =>
+            {
+                RenderShading();
+                RenderBorders();
+            });
+
+            var structure = _documentRenderer.ContentStructure;
+            structure?.BeginElement(StructureTag());
 
             ParagraphFormatInfo parFormatInfo = (ParagraphFormatInfo)_renderInfo.FormatInfo;
             for (int idx = 0; idx < parFormatInfo.LineCount; idx++)
@@ -122,6 +129,20 @@ namespace MigraDoc.Rendering
 
                 RenderLine(lineInfo);
             }
+
+            structure?.End();
+        }
+
+        /// <summary>
+        /// The structure type of this paragraph in a tagged PDF: H1 to H6 for outline levels 1 to 6 (deeper levels are
+        /// H6), P for body text.
+        /// </summary>
+        PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag StructureTag()
+        {
+            var level = (int)_paragraph.Format.OutlineLevel;
+            if (level < 1)
+                return PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Paragraph;
+            return PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Heading1 + (Math.Min(level, 6) - 1);
         }
 
         static bool IsRenderedField(DocumentObject docObj)

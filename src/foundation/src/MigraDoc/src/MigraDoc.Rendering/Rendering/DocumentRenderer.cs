@@ -183,7 +183,45 @@ namespace MigraDoc.Rendering
         /// </summary>
         public string WorkingDirectory { get; set; } = null!;
 
+        /// <summary>
+        /// Gets or sets the structure builder when the document is rendered as a tagged PDF (PDF/UA), otherwise null.
+        /// </summary>
+        internal PdfSharp.UniversalAccessibility.StructureBuilder? StructureBuilder { get; set; }
+
+        /// <summary>
+        /// Gets the structure builder for content that is tagged, or null for untagged rendering and inside
+        /// artifacts such as headers and footers.
+        /// </summary>
+        internal PdfSharp.UniversalAccessibility.StructureBuilder? ContentStructure => _inArtifact ? null : StructureBuilder;
+        bool _inArtifact;
+
+        /// <summary>
+        /// Renders the specified action as an artifact (pagination, decoration) when the document is tagged.
+        /// </summary>
+        internal void RenderAsArtifact(Action render)
+        {
+            if (StructureBuilder == null || _inArtifact)
+            {
+                render();
+                return;
+            }
+            StructureBuilder.BeginArtifact();
+            _inArtifact = true;
+            try
+            {
+                render();
+            }
+            finally
+            {
+                _inArtifact = false;
+                StructureBuilder.End();
+            }
+        }
+
         void RenderHeader(XGraphics graphics, int page)
+            => RenderAsArtifact(() => RenderHeaderContent(graphics, page));
+
+        void RenderHeaderContent(XGraphics graphics, int page)
         {
             var formattedHeader = FormattedDocument.GetFormattedHeader(page);
             if (formattedHeader == null)
@@ -201,6 +239,9 @@ namespace MigraDoc.Rendering
         }
 
         void RenderFooter(XGraphics graphics, int page)
+            => RenderAsArtifact(() => RenderFooterContent(graphics, page));
+
+        void RenderFooterContent(XGraphics graphics, int page)
         {
             var formattedFooter = FormattedDocument.GetFormattedFooter(page);
             if (formattedFooter == null)
