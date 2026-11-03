@@ -24,7 +24,7 @@ that use PDFsharp 6.2.4, 23 compiled against FreePDF with no changes. The
 [migration guide](docs/migrating-to-7.md#what-real-624-applications-hit) lists
 what the other three needed, each a one-line change or a font file you supply.
 Applications that fill forms through the legacy `PdfSharp.Pdf.AcroForms` model
-need more work; see [issue #9](https://github.com/io7/FreePDF/issues/9).
+move over with renames; see [Filling forms](docs/migrating-to-7.md#filling-forms).
 
 ## Factur-X and ZUGFeRD invoices
 

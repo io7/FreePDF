@@ -137,6 +137,65 @@ public class TaggedLayoutTests
             "/L", "/LI", "/Lbl", "/LBody" }, types);
     }
 
+    static PdfDictionary[] Children(PdfDictionary element)
+        => (element.Elements.GetValue("/K") switch
+        {
+            PdfArray array => array.Elements.Select(e => (e as PdfSharp.Pdf.Advanced.PdfReference)?.Value ?? e),
+            PdfSharp.Pdf.Advanced.PdfReference reference => new[] { reference.Value },
+            PdfDictionary dictionary => new PdfItem[] { dictionary },
+            _ => Array.Empty<PdfItem>(),
+        }).OfType<PdfDictionary>().Where(d => d.Elements.ContainsKey("/S")).ToArray();
+
+    static PdfDictionary Child(PdfDictionary element, string type, int index = 0)
+        => Children(element).Where(c => c.Elements.GetName("/S") == type).ElementAt(index);
+
+    static void AddItem(Section section, string text, ListType type)
+    {
+        var item = section.AddParagraph(text);
+        item.Format.ListInfo.ListType = type;
+        item.Format.LeftIndent = "1cm";
+    }
+
+    [Fact]
+    public void Deeper_list_levels_nest_inside_the_item_before_them()
+    {
+        var document = Invoice();
+        var section = document.LastSection;
+        AddItem(section, "A", ListType.BulletList1);
+        AddItem(section, "A.1", ListType.BulletList2);
+        AddItem(section, "A.2", ListType.BulletList2);
+        AddItem(section, "B", ListType.BulletList1);
+        section.AddParagraph("After the list");
+
+        using var pdf = RenderAndReopen(document);
+
+        var root = Child(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!, "/Document");
+        var list = Child(root, "/L");
+        Assert.Equal(2, Children(list).Length);
+        var nested = Child(Child(Child(list, "/LI", 0), "/LBody"), "/L");
+        Assert.Equal(2, Children(nested).Count(c => c.Elements.GetName("/S") == "/LI"));
+        Assert.Equal(new[] { "/H1", "/P", "/H2", "/L", "/P" }, Children(root).Select(c => c.Elements.GetName("/S")));
+    }
+
+    [Theory]
+    [InlineData(ListType.BulletList3)]
+    [InlineData(ListType.NumberList2)]
+    public void A_nested_list_at_the_end_of_a_run_closes_back_to_the_document(ListType deeper)
+    {
+        var document = Invoice();
+        var section = document.LastSection;
+        AddItem(section, "A", ListType.BulletList1);
+        AddItem(section, "A.1", deeper);
+        section.AddParagraph("After the list");
+
+        using var pdf = RenderAndReopen(document);
+
+        var root = Child(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!, "/Document");
+        Assert.Equal(new[] { "/H1", "/P", "/H2", "/L", "/P" }, Children(root).Select(c => c.Elements.GetName("/S")));
+        var nested = Child(Child(Child(Child(root, "/L"), "/LI"), "/LBody"), "/L");
+        Assert.Single(Children(nested));
+    }
+
     [Fact]
     public void A_list_that_crosses_a_page_break_stays_one_list()
     {
