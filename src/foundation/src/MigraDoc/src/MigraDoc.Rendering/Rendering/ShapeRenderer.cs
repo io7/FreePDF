@@ -181,6 +181,28 @@ namespace MigraDoc.Rendering
         }
         protected LineFormatRenderer _lineFormatRenderer;
         protected FillFormatRenderer _fillFormatRenderer;
+        /// <summary>
+        /// Renders a picture (image, chart): in a tagged PDF a Figure with the shape's alternative text, or an
+        /// artifact if the shape is decorative. A picture with neither stops rendering, because the file would not
+        /// conform to PDF/UA (ISO 14289-1 7.3).
+        /// </summary>
+        protected void RenderPicture(Action render)
+        {
+            if (_documentRenderer.ContentStructure == null || _shape.Decorative)
+            {
+                _documentRenderer.RenderAsArtifact(render);
+                return;
+            }
+            if (String.IsNullOrWhiteSpace(_shape.AlternativeText))
+            {
+                var name = _shape is Image image ? $"Image '{image.Name}'" : _shape.GetType().Name;
+                throw new InvalidOperationException(
+                    $"{name} has no alternative text. For a tagged PDF set AlternativeText, or Decorative if it is decoration only.");
+            }
+            var area = _renderInfo.LayoutInfo.ContentArea;
+            _documentRenderer.RenderAsFigure(_shape.AlternativeText, new XRect(area.X, area.Y, area.Width, area.Height), render);
+        }
+
         protected Shape _shape;
     }
 }

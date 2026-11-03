@@ -40,9 +40,10 @@ namespace MigraDoc.Rendering
 
         internal override void Render()
         {
-            RenderFilling();
+            // The frame's fill and outline are decoration; its paragraphs and tables are tagged as usual.
+            _documentRenderer.RenderAsArtifact(RenderFilling);
             RenderContent();
-            RenderLine();
+            _documentRenderer.RenderAsArtifact(RenderLine);
         }
 
         void RenderContent()

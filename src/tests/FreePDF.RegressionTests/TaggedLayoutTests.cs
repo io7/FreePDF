@@ -169,6 +169,46 @@ public class TaggedLayoutTests
         Assert.Equal("/S", pdf.Pages[0].Elements.GetName("/Tabs"));
     }
 
+    static MigraDoc.DocumentObjectModel.Shapes.Charts.Chart AddChart(Section section)
+    {
+        var chart = section.AddChart(MigraDoc.DocumentObjectModel.Shapes.Charts.ChartType.Column2D);
+        chart.Width = "8cm";
+        chart.Height = "4cm";
+        chart.SeriesCollection.AddSeries().Add(10, 14, 9);
+        chart.XValues.AddXSeries().Add("Jan", "Feb", "Mar");
+        chart.XAxis.MajorTickMark = MigraDoc.DocumentObjectModel.Shapes.Charts.TickMarkType.Outside;
+        chart.YAxis.MajorTickMark = MigraDoc.DocumentObjectModel.Shapes.Charts.TickMarkType.Outside;
+        return chart;
+    }
+
+    [Fact]
+    public void A_chart_is_one_figure_and_a_text_frame_keeps_its_paragraphs()
+    {
+        var document = Invoice();
+        AddChart(document.LastSection).AlternativeText = "Sales by month";
+        var frame = document.LastSection.AddTextFrame();
+        frame.Width = "6cm";
+        frame.Height = "2cm";
+        frame.LineFormat.Width = 1;
+        frame.AddParagraph("Framed note");
+
+        using var pdf = RenderAndReopen(document);
+
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(new[] { "/Figure", "/P" }, types.SkipWhile(t => t != "/Figure"));
+    }
+
+    [Fact]
+    public void A_chart_without_alternative_text_stops_tagged_rendering()
+    {
+        var document = Invoice();
+        AddChart(document.LastSection);
+        var renderer = new PdfDocumentRenderer { Document = document, TaggedPdf = true };
+
+        var refused = Assert.Throws<InvalidOperationException>(renderer.RenderDocument);
+        Assert.Contains("Chart has no alternative text", refused.Message);
+    }
+
     // A 2 x 2 pixel 8-bit RGB PNG, as MigraDoc's base64 image name.
     const string Pixel = "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12N0a9rCwMDAxMDAwMDAAAARjAGAcK5hlwAAAABJRU5ErkJggg==";
 

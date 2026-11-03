@@ -285,7 +285,9 @@ namespace MigraDoc.Rendering
             lineFormatRenderer.Render(rect.X, rect.Y, rect.Width, rect.Height);
         }
 
-        internal override void Render()
+        internal override void Render() => RenderPicture(RenderChart);
+
+        void RenderChart()
         {
             RenderFilling();
             var contentArea = _renderInfo.LayoutInfo.ContentArea;

@@ -189,32 +189,54 @@ namespace MigraDoc.Rendering
         internal PdfSharp.UniversalAccessibility.StructureBuilder? StructureBuilder { get; set; }
 
         /// <summary>
-        /// Gets the structure builder for content that is tagged, or null for untagged rendering and inside
-        /// artifacts such as headers and footers.
+        /// Gets the structure builder for content that is tagged, or null for untagged rendering and inside artifacts
+        /// (headers, footers, decoration) and figures, whose content is not tagged separately.
         /// </summary>
-        internal PdfSharp.UniversalAccessibility.StructureBuilder? ContentStructure => _inArtifact ? null : StructureBuilder;
-        bool _inArtifact;
+        internal PdfSharp.UniversalAccessibility.StructureBuilder? ContentStructure => _untaggedDepth > 0 ? null : StructureBuilder;
+        int _untaggedDepth;
 
         /// <summary>
         /// Renders the specified action as an artifact (pagination, decoration) when the document is tagged.
         /// </summary>
         internal void RenderAsArtifact(Action render)
         {
-            if (StructureBuilder == null || _inArtifact)
+            var structure = ContentStructure;
+            if (structure == null)
             {
                 render();
                 return;
             }
-            StructureBuilder.BeginArtifact();
-            _inArtifact = true;
+            structure.BeginArtifact();
+            RenderUntagged(render);
+            structure.End();
+        }
+
+        /// <summary>
+        /// Renders the specified action as one Figure with alternative text when the document is tagged.
+        /// </summary>
+        internal void RenderAsFigure(string alternativeText, XRect boundingBox, Action render)
+        {
+            var structure = ContentStructure;
+            if (structure == null)
+            {
+                render();
+                return;
+            }
+            structure.BeginElement(PdfSharp.UniversalAccessibility.PdfIllustrationElementTag.Figure, alternativeText, boundingBox);
+            RenderUntagged(render);
+            structure.End();
+        }
+
+        void RenderUntagged(Action render)
+        {
+            _untaggedDepth++;
             try
             {
                 render();
             }
             finally
             {
-                _inArtifact = false;
-                StructureBuilder.End();
+                _untaggedDepth--;
             }
         }
 

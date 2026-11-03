@@ -144,6 +144,27 @@ namespace MigraDoc.DocumentObjectModel.Shapes
         }
 
         /// <summary>
+        /// Gets or sets the alternative text of a picture (image or chart): a short description of what it shows,
+        /// read by screen readers. A tagged PDF (PdfDocumentRenderer.TaggedPdf) requires it for every picture that is
+        /// not decorative. Text frames carry their meaning in their text and do not use it.
+        /// </summary>
+        public string AlternativeText
+        {
+            get => Values.AlternativeText ?? "";
+            set => Values.AlternativeText = value;
+        }
+
+        /// <summary>
+        /// Gets or sets whether the shape is decoration only. In a tagged PDF a decorative picture is an artifact,
+        /// which screen readers skip, and needs no alternative text.
+        /// </summary>
+        public bool Decorative
+        {
+            get => Values.Decorative ?? false;
+            set => Values.Decorative = value;
+        }
+
+        /// <summary>
         /// Converts Shape into DDL.
         /// </summary>
         internal override void Serialize(Serializer serializer)
@@ -164,6 +185,10 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             //if (!IsNull("Top")) // B/UG: IsNull("Top") uses DocumentObject.IsNull(). TopPosition has its own implementation of IsNull().  
             if (!Values.Top.IsValueNullOrEmpty())
                 Values.Top?.Serialize(serializer);
+            if (Values.AlternativeText is not null)
+                serializer.WriteSimpleAttribute("AlternativeText", AlternativeText);
+            if (Values.Decorative is not null)
+                serializer.WriteSimpleAttribute("Decorative", Decorative);
             Values.WrapFormat?.Serialize(serializer);
             Values.LineFormat?.Serialize(serializer);
             Values.FillFormat?.Serialize(serializer);
@@ -245,6 +270,18 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             /// See enclosing document object class for documentation of this property.
             /// </summary>
             public Unit? Width { get; set; }
+
+            /// <summary>
+            /// Gets or sets the internal nullable implementation value of the enclosing document object property.
+            /// See enclosing document object class for documentation of this property.
+            /// </summary>
+            public string? AlternativeText { get; set; }
+
+            /// <summary>
+            /// Gets or sets the internal nullable implementation value of the enclosing document object property.
+            /// See enclosing document object class for documentation of this property.
+            /// </summary>
+            public bool? Decorative { get; set; }
         }
     }
 }
