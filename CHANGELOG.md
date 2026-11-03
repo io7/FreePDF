@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Saved documents name FreePDF as the application that wrote them. The
+  Producer is now `FreePDF 7.x.y+<commit>` and the default Creator
+  `FreePDF 7.x.y+<commit> (https://github.com/io7/FreePDF)`; documents from the
+  layout engine get the Creator `FreePDF Layout 7.x.y+<commit> (…)`. The XMP
+  metadata, the file's closing comment, the verbose layout header and a
+  signature's application name (`DigitalSignatureOptions.AppName`) follow. Up to
+  7.2.0 they said `PDFsharp 7.2.0`, `empira MigraDoc 7.2.0` and
+  `www.pdfsharp.com`, which reads like empira's AGPL PDFsharp 7. The
+  `PdfSharpProductVersionInformation` and `MigraDocProductVersionInformation`
+  constants (title, product, company, URL, copyright) changed with them; empira's
+  copyright is kept.
+- Saving a file another PDFsharp version wrote now records FreePDF as the
+  Producer and keeps the old value, as for any other application:
+  `FreePDF 7.x.y+<commit> (Original: PDFsharp 6.2.4 (www.pdfsharp.com))`. Before, a
+  Producer starting with "PDFsharp" was left as it was.
 - `PdfDocument.AppendPages(source[, startIndex, pageCount][, options])` merges
   and `PdfDocument.ExtractPages(startIndex, pageCount[, options])` splits, with
   form fields, bookmarks and links. Fields with a widget on a copied page join

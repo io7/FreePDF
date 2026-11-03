@@ -197,6 +197,11 @@ output. Use a fresh document per concurrent operation; sharing a mutable documen
 between threads is unsupported. Retest pagination and font selection when
 upgrading: reference output containing a known defect is not the correct output.
 
+Documents name FreePDF, not PDFsharp, as their Producer and Creator (since the
+release after 7.2.0; see the [changelog](../CHANGELOG.md)). Code or tests that
+recognise their own output by a Producer starting with "PDFsharp", or that compare
+it with `PdfSharpProductVersionInformation.Title`, should expect "FreePDF".
+
 The original installed-package workflows cover a multipage invoice, RTF,
 merge/stamp, attachments, AES-128/256, PDF/A-1b/2b/3b and SHA-256/384/512
 signatures. They contain synthetic data and do not certify a customer's document.

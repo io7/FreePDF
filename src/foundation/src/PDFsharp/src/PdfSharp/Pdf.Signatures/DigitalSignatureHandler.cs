@@ -288,10 +288,8 @@ namespace PdfSharp.Pdf.Signatures
             signatureDic.Elements.Add("/Prop_Build", properties);
             var propertyItems = new PdfDictionary(Document);
             properties.Elements.Add("/App", propertyItems);
-            propertyItems.Elements.Add("/Name",
-                String.IsNullOrWhiteSpace(Options.AppName) ?
-                new PdfName("/PDFsharp http://www.pdfsharp.net") :
-                PdfName.FromString(Options.AppName));
+            var appName = String.IsNullOrWhiteSpace(Options.AppName) ? DigitalSignatureOptions.DefaultAppName : Options.AppName;
+            propertyItems.Elements.Add("/Name", PdfName.FromString(appName));
 
             Document.Internals.AddObject(signatureDic);
 
