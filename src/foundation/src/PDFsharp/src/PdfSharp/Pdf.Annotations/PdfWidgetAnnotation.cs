@@ -45,11 +45,16 @@ namespace PdfSharp.Pdf.Annotations
 
             Debug.Assert(acroField.IsIndirect);
 
+            // The base classes' defaults fill in only what the field lacks. Their modification date (/M) is the
+            // time this view was created, which is no change to the field, so it is not copied.
             var oldElementsFromBaseClasses = Elements;
             Elements = null!;
             Elements = acroField.Elements;
             foreach (var item in oldElementsFromBaseClasses)
-                Elements.Add(item.Key, item.Value);
+            {
+                if (item.Key != PdfAnnotation.Keys.M && !Elements.ContainsKey(item.Key))
+                    Elements.Add(item.Key, item.Value);
+            }
 
             // Create new reference. Same ObjectID, but different value.
             _actualIRef = acroField.Reference;
@@ -61,7 +66,9 @@ namespace PdfSharp.Pdf.Annotations
         internal static PdfWidgetAnnotation CreateWidgetAnnotationAndField(PdfDocument document)
         {
             var field = new PdfFormFieldWidget(document);
-            return new PdfWidgetAnnotation(field);
+            var widget = new PdfWidgetAnnotation(field);
+            widget.Elements.SetDateTime(PdfAnnotation.Keys.M, DateTimeOffset.Now);
+            return widget;
         }
 
         void Initialize()

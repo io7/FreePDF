@@ -71,7 +71,7 @@ namespace PdfSharp.Pdf
                 if (_flattenedPages == null)
                     return PagesArray.Elements.GetRequiredDictionary<PdfPage>(index);
 
-                Debug.Assert(!Document.CanModify);
+                Debug.Assert(!Document.CanModify || Document.OpenMode == PdfDocumentOpenMode.Append);
                 return _flattenedPages.Elements.GetRequiredDictionary<PdfPage>(index);
             }
         }
@@ -131,6 +131,7 @@ namespace PdfSharp.Pdf
         {
             if (page == null)
                 throw new ArgumentNullException(nameof(page));
+            EnsurePageTreeCanChange();
 
             // Is the page already owned by this document?
             if (page.Owner == Owner)
@@ -221,6 +222,7 @@ namespace PdfSharp.Pdf
             // #PDF-UA
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
+            EnsurePageTreeCanChange();
 
             if (index < 0 || index > Count)
                 throw new ArgumentOutOfRangeException(nameof(index), "Argument 'index' out of range.");
@@ -409,6 +411,7 @@ namespace PdfSharp.Pdf
         /// </summary>
         public void Remove(PdfPage page)
         {
+            EnsurePageTreeCanChange();
             PagesArray.Elements.Remove(page/*.RequiredReference*/);
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
 
@@ -422,6 +425,7 @@ namespace PdfSharp.Pdf
         /// </summary>
         public void RemoveAt(int index)
         {
+            EnsurePageTreeCanChange();
             var page = PagesArray.Elements[index] as PdfPage;
             PagesArray.Elements.RemoveAt(index);
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
@@ -441,6 +445,7 @@ namespace PdfSharp.Pdf
             // #PDF-UA: Not implemented.
             if (Document.UAManager != null)
                 throw new InvalidOperationException("Cannot move a page in a PDF/UA document.");
+            EnsurePageTreeCanChange();
 
             if (oldIndex < 0 || oldIndex >= Count)
                 throw new ArgumentOutOfRangeException(nameof(oldIndex));
@@ -690,6 +695,37 @@ namespace PdfSharp.Pdf
                 }
                 // A page tree node with no kids?
                 Debug.Assert(false, $"Page tree node () has no /Kids entry.");
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether every kid of this root node is a page, so that flattening the tree
+        /// does not change its structure.
+        /// </summary>
+        internal bool HasOnlyPageKids()
+        {
+            var kids = Elements.GetValue(Keys.Kids, VCF.NoTransform) is PdfReference kidsReference
+                ? kidsReference.Value as PdfArray
+                : Elements.GetValue(Keys.Kids, VCF.NoTransform) as PdfArray;
+            if (kids == null)
+                return false;
+            foreach (var item in kids.Elements)
+            {
+                var kid = item is PdfReference reference ? reference.Value as PdfDictionary : null;
+                if (kid == null || kid.Elements.GetName(Keys.Type) != "/Page" || kid.Elements.ContainsKey(Keys.Kids))
+                    return false;
+            }
+            return true;
+        }
+
+        // In Append mode a nested page tree is kept as it is in the file, and the flat page list that gives
+        // access to its pages is not part of it.
+        void EnsurePageTreeCanChange()
+        {
+            if (_flattenedPages != null && Document.OpenMode == PdfDocumentOpenMode.Append)
+            {
+                throw new NotSupportedException("Pages cannot be inserted, removed or moved in a document opened with " +
+                    "PdfDocumentOpenMode.Append when its page tree is nested.");
             }
         }
 

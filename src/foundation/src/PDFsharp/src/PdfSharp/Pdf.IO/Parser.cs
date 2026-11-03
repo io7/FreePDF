@@ -1365,6 +1365,7 @@ namespace PdfSharp.Pdf.IO
             ReadSymbol(Symbol.StartXRef);
             // Read position behind 'startxref'.
             long xrefPosition = ReadSize();
+            StartXRef = xrefPosition;
 
             // Read all trailers.
             PdfTrailer? newerTrailer = null;
@@ -1460,6 +1461,7 @@ namespace PdfSharp.Pdf.IO
                             // Check if the object at the address has the correct ID and generation.
                             if (!CheckXRefTableEntry(position, id, generation, out var idChecked, out var generationChecked))
                             {
+                                RepairedCrossReferences = true;
                                 // Found the keyword "obj", but ID or generation did not match.
                                 // There is a producer app where ID is off by one.
                                 // In this case we use the ID from the object, not the ID from the XRef table.
@@ -1985,6 +1987,17 @@ namespace PdfSharp.Pdf.IO
             public SizeType Position;
             public Symbol Symbol;
         }
+
+        /// <summary>
+        /// Gets the offset of the newest cross-reference section, as given after 'startxref'.
+        /// </summary>
+        internal long StartXRef { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether a cross-reference table entry named another object than the one at its
+        /// offset and the parser used the object it found there.
+        /// </summary>
+        internal bool RepairedCrossReferences { get; private set; }
 
         readonly PdfDocument _document;
         readonly PdfReaderOptions _options;

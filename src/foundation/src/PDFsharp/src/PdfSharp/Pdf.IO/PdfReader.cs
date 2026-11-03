@@ -317,6 +317,23 @@ namespace PdfSharp.Pdf.IO
                 if (_document.Version == 0)
                     throw new PdfReaderException(PsMsgs.InvalidPdf);
 
+                // An incremental update starts with the original bytes, which a file opened by path no longer
+                // has when the document is saved.
+                byte[]? original = null;
+                if (openMode == PdfDocumentOpenMode.Append)
+                {
+                    original = new byte[stream.Length];
+                    stream.Position = 0;
+                    int read = 0;
+                    while (read < original.Length)
+                    {
+                        int count = stream.Read(original, read, original.Length - read);
+                        if (count <= 0)
+                            throw new PdfReaderException("The PDF stream ended before its length.");
+                        read += count;
+                    }
+                }
+
                 // Set IsUnderConstruction for IrefTable to true. This allows Parser.ParseObject() to insert placeholder references for objects not yet known.
                 // This is necessary for documents with objects saved in objects streams, which are read and decoded after reading the file level PdfObjects.
                 // After reading all objects, all documents placeholder references get replaced by references knowing their objects in FinishReferences(),
@@ -336,6 +353,13 @@ namespace PdfSharp.Pdf.IO
                 // It may be an indirect reference or, as MuPDF writes it, a dictionary directly in the trailer.
                 // The trailer is never encrypted, so a direct dictionary is complete as parsed.
                 var encryptItem = _document.Trailer!.Elements[PdfTrailer.Keys.Encrypt];
+                if (openMode == PdfDocumentOpenMode.Append && encryptItem != null)
+                {
+                    throw new NotSupportedException("Encrypted documents cannot be opened with PdfDocumentOpenMode.Append yet. " +
+                        "Open the document with PdfDocumentOpenMode.Modify to save it as a new file; existing signatures do not stay valid then.");
+                }
+                bool crossReferenceStream = _document.Trailer is PdfCrossReferenceStream;
+                int size = _document.Trailer.Elements.GetInteger(PdfTrailer.Keys.Size);
                 if (encryptItem is PdfDictionary)
                 {
                     _document.SecurityHandler.PrepareForReading();
@@ -443,6 +467,15 @@ namespace PdfSharp.Pdf.IO
 
                 RereadUnicodeStrings();
 
+                // An update can only point back to cross-reference data that is right.
+                if (openMode == PdfDocumentOpenMode.Append && parser.RepairedCrossReferences)
+                {
+                    throw new PdfReaderException("The cross-reference table of this file names wrong objects, so the file cannot be updated incrementally. " +
+                        "Open it with PdfDocumentOpenMode.Modify to save a repaired copy.");
+                }
+                // The objects the file has. Objects the preparation below creates are new in an update.
+                var fileObjects = new HashSet<PdfObjectID>(_document.IrefTable.AllObjectIDs);
+
                 // ISO 32000-1 Table 28: the page tree is required. Without it the file's pages are unreachable, and
                 // Modify would drop them as unreachable objects.
                 // A /Pages naming an object that already has another type (the catalog itself, say) is no page tree.
@@ -492,6 +525,17 @@ namespace PdfSharp.Pdf.IO
                     // Keep the page tree and generate a flat array of all pages for simple access.
                     _document.Pages.PreservePageTree();
                 }
+                else if (openMode == PdfDocumentOpenMode.Append)
+                {
+                    // Keep object numbers, identifiers and unreachable objects: unchanged objects stay where they
+                    // are in the file. A flat page tree can take new pages as in Modify mode; a nested one is kept.
+                    if (_document.Pages.HasOnlyPageKids())
+                        _document.Pages.FlattenPageTree();
+                    else
+                        _document.Pages.PreservePageTree();
+                    // New objects must not reuse numbers the file declares, free ones included.
+                    _document.IrefTable.MaxObjectNumber = Math.Max(_document.IrefTable.MaxObjectNumber, size - 1);
+                }
                 else
                 {
                     throw new InvalidOperationException($"Open mode {openMode.ToString()} does not exist; use Import instead.");
@@ -503,6 +547,13 @@ namespace PdfSharp.Pdf.IO
                 PdfFormFields.AcroFieldPreparer.PrepareDocument(_document);
                 // Create annotations.
                 PdfAnnotations.AnnotationPreparer.PrepareDocument(_document);
+
+                if (openMode == PdfDocumentOpenMode.Append)
+                {
+                    _document.IncrementalUpdate = new PdfIncrementalUpdate(original!, parser.StartXRef, crossReferenceStream, size,
+                        GetPdfFileVersion(header));
+                    _document.IncrementalUpdate.RecordOriginalObjects(_document, fileObjects);
+                }
 
             }
             catch (Exception ex)

@@ -852,7 +852,8 @@ namespace PdfSharp.Pdf
         {
             // #PDF-A
             // Suppress transparency group if PDF-A is required.
-            if (!Document.IsPdfA)
+            // An incremental update changes no page only to add the group.
+            if (!Document.IsPdfA && Document.OpenMode != PdfDocumentOpenMode.Append)
             {
                 // Add transparency group to prevent rendering problems of Adobe viewer.
                 // Update (PDFsharp 1.50 beta 3): Add transparency group only if ColorMode is defined.
