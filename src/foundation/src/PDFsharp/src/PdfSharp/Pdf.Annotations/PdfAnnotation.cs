@@ -236,7 +236,8 @@ namespace PdfSharp.Pdf.Annotations
             if (dict is PdfAnnotation annotation)
                 return annotation;
 
-            var subtype = dict.Elements.GetName(Keys.Subtype);
+            // A /Subtype that is not a name (a number in a damaged file) reads as an unknown subtype below.
+            dict.Elements.TryGetName(Keys.Subtype, out var subtype);
 #if true_
             switch (subtype)
             {

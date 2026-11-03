@@ -456,12 +456,38 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
+        /// Imports a page of an import-mode document without its annotations and without adding it to the pages, for
+        /// PdfPageImporter, which copies the annotations itself and appends the page with AppendImportedPage. Also
+        /// keeps the page's transparency group, tab order and user unit, which ImportExternalPage leaves out.
+        /// </summary>
+        internal PdfPage ImportPageWithoutAnnotations(PdfPage importPage)
+        {
+            var page = ImportExternalPage(importPage, false);
+            CloneElement(page, importPage, PdfPage.Keys.Group, false);
+            CloneElement(page, importPage, PdfPage.Keys.Tabs, true);
+            CloneElement(page, importPage, PdfPage.Keys.UserUnit, true);
+            return page;
+        }
+
+        /// <summary>
+        /// Appends a page made by ImportPageWithoutAnnotations.
+        /// </summary>
+        internal void AppendImportedPage(PdfPage page, PdfPage importPage)
+        {
+            Owner.FormTable.GetImportedObjectTable(importPage).Add(importPage.ObjectID, page.RequiredReference);
+            PagesArray.Elements.Add(page.RequiredReference);
+            Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
+            if (Owner.Settings.TrimMargins.AreSet)
+                page.TrimMargins = Owner.Settings.TrimMargins;
+        }
+
+        /// <summary>
         /// Imports an external page. The elements of the imported page are cloned and added to this document.
         /// Important: In contrast to PdfFormXObject adding an external page always make a deep copy
         /// of their transitive closure. Any reuse of already imported objects is not intended because
         /// any modification of an imported page must not change another page.
         /// </summary>
-        PdfPage ImportExternalPage(PdfPage importPage)
+        PdfPage ImportExternalPage(PdfPage importPage, bool withAnnotations = true)
         {
             if (importPage.Owner.OpenMode != PdfDocumentOpenMode.Import)
                 throw new InvalidOperationException("A PDF document must be opened with PdfDocumentOpenMode.Import to import pages from it.");
@@ -479,7 +505,8 @@ namespace PdfSharp.Pdf
             CloneElement(page, importPage, PdfPage.Keys.ArtBox, true);
 
             // Do not deep copy annotations.
-            CloneElement(page, importPage, PdfPage.Keys.Annots, false);
+            if (withAnnotations)
+                CloneElement(page, importPage, PdfPage.Keys.Annots, false);
 
             page.Initialize(true);
 

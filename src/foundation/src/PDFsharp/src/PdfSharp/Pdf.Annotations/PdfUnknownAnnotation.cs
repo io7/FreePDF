@@ -19,8 +19,17 @@ namespace PdfSharp.Pdf.Annotations
         { }
 
         /// <summary>
-        /// Gets the subtype name as read, for example '/SomePrivateType', or an empty string if there is none.
+        /// Gets the subtype name as read, for example '/SomePrivateType', or an empty string if there is none or it is
+        /// not a name.
         /// </summary>
-        public string Subtype => Elements.GetName(Keys.Subtype, false, "");
+        public string Subtype
+        {
+            get
+            {
+                if (Elements.TryGetName(Keys.Subtype, out var subtype))
+                    return subtype;
+                return "";
+            }
+        }
     }
 }

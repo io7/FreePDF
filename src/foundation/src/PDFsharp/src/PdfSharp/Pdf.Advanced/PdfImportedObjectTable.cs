@@ -70,6 +70,21 @@ namespace PdfSharp.Pdf.Advanced
         public PdfReference this[PdfObjectID externalID] => _externalIDs[externalID.ToString()];
 
         /// <summary>
+        /// Saves the table's entries, for an import that restores them if it fails.
+        /// </summary>
+        internal Dictionary<string, PdfReference> CreateSnapshot() => new(_externalIDs);
+
+        /// <summary>
+        /// Restores the entries saved by <see cref="CreateSnapshot"/>.
+        /// </summary>
+        internal void RestoreSnapshot(Dictionary<string, PdfReference> snapshot)
+        {
+            _externalIDs.Clear();
+            foreach (var entry in snapshot)
+                _externalIDs.Add(entry.Key, entry.Value);
+        }
+
+        /// <summary>
         /// Maps external object identifiers to cross-reference entries of the importing document
         /// {PdfObjectID -> PdfReference}.
         /// </summary>

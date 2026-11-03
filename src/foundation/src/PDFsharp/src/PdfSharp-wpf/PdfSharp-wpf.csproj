@@ -430,6 +430,9 @@
     <Compile Include="..\PdfSharp\Pdf\PdfOutline.cs" Link="Pdf\PdfOutline.cs" />
     <Compile Include="..\PdfSharp\Pdf\PdfOutlineCollection.cs" Link="Pdf\PdfOutlineCollection.cs" />
     <Compile Include="..\PdfSharp\Pdf\PdfPage.cs" Link="Pdf\PdfPage.cs" />
+    <Compile Include="..\PdfSharp\Pdf\PdfPageImporter.cs" Link="Pdf\PdfPageImporter.cs" />
+    <Compile Include="..\PdfSharp\Pdf\PdfPageImportOptions.cs" Link="Pdf\PdfPageImportOptions.cs" />
+    <Compile Include="..\PdfSharp\Pdf\PdfPageImportResult.cs" Link="Pdf\PdfPageImportResult.cs" />
     <Compile Include="..\PdfSharp\Pdf\PdfPages.cs" Link="Pdf\PdfPages.cs" />
     <Compile Include="..\PdfSharp\Pdf\PdfPageTreeBase.cs" Link="Pdf\PdfPageTreeBase.cs" />
     <Compile Include="..\PdfSharp\Pdf\PdfPageTreeNode.cs" Link="Pdf\PdfPageTreeNode.cs" />

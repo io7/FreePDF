@@ -76,4 +76,22 @@ public class OutlineLinkTests
         Assert.Equal(1, outlines);
         Assert.Equal("One", Assert.Single(reopened.Outlines).Title);
     }
+
+    [Fact]
+    public void Colour_components_outside_0_to_1_are_clamped()
+    {
+        // Some producers write 0-255. Reading the outline threw ArgumentException before.
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+            "<< /Title (Red) /Parent 4 0 R /C [255 0.5 -3] >>" });
+
+        using var reopened = OpenSaveReopen(bytes, out var outlines);
+
+        Assert.Equal(1, outlines);
+        var colour = Assert.Single(reopened.Outlines).TextColor;
+        Assert.Equal((255, 128, 0), (colour.R, colour.G, colour.B));
+    }
 }
