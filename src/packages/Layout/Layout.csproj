@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>io7.FreePDF.Layout</PackageId>
-    <Description>MIT document layout with paragraphs, tables, charts and PDF/RTF output for FreePDF. Preserves MigraDoc API namespaces.</Description>
+    <Description>Drop-in replacement for PDFsharp-MigraDoc 6.2.4 under the MIT licence: document layout with paragraphs, tables, charts and PDF/RTF output for FreePDF. Keeps the MigraDoc namespaces, so most apps switch by changing the package reference.</Description>
     <FreePDFAssemblyPrefix>MigraDoc</FreePDFAssemblyPrefix>
   </PropertyGroup>
   <ItemGroup>
