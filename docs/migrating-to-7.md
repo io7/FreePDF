@@ -201,7 +201,10 @@ await approved.SaveAsync("approved.pdf");
   permissions (DocMDP); a document certified with "no changes allowed" should not
   be changed at all.
 - A document with no changes is saved as it was. Otherwise the document
-  information gets a new modification date and FreePDF as its producer.
+  information gets a new modification date (unless you set one) and FreePDF as
+  its producer. Reading `page.Annotations`, `document.Outlines` or
+  `document.ViewerPreferences` creates them when the file has none, and saving
+  writes that as a change.
 - Encrypted documents cannot be opened in `Append` mode yet, nor can files whose
   cross-reference table names the wrong objects; open those with `Modify` to save
   a new file. A document opened in `Append` mode cannot be given a password.

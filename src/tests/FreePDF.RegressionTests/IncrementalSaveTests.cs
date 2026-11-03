@@ -210,6 +210,98 @@ public class IncrementalSaveTests
     }
 
     [Fact]
+    public void Merging_pages_into_a_nested_page_tree_is_refused()
+    {
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 /MediaBox [0 0 240 200] >>",
+            "<< /Type /Page /Parent 3 0 R >>",
+        });
+        using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Append);
+        using var source = PdfReader.Open(new MemoryStream(Classic()), PdfDocumentOpenMode.Import);
+
+        Assert.Throws<NotSupportedException>(() => document.AppendPages(source));
+        Assert.Equal(1, document.PageCount);
+    }
+
+    static byte[] DirectInformation() => TestPdf.Create(new[] {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] >>",
+    }, _ => "/Info << /Title (Old title) >> /Custom (kept) " + Id);
+
+    [Fact]
+    public void Document_information_held_directly_in_the_trailer_is_updated()
+    {
+        var original = DirectInformation();
+        var result = Save(original, document => document.Info.Title = "New title");
+
+        var update = Update(original, result);
+        Assert.Contains("/Prev ", update);
+        using var reopened = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
+        Assert.Equal("New title", reopened.Info.Title);
+    }
+
+    [Fact]
+    public void The_update_trailer_carries_the_previous_entries_forward()
+    {
+        var original = DirectInformation();
+        var result = Save(original, document => document.Pages[0].Elements.SetName("/Marker", "/Changed"));
+
+        var trailer = Update(original, result);
+        trailer = trailer.Substring(trailer.LastIndexOf("trailer", StringComparison.Ordinal));
+        Assert.Matches(@"/Custom\s*\(kept\)", trailer);
+        Assert.Matches(@"/Info\s*<<\s*/Title\s*\(Old title\)", trailer);
+        using var reopened = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
+        Assert.Equal("Old title", reopened.Info.Title);
+    }
+
+    [Fact]
+    public void An_object_that_cannot_be_written_fails_the_save_instead_of_losing_the_change()
+    {
+        using var document = PdfReader.Open(new MemoryStream(Classic()), PdfDocumentOpenMode.Append);
+        document.Pages[0].Elements.SetName("/Marker", "/Changed");
+        var invalid = new PdfDictionary(document);
+        invalid.CreateStream(new byte[] { 1, 2, 3 });
+        document.Pages[0].Elements["/Invalid"] = invalid; // A direct dictionary cannot have a stream.
+
+        Assert.Throws<InvalidOperationException>(() => document.Save(new MemoryStream()));
+    }
+
+    [Fact]
+    public void A_modification_date_set_by_the_application_is_kept()
+    {
+        var original = Classic();
+        var date = new DateTimeOffset(2020, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var result = Save(original, document => {
+            document.Pages[0].Elements.SetName("/Marker", "/Changed");
+            document.Info.ModificationDate = date;
+        });
+
+        using var reopened = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
+        Assert.Equal(date, reopened.Info.ModificationDate);
+    }
+
+    [Fact]
+    public void Drawing_keeps_a_long_original_content_stream_as_it_is()
+    {
+        const string content = "0 0 1 rg 20 20 80 60 re f 1 0 0 rg 120 20 80 60 re f";
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Contents 4 0 R >>",
+            $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+        });
+        var result = Save(original, document => {
+            using var gfx = XGraphics.FromPdfPage(document.Pages[0], XGraphicsPdfPageOptions.Append);
+            gfx.DrawRectangle(XBrushes.Green, 100, 100, 40, 40);
+        });
+
+        Assert.DoesNotContain(4, WrittenObjects(Update(original, result)));
+    }
+
+    [Fact]
     public void Drawing_on_a_page_appends_a_content_stream_and_keeps_the_old_one()
     {
         var original = Classic();

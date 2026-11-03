@@ -479,6 +479,7 @@ namespace PdfSharp.Pdf
         /// </summary>
         internal void AppendImportedPage(PdfPage page, PdfPage importPage)
         {
+            EnsurePageTreeCanChange();
             Owner.FormTable.GetImportedObjectTable(importPage).Add(importPage.ObjectID, page.RequiredReference);
             PagesArray.Elements.Add(page.RequiredReference);
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
@@ -720,7 +721,7 @@ namespace PdfSharp.Pdf
 
         // In Append mode a nested page tree is kept as it is in the file, and the flat page list that gives
         // access to its pages is not part of it.
-        void EnsurePageTreeCanChange()
+        internal void EnsurePageTreeCanChange()
         {
             if (_flattenedPages != null && Document.OpenMode == PdfDocumentOpenMode.Append)
             {

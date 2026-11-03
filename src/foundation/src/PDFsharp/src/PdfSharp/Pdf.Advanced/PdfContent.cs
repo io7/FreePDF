@@ -135,9 +135,16 @@ namespace PdfSharp.Pdf.Advanced
                 Debug.Assert(_pdfRenderer == null);
             }
 
-            if (Stream != null!)
+            if (Stream != null! && Owner.IncrementalUpdate?.IsFileObject(ObjectID) == true)
             {
-                // Acrobat crashes if a PDF file contains an empty stream that is compressed and 
+                // A content stream of the file opened in Append mode keeps its encoding; it only gets the right
+                // length if its data changed, so that an unchanged stream is not written again.
+                if (!Elements.TryGetInteger(PdfStream.Keys.Length, out var length) || length != Stream.Length)
+                    Elements.SetInteger(PdfStream.Keys.Length, Stream.Length);
+            }
+            else if (Stream != null!)
+            {
+                // Acrobat crashes if a PDF file contains an empty stream that is compressed and
                 // therefore about 2 to 4 bytes long. So we do not compress very short streams
                 // at all.
                 const int streamLengthCompressionThreshold = 32;

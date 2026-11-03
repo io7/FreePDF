@@ -36,7 +36,16 @@ namespace PdfSharp.Pdf.IO
                 if (iref.Value is { } value && fileObjects.Contains(iref.ObjectID))
                     _hashes[iref.ObjectID] = TryHash(document, value);
             }
+            // Some files write the document information directly into the trailer.
+            if (document.Trailer.Elements[PdfTrailer.Keys.Info] is PdfDictionary directInfo)
+                _directInfoHash = TryHash(document, directInfo);
+            _originalModificationDate = InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString();
         }
+
+        /// <summary>
+        /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
+        /// </summary>
+        internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
 
         /// <summary>
         /// Records whether the document information was changed since the file was opened. Call before
@@ -45,7 +54,14 @@ namespace PdfSharp.Pdf.IO
         internal void RecordDocumentInformationChange(PdfDocument document)
         {
             _documentInformationChanged = false;
-            if (document.Trailer.Elements[PdfTrailer.Keys.Info] is not PdfReference { Value: { } info } reference)
+            var item = document.Trailer.Elements[PdfTrailer.Keys.Info];
+            if (item is PdfDictionary directInfo)
+            {
+                var now = TryHash(document, directInfo);
+                _documentInformationChanged = _directInfoHash == null || now == null || !Same(_directInfoHash, now);
+                return;
+            }
+            if (item is not PdfReference { Value: { } info } reference)
                 return;
             if (_hashes.TryGetValue(reference.ObjectID, out var before))
             {
@@ -86,9 +102,16 @@ namespace PdfSharp.Pdf.IO
                     written.Add(iref); // New since the file was opened.
                     continue;
                 }
-                var now = TryHash(document, value);
-                // An object that cannot be written now is kept as it is in the file.
-                if (now != null && (before == null || !Same(before, now)))
+                if (before == null)
+                {
+                    // It could not be written when the file was opened either. It is kept as it is in the file
+                    // unless it can be written now.
+                    if (TryHash(document, value) != null)
+                        written.Add(iref);
+                    continue;
+                }
+                // An object that could be written at open and cannot now throws, as a full save would.
+                if (!Same(before, Hash(document, value)))
                     written.Add(iref);
             }
 
@@ -96,11 +119,13 @@ namespace PdfSharp.Pdf.IO
             stream.Write(_original, 0, _original.Length);
 
             // When nothing changed but what PrepareForSave puts into the document information (the producer), the
-            // file is saved as it was. Otherwise the update also gets a new modification date.
+            // file is saved as it was. Otherwise the update also gets a new modification date, unless the
+            // application set one.
             var info = document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference;
             if (!_documentInformationChanged && written.All(iref => info != null && iref.ObjectID == info.ObjectID))
                 return;
-            document.Info.ModificationDate = DateTimeOffset.Now;
+            if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
+                document.Info.ModificationDate = DateTimeOffset.Now;
             if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
             {
                 written.Add(info);
@@ -131,6 +156,10 @@ namespace PdfSharp.Pdf.IO
         {
             SizeType startXRef = writer.Position;
             var text = new StringBuilder("xref\n");
+            // A section needs at least one subsection; only the trailer changes when the document information is
+            // written directly into it.
+            if (entries.Count == 0)
+                text.Append("0 1\n0000000000 65535 f \n");
             foreach (var run in Runs(entries))
             {
                 text.Append(Invariant($"{run[0].Number} {run.Count}\n"));
@@ -175,13 +204,20 @@ namespace PdfSharp.Pdf.IO
             writer.WriteEof(document, position);
         }
 
-        // /Root, /Info, /ID and /Prev; the caller writes /Size.
+        // /Prev, every entry of the previous trailer (ISO 32000-1, 7.5.6) and a new /ID; the caller writes /Size.
         void WriteTrailerEntries(PdfDocument document, PdfWriter writer)
         {
             var trailer = document.Trailer;
             writer.WriteRaw(Invariant($"/Prev {_startXRef}"));
-            WriteReference(writer, "/Root", trailer.Elements[PdfTrailer.Keys.Root]);
-            WriteReference(writer, "/Info", trailer.Elements[PdfTrailer.Keys.Info]);
+            foreach (var key in trailer.Elements.KeyNames)
+            {
+                if (NotCarriedForward.Contains(key.Value) || trailer.Elements[key.Value] is not { } item)
+                    continue;
+                writer.WriteRaw(" ");
+                key.WriteObject(writer);
+                writer.WriteRaw(" ");
+                item.WriteObject(writer);
+            }
 
             // The first identifier stays; the second one is new for this revision (ISO 32000-1, 14.4).
             var second = NewIdentifier();
@@ -194,11 +230,22 @@ namespace PdfSharp.Pdf.IO
             writer.WriteRaw("]");
         }
 
-        static void WriteReference(PdfWriter writer, string key, PdfItem? item)
+        // Entries the update writes itself, the previous section's own pointers, and the dictionary entries of a
+        // cross-reference stream that describe that stream (ISO 32000-1, Tables 5 and 17). Encryption is refused.
+        static readonly HashSet<string> NotCarriedForward = new(StringComparer.Ordinal)
         {
-            if (item is PdfReference reference)
-                writer.WriteRaw(Invariant($" {key} {reference.ObjectNumber} {reference.GenerationNumber} R"));
-        }
+            "/Size", "/Prev", "/XRefStm", "/ID", "/Encrypt",
+            "/Type", "/W", "/Index", "/Length", "/Filter", "/DecodeParms", "/F", "/FFilter", "/FDecodeParms", "/DL",
+        };
+
+        // The document information dictionary, whether the trailer refers to it or holds it directly.
+        static PdfDictionary? InformationDictionary(PdfDocument document)
+            => document.Trailer.Elements[PdfTrailer.Keys.Info] switch
+            {
+                PdfReference reference => reference.Value as PdfDictionary,
+                PdfDictionary dictionary => dictionary,
+                _ => null
+            };
 
         static PdfString NewIdentifier()
         {
@@ -226,15 +273,21 @@ namespace PdfSharp.Pdf.IO
         }
 
         // The object as WriteObject writes it, in compact layout so that layout comments cannot differ.
+        static byte[] Hash(PdfDocument document, PdfObject value)
+        {
+            using var buffer = new MemoryStream();
+            var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
+            value.WriteObject(writer);
+            using var sha = SHA256.Create();
+            return sha.ComputeHash(buffer.GetBuffer(), 0, (int)buffer.Length);
+        }
+
+        // Null when the object cannot be written.
         static byte[]? TryHash(PdfDocument document, PdfObject value)
         {
             try
             {
-                using var buffer = new MemoryStream();
-                var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
-                value.WriteObject(writer);
-                using var sha = SHA256.Create();
-                return sha.ComputeHash(buffer.GetBuffer(), 0, (int)buffer.Length);
+                return Hash(document, value);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -262,6 +315,8 @@ namespace PdfSharp.Pdf.IO
         readonly int _size;
         readonly int _headerVersion;
         readonly Dictionary<PdfObjectID, byte[]?> _hashes = new();
+        byte[]? _directInfoHash;
+        string? _originalModificationDate;
         bool _documentInformationChanged;
     }
 }

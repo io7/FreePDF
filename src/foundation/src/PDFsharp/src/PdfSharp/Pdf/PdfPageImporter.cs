@@ -43,6 +43,7 @@ namespace PdfSharp.Pdf
                 throw new InvalidOperationException("A PDF document must be opened with PdfDocumentOpenMode.Import to import pages from it.");
             if (target?.UAManager != null)
                 throw new InvalidOperationException("Pages cannot be imported into a PDF/UA document.");
+            target?.Pages.EnsurePageTreeCanChange();
             if (source.PageCount == 0 && startIndex == 0 && pageCount == 0)
                 return;
             if (startIndex < 0 || startIndex >= source.PageCount)
