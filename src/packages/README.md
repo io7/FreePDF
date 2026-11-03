@@ -32,9 +32,12 @@ Use .NET 10 for new applications. Microsoft ends .NET 8/9 runtime servicing on
 2026-11-10; library compatibility does not extend runtime servicing.
 https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core
 
-Configure an `IFontResolver` for portable font access; the GDI and WPF variants
-can also use the fonts installed on Windows. The comparison lab and its external
-renderer are not package dependencies.
+Without an `IFontResolver`, the portable packages use the fonts installed on
+Windows, Linux and macOS, and substitute Liberation or DejaVu fonts for Arial,
+Times New Roman and Courier New where those are missing. Set an `IFontResolver`
+for identical output on every machine. The GDI and WPF variants use the fonts
+installed on Windows. The comparison lab and its external renderer are not
+package dependencies.
 
 Validation covers original PDF regressions, semantic save/reopen checks,
 installed-package workflows, render comparisons and independent output checks.

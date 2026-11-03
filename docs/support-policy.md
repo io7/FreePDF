@@ -28,7 +28,8 @@ GDI+ or WPF on the host and are not covered by the cross-platform pixel comparis
 
 ## Supported feature claims
 
-The release gates cover drawing and text with explicit font resolution,
+The release gates cover drawing and text with explicit font resolution and
+with installed TrueType fonts found without a font resolver (Core build),
 paragraph/table layout and PDF/RTF generation, page import/merge/stamping,
 attachments, AES-128/256 password encryption, and new detached CMS signatures
 using SHA-256/384/512. Original PDF/A-1b, 2b and 3b fixtures are independently

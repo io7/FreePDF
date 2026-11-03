@@ -25,8 +25,9 @@ The packages contain the core, barcodes, charts, cryptography, document model,
 PDF renderer and RTF renderer for their variant. Upstream's Quality, Snippets and
 WPFonts helper assemblies are not shipped. The GDI and WPF packages keep upstream's
 assembly names (`PdfSharp-gdi`, `MigraDoc.Rendering-wpf` and so on), so binding
-redirects and reflection that name them keep working. Configure an application-owned
-font resolver for the portable packages; test fixtures' fonts are not product dependencies.
+redirects and reflection that name them keep working. The portable packages find
+installed fonts without a font resolver; see [Fonts](#fonts). Test fixtures' fonts
+are not product dependencies.
 
 ## Common source changes inherited from v7
 
@@ -61,6 +62,33 @@ against FreePDF 7 (method and results: [consumer survey](research/consumer-surve
 
 Legacy forms (`PdfSharp.Pdf.AcroForms`, `document.AcroForm.Fields["name"]`) did not
 appear in the survey, but some applications fill forms this way; see below.
+
+## Fonts
+
+PDFsharp 6.2.4's portable build needs an `IFontResolver` before it can draw text,
+on Windows as on Linux, macOS and in containers. FreePDF's portable packages use the
+fonts installed on the machine when no `GlobalFontSettings.FontResolver` is set:
+
+- FreePDF asks the Windows font table (`UseWindowsFontsUnderWindows`,
+  `UseWindowsFontsUnderWsl2`) and your `FallbackFontResolver` first, then the
+  folders added with `GlobalFontSettings.AddFontDirectory`, then the system's
+  font folders (Windows `Fonts` folders; `~/.local/share/fonts`, `~/.fonts`,
+  `/usr/local/share/fonts`, `/usr/share/fonts`; macOS `Library/Fonts` folders).
+- A common family that is not installed is replaced, and a warning is logged:
+  Arial and Helvetica by Liberation Sans or Arimo, Times New Roman by Liberation
+  Serif or Tinos, Courier New by Liberation Mono or Cousine, Calibri by Carlito,
+  Cambria by Caladea. These have the same widths, so line breaks match. Without
+  them FreePDF uses DejaVu or Noto fonts of the same kind, whose widths differ.
+  In a Debian or Ubuntu container, `apt-get install fonts-liberation` provides
+  the first group.
+- Only TrueType fonts that FreePDF can embed are used: single-font `.ttf` and
+  `.otf` files with TrueType outlines whose licence bits allow embedding a subset.
+  Font collections (`.ttc`) and CFF `.otf` fonts are skipped.
+
+An application with its own `IFontResolver` behaves exactly as before. Set
+`GlobalFontSettings.UseSystemFonts = false` before the first font is used to
+require a font resolver as 6.2.4 did. Output depends on the fonts installed, so a
+font resolver remains the way to identical output on every machine.
 
 ## Filling forms
 

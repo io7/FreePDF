@@ -11,7 +11,7 @@ public class PlatformBuildFileListTests
     // Core files the platform builds leave out on purpose: preview controls of the other UI stack, the platform font
     // resolvers, and an enum file that no build compiles.
     static readonly string[] NotInGdi = {
-        "Fonts/CoreBuildFontResolver.cs", "Fonts/WindowsPlatformFontResolver.cs",
+        "Fonts/CoreBuildFontResolver.cs", "Fonts/SystemFontResolver.cs", "Fonts/WindowsPlatformFontResolver.cs",
         "Forms/ColorComboBox.cs", "Forms/DeviceInfos.cs", "Forms/PagePreview.cs", "Forms/PagePreviewCanvas.cs",
         "Forms/enums/RenderMode.cs", "Forms/enums/Zoom.cs",
         "Pdf.Annotations/enums/PdfAnnotationStates.cs",
@@ -20,7 +20,7 @@ public class PlatformBuildFileListTests
     };
 
     static readonly string[] NotInWpf = {
-        "Fonts/CoreBuildFontResolver.cs", "Fonts/WindowsPlatformFontResolver.cs",
+        "Fonts/CoreBuildFontResolver.cs", "Fonts/SystemFontResolver.cs", "Fonts/WindowsPlatformFontResolver.cs",
         "Forms/ColorComboBox.cs", "Forms/DeviceInfos.cs", "Forms/PagePreview.cs", "Forms/PagePreviewCanvas.cs",
         "Forms/enums/RenderMode.cs", "Forms/enums/Zoom.cs",
         "Pdf.Annotations/enums/PdfAnnotationStates.cs",
