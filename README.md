@@ -81,9 +81,9 @@ summary.Save("summary.pdf");
 ```
 
 Form fields stay a form you can fill or flatten; a field name that is already
-taken gets a suffix (`name_2`), and `AppendPages` tells you which. Links and
-bookmarks lead to the pages in the new file, and a split file does not carry
-hidden copies of the pages it left out. `AddPage(page)` keeps PDFsharp 6.2.4's
+taken gets a suffix (`name_2`), and `AppendPages` tells you which. Links,
+buttons and bookmarks lead to the pages in the new file, and a split file does
+not carry hidden copies of the pages it left out. `AddPage(page)` keeps PDFsharp 6.2.4's
 behaviour; see [Merging and splitting](docs/migrating-to-7.md#merging-and-splitting).
 
 ## Project status

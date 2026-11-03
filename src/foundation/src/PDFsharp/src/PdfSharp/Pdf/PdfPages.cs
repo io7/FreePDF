@@ -456,22 +456,29 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
-        /// Appends a page of an import-mode document without its annotations, for PdfPageImporter, which copies the
-        /// annotations itself. Also keeps the page's transparency group, tab order and user unit, which
-        /// ImportExternalPage leaves out.
+        /// Imports a page of an import-mode document without its annotations and without adding it to the pages, for
+        /// PdfPageImporter, which copies the annotations itself and appends the page with AppendImportedPage. Also
+        /// keeps the page's transparency group, tab order and user unit, which ImportExternalPage leaves out.
         /// </summary>
-        internal PdfPage AppendImportedPageWithoutAnnotations(PdfPage importPage)
+        internal PdfPage ImportPageWithoutAnnotations(PdfPage importPage)
         {
             var page = ImportExternalPage(importPage, false);
             CloneElement(page, importPage, PdfPage.Keys.Group, false);
             CloneElement(page, importPage, PdfPage.Keys.Tabs, true);
             CloneElement(page, importPage, PdfPage.Keys.UserUnit, true);
+            return page;
+        }
+
+        /// <summary>
+        /// Appends a page made by ImportPageWithoutAnnotations.
+        /// </summary>
+        internal void AppendImportedPage(PdfPage page, PdfPage importPage)
+        {
             Owner.FormTable.GetImportedObjectTable(importPage).Add(importPage.ObjectID, page.RequiredReference);
             PagesArray.Elements.Add(page.RequiredReference);
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
             if (Owner.Settings.TrimMargins.AreSet)
                 page.TrimMargins = Owner.Settings.TrimMargins;
-            return page;
         }
 
         /// <summary>

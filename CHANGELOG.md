@@ -5,17 +5,23 @@
 - `PdfDocument.AppendPages(source[, startIndex, pageCount][, options])` merges
   and `PdfDocument.ExtractPages(startIndex, pageCount[, options])` splits, with
   form fields, bookmarks and links. Fields with a widget on a copied page join
-  the document's form (a name already in use is renamed `name_2` and reported in
-  `PdfPageImportResult.RenamedFields`); links and bookmarks lead to the copied
-  pages, with named destinations written out, and those that lead to pages left
-  out are removed; `PdfPageImportOptions.BookmarkTitle` groups each source under
-  one bookmark. Annotations no longer pull in hidden copies of other pages,
-  fonts and images are shared between pages, annotations and repeated copies,
-  and the pages keep their transparency group, tab order and user unit.
-  `AddPage(page)` and `Pages.InsertRange` are unchanged: they drop the form and
-  the bookmarks, as in 6.2.4.
+  the document's form with their own default appearance and fonts (a name
+  already in use is renamed `name_2` and reported in
+  `PdfPageImportResult.RenamedFields`); links, button GoTo actions and bookmarks
+  lead to the copied pages, with named destinations written out, and those that
+  lead to pages left out are removed, while those that lead elsewhere are kept;
+  `PdfPageImportOptions.BookmarkTitle` groups each source under one bookmark.
+  Annotations no longer pull in hidden copies of other pages, fonts and images
+  are shared between pages, annotations and repeated copies, and the pages keep
+  their transparency group, tab order and user unit. Everything is copied before
+  anything is attached, so a failure on a damaged source leaves the document as
+  it was. `AddPage(page)` and `Pages.InsertRange` are unchanged: they drop the
+  form and the bookmarks, as in 6.2.4.
 - An annotation whose `/Subtype` is a number no longer stops the document from
   opening; it is read as an unknown annotation.
+- A bookmark colour (`/C`) outside 0 to 1, which some producers write as 0 to
+  255, is clamped instead of throwing `ArgumentException` when the outline is
+  read, and colours are rounded so they read back as written.
 
 ## 7.2.0
 

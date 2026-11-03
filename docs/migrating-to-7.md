@@ -141,13 +141,24 @@ that page, which also comes along when you split. Since 7.3, `AppendPages` and
 | A new document plus `AddPage(input.Pages[i])` | `using var part = input.ExtractPages(i, 1);` |
 
 - Form fields with a widget on a copied page join the document's form and can be
-  filled or flattened. A field whose name is already used is renamed `name_2`,
+  filled or flattened, with the font, size and colour their own form gave them
+  (a form font whose name the document already uses for another font is added
+  under a new name). A field whose name is already used is renamed `name_2`,
   `name_3` and so on; `AppendPages` returns the new names in `RenamedFields`.
   To merge filled forms into a file that cannot be edited, call `Flatten()` on
   the result.
-- Links and bookmarks lead to the copied pages. Named destinations are written
-  as the explicit destinations they name. A link to a page that was not copied is
-  removed; so is a bookmark, unless it holds bookmarks that were kept.
+- Links, the GoTo actions of buttons, and bookmarks lead to the copied pages.
+  Named destinations are written as the explicit destinations they name. A link
+  or action that leads to a page that was not copied is removed; so is such a
+  bookmark, unless it holds bookmarks that were kept. Links and bookmarks that
+  lead elsewhere, such as a web address, are kept.
+- Append each source in one call. Pages appended in separate calls are separate
+  copies: a field with widgets in both becomes two fields, and links and
+  bookmarks between them are removed.
+- Signatures are copied as they are, but a signature cannot be valid in a new
+  file; viewers report it as invalid. Sign the merged file.
+- If copying fails on a damaged source, the document's pages, form and bookmarks
+  are left as they were.
 - `new PdfPageImportOptions { BookmarkTitle = "invoice.pdf" }` puts the copied
   bookmarks under one bookmark that opens the first copied page;
   `KeepBookmarks = false` leaves them out.

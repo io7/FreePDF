@@ -100,7 +100,9 @@ public class MergeSplitTests
     static int OutlineTarget(PdfDocument document, PdfOutline outline)
     {
         var destination = outline.Elements.GetArray("/Dest");
-        return destination == null ? -1 : TargetPage(document, destination);
+        if (destination == null)
+            return -1;
+        return TargetPage(document, destination);
     }
 
     [Fact]
@@ -266,6 +268,165 @@ public class MergeSplitTests
         Assert.True(group.Elements.GetBoolean("/I"));
     }
 
+    static byte[] SingleFieldForm(string formAppearance, string baseFont, string fieldName) => TestPdf.Create(new[] {
+        $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA ({formAppearance}) /DR << /Font << /F1 5 0 R >> >> >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R] >>",
+        $"<< /FT /Tx /T ({fieldName}) /Type /Annot /Subtype /Widget /Rect [20 350 220 370] /P 3 0 R /F 4 >>",
+        $"<< /Type /Font /Subtype /Type1 /BaseFont /{baseFont} /Encoding /WinAnsiEncoding >>",
+    });
+
+    static (string Content, string BaseFont) FilledAppearance(PdfDocument document, string fieldName, int pageIndex)
+    {
+        ((PdfFormTextField)Fields(document)[fieldName]!).Text = "Hello";
+        var widget = Annotations(document, pageIndex, "/Widget")[0];
+        var normal = widget.Elements.GetDictionary("/AP")!.Elements.GetDictionary("/N")!;
+        var fonts = normal.Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
+        var font = fonts.Elements.GetDictionary(fonts.Elements.Keys.Single())!;
+        return (TestPdf.Latin1.GetString(normal.Stream!.UnfilteredValue), font.Elements.GetName("/BaseFont"));
+    }
+
+    [Fact]
+    public void Fields_keep_the_font_size_and_colour_of_their_own_form()
+    {
+        // Both forms call their font /F1 and give the size and colour only at form level.
+        using var first = PdfReader.Open(new MemoryStream(SingleFieldForm("/F1 10 Tf 0 g", "Courier", "a")), PdfDocumentOpenMode.Import);
+        using var second = PdfReader.Open(new MemoryStream(SingleFieldForm("/F1 18 Tf 0 0 1 rg", "Helvetica", "b")), PdfDocumentOpenMode.Import);
+        using var merged = new PdfDocument();
+
+        merged.AppendPages(first);
+        merged.AppendPages(second);
+        using var reopened = SaveAndReopen(merged);
+
+        var (secondContent, secondFont) = FilledAppearance(reopened, "b", 1);
+        Assert.Equal("/Helvetica", secondFont);
+        Assert.Contains("18 Tf", secondContent);
+        Assert.Contains("0 0 1 rg", secondContent);
+        var (firstContent, firstFont) = FilledAppearance(reopened, "a", 0);
+        Assert.Equal("/Courier", firstFont);
+        Assert.Contains("10 Tf", firstContent);
+    }
+
+    [Fact]
+    public void The_same_form_appended_twice_shares_its_default_resources()
+    {
+        using var first = OpenForImport();
+        using var second = OpenForImport();
+        using var merged = new PdfDocument();
+
+        merged.AppendPages(first);
+        merged.AppendPages(first);
+        merged.AppendPages(second);
+
+        var form = merged.Catalog.GetAcroForm()!;
+        Assert.Equal(new[] { "/Helv" }, form.Elements.GetDictionary("/DR")!.Elements.GetDictionary("/Font")!.Elements.Keys);
+        Assert.Equal(9, form.Fields.Count);
+    }
+
+    [Fact]
+    public void Top_level_fields_of_one_name_stay_one_field_and_are_renamed_together()
+    {
+        // Two widgets, each its own top-level field "x": by ISO 32000-1 12.7.3.2 one field.
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R 5 0 R] >>",
+            "<< /FT /Tx /T (x) /Type /Annot /Subtype /Widget /Rect [20 350 220 370] /P 3 0 R >>",
+            "<< /FT /Tx /T (x) /Type /Annot /Subtype /Widget /Rect [20 300 220 320] /P 3 0 R >>",
+        });
+        using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        using var merged = new PdfDocument();
+
+        var first = merged.AppendPages(source);
+        var second = merged.AppendPages(source);
+
+        Assert.Empty(first.RenamedFields);
+        Assert.Equal("x_2", Assert.Single(second.RenamedFields).Value);
+        Assert.Equal(new[] { "x", "x", "x_2", "x_2" }, FieldNames(merged));
+    }
+
+    [Fact]
+    public void A_bookmark_colour_outside_0_to_1_is_clamped()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+            "<< /Title (Red) /Parent 4 0 R /Dest [3 0 R /Fit] /C [255 0 -1] >>",
+        });
+        using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        using var merged = new PdfDocument();
+
+        merged.AppendPages(source);
+        using var reopened = SaveAndReopen(merged);
+
+        var red = Assert.Single(reopened.Outlines).TextColor;
+        Assert.Equal((255, 0, 0), (red.R, red.G, red.B));
+    }
+
+    [Fact]
+    public void A_bookmark_that_leads_elsewhere_is_kept()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
+            "<< /Title (Website) /Parent 4 0 R /A << /S /URI /URI (https://example.com/) >> >>",
+        });
+        using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+
+        using var part = source.ExtractPages(0, 1);
+        using var reopened = SaveAndReopen(part);
+
+        var website = Assert.Single(reopened.Outlines);
+        Assert.Equal("https://example.com/", website.Elements.GetDictionary("/A")!.Elements.GetString("/URI"));
+    }
+
+    [Fact]
+    public void A_button_action_leads_to_the_copied_page_or_is_removed()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] >>",
+            "<< /FT /Btn /Ff 65536 /T (next) /Type /Annot /Subtype /Widget /Rect [20 20 80 40] /P 3 0 R /A << /S /GoTo /D [4 0 R /Fit] >> >>",
+        });
+        using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+
+        using var whole = source.ExtractPages(0, 2);
+        using var firstPage = source.ExtractPages(0, 1);
+        using var wholeReopened = SaveAndReopen(whole);
+        using var firstReopened = SaveAndReopen(firstPage);
+
+        var destination = Annotations(wholeReopened, 0, "/Widget")[0].Elements.GetDictionary("/A")!.Elements.GetArray("/D")!;
+        Assert.Equal(1, TargetPage(wholeReopened, destination));
+        Assert.Null(Annotations(firstReopened, 0, "/Widget")[0].Elements["/A"]);
+    }
+
+    [Fact]
+    public void A_widget_without_a_form_on_two_pages_is_copied_to_both()
+    {
+        // Typing the second page's widgets after the first page's other annotations threw before.
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 50 50] /FT /Tx /T (x) >>",
+        });
+        using var source = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        using var merged = new PdfDocument();
+
+        merged.AppendPages(source);
+        using var reopened = SaveAndReopen(merged);
+
+        Assert.Single(Annotations(reopened, 0, "/Widget"));
+        Assert.Single(Annotations(reopened, 1, "/Widget"));
+    }
+
     [Fact]
     public void Damaged_annotation_entries_do_not_stop_the_copy()
     {
@@ -379,6 +540,22 @@ public class MergeSplitTests
         Assert.Equal(2, merged.PageCount);
         Assert.Equal(2, result.Pages.Count);
         Assert.Equal(new[] { "agree", "size" }, FieldNames(merged));
+    }
+
+    [Fact]
+    public void Appending_a_document_without_pages_adds_nothing()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+        });
+        using var empty = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        using var merged = new PdfDocument();
+
+        var result = merged.AppendPages(empty);
+
+        Assert.Empty(result.Pages);
+        Assert.Equal(0, merged.PageCount);
     }
 
     [Fact]

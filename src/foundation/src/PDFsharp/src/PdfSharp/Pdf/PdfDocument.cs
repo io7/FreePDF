@@ -888,6 +888,11 @@ namespace PdfSharp.Pdf
 
         internal Invoicing.FacturXManager? FacturXManager { get; set; }
 
+        /// <summary>
+        /// What AppendPages and ExtractPages know about this document as a source, kept for repeated imports.
+        /// </summary>
+        internal PdfPageImporter.SourceIndex? PageImportIndex { get; set; }
+
         internal EmbeddedFilesManager GetEmbeddedFilesManager()
             => EmbeddedFilesManager ?? EmbeddedFilesManager.ForDocument(this);
 
@@ -990,16 +995,21 @@ namespace PdfSharp.Pdf
         /// bookmarks and links, for merging documents. Unlike <see cref="AddPage(PdfPage)"/>:
         /// <list type="bullet">
         /// <item>Form fields with a widget on an appended page are added to this document's form, so they can be
-        /// filled or flattened. A field whose name this document already uses is renamed name_2, name_3 and so on;
-        /// <see cref="PdfPageImportResult.RenamedFields"/> lists the new names.</item>
-        /// <item>Links and bookmarks lead to the appended pages. Named destinations are written as the explicit
-        /// destinations they name. Links to pages that are not appended are removed; bookmarks to them are removed
-        /// unless they hold bookmarks that are kept.</item>
+        /// filled or flattened, with the font, size and colour their own form gave them. A field whose name this
+        /// document already uses is renamed name_2, name_3 and so on; <see cref="PdfPageImportResult.RenamedFields"/>
+        /// lists the new names.</item>
+        /// <item>Links, the GoTo actions of buttons and other annotations, and bookmarks lead to the appended pages.
+        /// Named destinations are written as the explicit destinations they name. A link to a page that is not
+        /// appended is removed, as is such an action; a bookmark to such a page is removed unless it holds bookmarks
+        /// that are kept. Links and bookmarks that lead elsewhere, such as a web address, are kept.</item>
         /// <item>Annotations do not pull in hidden copies of other pages.</item>
         /// </list>
+        /// Append a source in one call: pages appended in separate calls are separate copies, so a field with widgets
+        /// in both becomes two fields, and links and bookmarks between them are removed.
         /// Not carried: the structure tree (tags), page labels, optional content (layers) settings, named
-        /// destinations as names, XFA, and fields without a widget on an appended page. Nothing is changed if the
-        /// arguments are refused.
+        /// destinations as names, XFA, and fields without a widget on an appended page. Signatures are copied as they
+        /// are; they cannot be valid in the new file. Nothing is changed if the arguments are refused, and a failure
+        /// while copying from a damaged source leaves this document's pages, form and bookmarks as they were.
         /// </summary>
         /// <param name="source">The document to take the pages from, opened with <see cref="PdfDocumentOpenMode.Import"/>.</param>
         /// <param name="startIndex">The index of the first page to append.</param>
@@ -1031,7 +1041,15 @@ namespace PdfSharp.Pdf
         {
             PdfPageImporter.Validate(null, this, startIndex, pageCount, options);
             var part = new PdfDocument();
-            PdfPageImporter.Import(part, this, startIndex, pageCount, options);
+            try
+            {
+                PdfPageImporter.Import(part, this, startIndex, pageCount, options);
+            }
+            catch
+            {
+                part.Dispose();
+                throw;
+            }
             return part;
         }
 

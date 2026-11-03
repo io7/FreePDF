@@ -273,7 +273,7 @@ namespace PdfSharp.Pdf
             if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
                 && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
             {
-                TextColor = XColor.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
+                TextColor = ColorFromComponents(r, g, b);
             }
 
             // /Dest and /A should be mutual exclusive.
@@ -378,6 +378,25 @@ namespace PdfSharp.Pdf
 
         Done:
             InitializeChildren();
+        }
+
+        /// <summary>
+        /// Makes the colour of an outline item's /C entry. Components outside 0 to 1 (some producers write 0 to 255)
+        /// are clamped, and NaN reads as 0, instead of throwing. Components are rounded, so that a colour read back
+        /// from the three decimals FreePDF writes is the colour written.
+        /// </summary>
+        internal static XColor ColorFromComponents(double r, double g, double b)
+        {
+            return XColor.FromArgb(Component(r), Component(g), Component(b));
+
+            static int Component(double value)
+            {
+                if (Double.IsNaN(value) || value <= 0)
+                    return 0;
+                if (value >= 1)
+                    return 255;
+                return (int)Math.Round(value * 255, MidpointRounding.AwayFromZero);
+            }
         }
 
         void ParsePageDestination(PdfArray destination)  // Reference: 8.2  Destination syntax / Page 582

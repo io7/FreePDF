@@ -199,7 +199,7 @@ namespace PdfSharp.Pdf.Forms
                     var annot = annots.Elements.GetDictionary(idx);
                     if (annot is PdfWidgetAnnotation)
                     {
-                        throw new InvalidOperationException("WTF happened???");
+                        throw new InvalidOperationException("The widget annotations of this page were already prepared: fields must be typed before the other annotations.");
                     }
                     else if (annot is PdfFormField field)
                     {
