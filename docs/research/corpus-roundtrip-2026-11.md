@@ -90,6 +90,19 @@ Defects where damaged input escaped as the wrong exception type, now `PdfReaderE
 Reading the cross-reference stream code also showed that entries without a type field (`/W` starting with 0) were
 read as free objects; ISO 32000-1 Table 17 makes them in-use objects.
 
+Campaign 2 (seed 2, 30 minutes, 4 workers) on the fixed code: 45,737 inputs, 40,032 refused, 5,657 round-tripped,
+19 crashed (13 opening, 6 saving) in 7 signatures, against 314 crashing inputs in campaign 1. The 7 traced to:
+
+- Type confusion through a typed read: `/Outlines` or `/Info` naming the catalog or a cross-reference stream, and
+  `/Pages` naming the catalog itself, converted that object and destroyed it in its first role. A read, typed or
+  through key metadata, no longer converts an object that already has an unrelated type; a typed read treats such
+  an entry as absent, and the reader refuses a `/Pages` that is not a page tree.
+- `/Root` naming a string; an encryption dictionary with crypt filters on a revision without them; an outline
+  `/Count` that is a name; a `/MediaBox` with a string in it (where `TryGetRectangle` itself threw); a parser error
+  message whose byte dump overflowed for an offset outside the file.
+
+All 7 reproducers now open (3) or are refused with `PdfReaderException` (4).
+
 After these fixes the veraPDF corpus and the producer set give the same results as before them (2,899 ok, 3
 password, 4 rejected; 32 ok, 12 password).
 
@@ -101,4 +114,4 @@ password, 4 rejected; 32 ok, 12 password).
   dictionary untyped first. That marked it "transformation tried", and the typed read that counts embedded files then
   failed with a type mismatch. Any caller could trigger the same with an untyped read, in any build. A type the caller
   asks for explicitly is now always tried, as it already was for indirect objects. Debug and Release both pass all
-  298 tests.
+  313 tests.
