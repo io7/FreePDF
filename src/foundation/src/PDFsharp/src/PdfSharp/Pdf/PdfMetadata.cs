@@ -106,6 +106,31 @@ namespace PdfSharp.Pdf
         // </remarks>
         public string CreateDefaultMetadata() => CreateDefaultMetadata(MetadataEncodingType.UTF8);
 
+        const string PdfUAExtensionSchema = """
+                <rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+                  <pdfaExtension:schemas>
+                    <rdf:Bag>
+                      <rdf:li rdf:parseType="Resource">
+                        <pdfaSchema:schema>PDF/UA Universal Accessibility Schema</pdfaSchema:schema>
+                        <pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>
+                        <pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>
+                        <pdfaSchema:property>
+                          <rdf:Seq>
+                            <rdf:li rdf:parseType="Resource">
+                              <pdfaProperty:name>part</pdfaProperty:name>
+                              <pdfaProperty:valueType>Integer</pdfaProperty:valueType>
+                              <pdfaProperty:category>internal</pdfaProperty:category>
+                              <pdfaProperty:description>Indicates which part of ISO 14289 the document conforms to</pdfaProperty:description>
+                            </rdf:li>
+                          </rdf:Seq>
+                        </pdfaSchema:property>
+                      </rdf:li>
+                    </rdf:Bag>
+                  </pdfaExtension:schemas>
+                </rdf:Description>
+
+            """;
+
         // I wrote the code, and we will keep it for reference.
         internal string CreateDefaultMetadata(MetadataEncodingType encodingType)
         {
@@ -140,6 +165,15 @@ namespace PdfSharp.Pdf
                        <pdfaid:conformance>{metadataInfo.PdfAFormat?.ConformanceLevel}</pdfaid:conformance>
                      </rdf:Description>
                  """ + "\r\n"
+                : ""
+                ) +
+                // PDF/UA identification (ISO 14289-1 5); PDF/A only allows it with an extension schema declaring it.
+                (metadataInfo.IsPdfUA ?
+                """
+                     <rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
+                       <pdfuaid:part>1</pdfuaid:part>
+                     </rdf:Description>
+                 """ + "\r\n" + (isPdfA ? PdfUAExtensionSchema : "")
                 : ""
                 ) +
                 // xmlns:pdf: Producer, Keywords

@@ -41,4 +41,31 @@ public class TaggedPdfTests
         Assert.Equal("A red rectangle", figure.Elements.GetString("/Alt"));
         Assert.Equal(4, figure.Elements.GetDictionary("/A")!.Elements.GetArray("/BBox")!.Elements.Count);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_tagged_document_declares_PDF_UA_in_its_XMP_metadata(bool pdfA)
+    {
+        using var saved = new MemoryStream();
+        using (var document = new PdfDocument())
+        {
+            if (pdfA) PdfSharp.Pdf.PdfA.PdfAManager.ForDocument(document).SetFormat(PdfSharp.Pdf.PdfA.PdfAFormats.PdfA_2a);
+            document.Info.Title = "Declared";
+            var structure = UAManager.ForDocument(document).StructureBuilder;
+            using (var graphics = XGraphics.FromPdfPage(document.AddPage()))
+            {
+                structure.BeginElement(PdfBlockLevelElementTag.Paragraph);
+                graphics.DrawString("Text", new XFont("FreePDF Synthetic", 12), XBrushes.Black, 40, 40);
+                structure.End();
+            }
+            document.Save(saved);
+        }
+
+        using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), PdfDocumentOpenMode.Import);
+        var xmp = System.Text.Encoding.UTF8.GetString(reopened.Catalog.Elements.GetDictionary("/Metadata")!.Stream!.Value);
+        Assert.Contains("<pdfuaid:part>1</pdfuaid:part>", xmp);
+        Assert.Contains(">Declared</rdf:li>", xmp);
+        Assert.Equal(pdfA, xmp.Contains("<pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>"));
+    }
 }

@@ -32,6 +32,9 @@ namespace PdfSharp.UniversalAccessibility
             // DisplayDocTitle must be true.
             Document.ViewerPreferences.DisplayDocTitle = true;
 
+            // PDF/UA-1 requires an XMP metadata stream with dc:title and the PDF/UA identification (ISO 14289-1 7.1).
+            Document.GetMetadataManager().AdjustStrategyForStandard("PDF/UA");
+
             var internals = Document.Internals;
 
             Document.Events.PageAdded += OnPageAdded;
