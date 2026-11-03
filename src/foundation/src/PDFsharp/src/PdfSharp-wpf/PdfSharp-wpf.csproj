@@ -287,6 +287,7 @@
     <Compile Include="..\PdfSharp\Pdf.Forms\enums\PdfFormSignatureFlags.cs" Link="Pdf.Forms\enums\PdfFormSignatureFlags.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\Design.cs" Link="Pdf.Forms\Design.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\FieldAppearance.cs" Link="Pdf.Forms\FieldAppearance.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Forms\StandardFontWidths.cs" Link="Pdf.Forms\StandardFontWidths.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\FieldName.cs" Link="Pdf.Forms\FieldName.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\PdfFormButtonField.cs" Link="Pdf.Forms\PdfFormButtonField.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\PdfFormCertificateSeedValue.cs" Link="Pdf.Forms\PdfFormCertificateSeedValue.cs" />

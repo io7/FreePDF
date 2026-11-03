@@ -234,3 +234,36 @@ by this repository's MIT licence.
 Inkscape 1.4 (`e7c3feb100`, 2024-10-09), an isolated profile and explicit PNG
 export settings. Inkscape is an external development tool, not a packaged
 dependency. Both FreePDF packages include the same PNG at the package root.
+
+## Standard font widths (2026-11-03)
+
+Filled form fields measure text in standard fonts with Adobe's Core14 font
+metrics. `src/foundation/src/PDFsharp/src/PdfSharp/Pdf.Forms/StandardFontWidths.cs`
+holds the advance widths of the WinAnsiEncoding characters 32 to 255 in the
+twelve Latin standard fonts (Helvetica, Times and Courier with their bold and
+italic styles). Symbol and ZapfDingbats are left out; they do not use
+WinAnsiEncoding.
+
+`eng/Update-StandardFontWidths.ps1` generates the file from:
+
+- the twelve AFM files and `MustRead.html` in Apache PDFBox at tag `3.0.3`
+  (`pdfbox/src/main/resources/org/apache/pdfbox/resources/afm`), which
+  redistributes Adobe's Core14 AFM files with their accompanying notice;
+- the Adobe Glyph List at the immutable publisher commit
+  `4036a9ca80a62f64f9de4f7321a9a045ad0ecfd6`, already recorded above, to match
+  glyph names to characters.
+
+The script pins every input by SHA-256 and stops on a mismatch. Only Adobe's
+data is used; no PDFBox code was read or reused. ISO 32000-1 Annex D supplies the
+two WinAnsiEncoding codes the glyph list does not name (240 octal draws the
+space glyph and 255 octal the hyphen).
+
+Adobe's `MustRead.html` permits use, copying and distribution for any purpose,
+with or without modification, provided the copyright notices are retained, the
+notice accompanies the data, modifications are noted and its paragraph is not
+modified. The generated source carries the AFM copyright notices, the unmodified
+paragraph and a description of FreePDF's modification (only the widths are kept).
+The same text is in `src/packages/Adobe-Core14-AFM.txt`, which every FreePDF
+package carries as `THIRD-PARTY/Adobe-Core14-AFM.txt`; `eng/Test-Packages.ps1`
+fails a package without it. The generator, the measuring code and the tests are
+MIT-licensed FreePDF work.

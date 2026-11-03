@@ -191,4 +191,29 @@ public class FormFillingTests
 
         Assert.True(document.Catalog.GetAcroForm()!.NeedAppearances);
     }
+
+    // The name field is 200 wide with a 2 inset and 12 pt text, so right-aligned text starts at 198 minus its width.
+    // Widths in 1/1000 em from Adobe's AFM files: Helvetica A 667, d 556, a 556, Aring 667, s 500, e 556;
+    // Helvetica-Bold A 722, d 611, a 556; Times-Roman A 722, d 500, a 444. A font without metrics counts 500 a character.
+    [Theory]
+    [InlineData("/Helvetica", "Ada", 198 - 1779 * 0.012)]
+    [InlineData("/Helvetica", "Åse", 198 - 1723 * 0.012)]
+    [InlineData("/Arial,Bold", "Ada", 198 - 1889 * 0.012)]
+    [InlineData("/ABCDEF+TimesNewRomanPSMT", "Ada", 198 - 1666 * 0.012)]
+    [InlineData("/SomeOtherFont", "Ada", 198 - 1500 * 0.012)]
+    public void Right_aligned_text_is_placed_with_the_standard_font_widths(string baseFont, string text, double expectedX)
+    {
+        using var document = Open();
+        var form = document.Catalog.GetAcroForm()!;
+        var font = form.Elements.GetDictionary("/DR")!.Elements.GetDictionary("/Font")!.Elements.GetDictionary("/Helv")!;
+        font.Elements.SetName("/BaseFont", baseFont);
+        var name = (PdfFormTextField)Fields(document)["name"]!;
+        name.Elements.SetInteger("/Q", 2);
+        name.Text = text;
+
+        var position = System.Text.RegularExpressions.Regex.Match(NormalAppearance(name), @"(\S+) \S+ Td");
+        Assert.True(position.Success);
+        double x = double.Parse(position.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(expectedX, x, 3);
+    }
 }
