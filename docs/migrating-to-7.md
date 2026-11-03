@@ -35,7 +35,7 @@ font resolver for the portable packages; test fixtures' fonts are not product de
 | Metadata dates and `DocumentRenderer.PrintDate` are `DateTime` | Use nullable `DateTimeOffset`; choose an explicit offset when converting an old value. |
 | `PdfDocument` is a `PdfObject` and `ICloneable` | Treat it as the document owner; rework casts, cloning and helpers that require the old base class. |
 | `PdfDocument.Internals` returns `PdfInternals` | Its type is `PdfDocumentInternals`; recompile and check explicit type declarations. |
-| Legacy `PdfSharp.Pdf.AcroForms` types are the form model | v7 exposes `PdfForm` through `document.Catalog.GetAcroForm()` or `GetOrCreateAcroForm()`. Typed field classes are incomplete; general filling/flattening is outside the stable feature scope. |
+| Legacy `PdfSharp.Pdf.AcroForms` types are the form model | v7 exposes `PdfForm` through `document.Catalog.GetAcroForm()` or `GetOrCreateAcroForm()`. Since 7.1 its fields are found by name and filled through typed members; see [Filling forms](#filling-forms). Flattening is not supported. |
 | A one-argument dictionary getter has the old binary signature | Several getters gained optional arguments. Source calls can still compile while precompiled binaries require rebuilding. |
 | Font, glyph, image and content-parser implementation types are unchanged | Review explicit references against the API report; Imaging/OpenType now have separate assemblies. |
 | Standard-target helper types are stable | `PdfSharp.SystemStringExtensions` is removed in v7's Standard build; review direct calls to inherited helper types as well as the main PDF APIs. |
@@ -60,11 +60,36 @@ against FreePDF 7 (method and results: [consumer survey](research/consumer-surve
 | `using PdfSharp.Snippets;`, `PdfSharp.Quality`, `PdfSharp.WPFonts` | These upstream helper assemblies are not shipped. Remove unused usings. `PdfSharp.WPFonts` embeds Microsoft's Segoe WP fonts, which FreePDF has no licence to redistribute: give your `IFontResolver` font files you are licensed to embed. |
 
 Legacy forms (`PdfSharp.Pdf.AcroForms`, `document.AcroForm.Fields["name"]`) did not
-appear in the survey, but some applications fill forms this way. FreePDF 7 carries
-only the v7 form model, whose field collection has no lookup by name and whose
-typed fields are incomplete. Applications that fill forms through the legacy model
-need code changes; legacy form support is tracked in
-[issue #9](https://github.com/io7/FreePDF/issues/9).
+appear in the survey, but some applications fill forms this way; see below.
+
+## Filling forms
+
+FreePDF carries the v7 form model (`PdfSharp.Pdf.Forms`). Since 7.1 a 6.2.4
+form-filling program moves over with renames:
+
+| 6.2.4 (`PdfSharp.Pdf.AcroForms`) | FreePDF 7.1 (`PdfSharp.Pdf.Forms`) |
+| --- | --- |
+| `document.AcroForm` | `document.Catalog.GetAcroForm()` (null when the file has no form) |
+| `form.Fields["name"]`, `form.Fields["address.city"]` | The same; null when there is no such field. Also `TryGetField` and `Count`. |
+| `PdfTextField`: `Text = "Ada"` or `Value = new PdfString("Ada")` | `PdfFormTextField.Text = "Ada"` |
+| `PdfCheckBoxField.Checked` | `PdfFormCheckBoxField.Checked` |
+| `PdfRadioButtonField.SelectedIndex` | `PdfFormRadioButtonField.SelectedIndex`, `SelectedValue`, `Options` |
+| `PdfComboBoxField` / `PdfListBoxField`: `SelectedIndex` | `PdfFormComboBoxField` / `PdfFormListBoxField`: `SelectedIndex`, `SelectedValue` (export value), `Options`, `ExportValues` |
+| `field.ReadOnly` | `field.IsReadOnly` |
+| `form.Elements.SetBoolean("/NeedAppearances", true)` | Not needed: FreePDF draws the filled appearance. `form.NeedAppearances` remains for special cases. |
+| `document.Flatten()` | Not supported. |
+
+FreePDF draws text and choice fields with the font, size, colour and alignment
+of the field's default appearance (`/DA`, `/Q`) and the widget's border and
+background. Check boxes and radio buttons switch to the on and off appearances
+the form already contains, under whatever on-state name it uses. Limits:
+
+- Text is written in the WinAnsi encoding of the form's font. Text outside it
+  (for example Japanese) is left to the viewer through NeedAppearances; a PDF/A
+  document refuses such a value, because PDF/A does not allow NeedAppearances.
+- Centred and right-aligned text, line wrapping and automatic font sizes use the
+  font's `/Widths`; standard fonts that do not list widths use an estimate.
+- Saving rewrites the file, so filling a signed form invalidates its signatures.
 
 ## Repeatable API evidence
 

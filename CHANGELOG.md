@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fill forms through the v7 form model: `PdfFormFields["address.city"]`,
+  `TryGetField` and `Count`; `PdfFormTextField.Text`, `PdfFormCheckBoxField.Checked`,
+  `PdfFormRadioButtonField.SelectedIndex`/`SelectedValue`/`Options` and
+  `PdfFormChoiceField.SelectedIndex`/`SelectedValue`/`Options`/`ExportValues`;
+  `PdfForm.NeedAppearances`. Filling draws the appearance of text and choice
+  fields from the field's default appearance (font, size, colour, alignment) and
+  the widget's border and background, and switches check boxes and radio buttons
+  to the appearance states the form defines. Named kids now get the field type
+  they inherit (a `city` under a text field `address` is a `PdfFormTextField`).
+  The migration guide maps the 6.2.4 `PdfSharp.Pdf.AcroForms` calls (issue #9).
 - Fixes from a third fuzzing campaign (46,516 inputs, 4 crashing): outline
   destinations with missing or non-numeric parameters, an unknown type, a page
   number or a non-page object no longer fail the document, and no longer turn
@@ -9,7 +19,6 @@
   fields are dropped, and a field listed as its own kid no longer recurses
   without end; a number beyond the single-precision range is clamped to it
   (ISO 32000-1 Annex C) instead of failing the reader.
-
 - Add a shared FreePDF package icon for NuGet and Visual Studio, with an SVG
   source, reproducible PNG generation and package-content checks. The README
   shows it, and `src/packages/social-preview.png` is the matching GitHub social
@@ -36,7 +45,7 @@
 - Write tagged PDF for PDF/UA-1 from the layout engine:
   `PdfDocumentRenderer.TaggedPdf`. Paragraphs become P and outline levels 1 to 6
   H1 to H6; consecutive list paragraphs become one L of LI items with Lbl and
-  LBody; tables become Table, TR, TH (with `/Scope`) and TD, each page's part
+  LBody, and list levels 2 and 3 nest inside the item before them; tables become Table, TR, TH (with `/Scope`) and TD, each page's part
   repeating its header cells; images and charts become a Figure with alternative
   text; hyperlinks become Link elements that own their annotations; headers,
   footers, borders, shading and text-frame outlines are artifacts. The title

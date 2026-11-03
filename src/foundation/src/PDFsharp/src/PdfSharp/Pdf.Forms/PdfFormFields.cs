@@ -66,6 +66,35 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// Gets the number of top-level fields in this collection.
+        /// </summary>
+        public int Count => Elements.Count;
+
+        /// <summary>
+        /// Gets the field with the specified fully qualified name, such as "name" or "address.city" for the kid
+        /// "city" of the field "address", or null if the form has no such field.
+        /// </summary>
+        public PdfFormField? this[string fullName]
+        {
+            get
+            {
+                TryGetField(fullName, out var field);
+                return field;
+            }
+        }
+
+        /// <summary>
+        /// Tries to get the field with the specified fully qualified name, such as "address.city".
+        /// </summary>
+        public bool TryGetField(string fullName, [MaybeNullWhen(false)] out PdfFormField field)
+        {
+            if (fullName == null!)
+                throw new ArgumentNullException(nameof(fullName));
+            field = GetAllFields().FirstOrDefault(f => f.FullName == fullName);
+            return field != null;
+        }
+
+        /// <summary>
         /// Returns an enumerator that iterates through an array of Acro fields.
         /// </summary>
         public new IEnumerator<PdfFormField> GetEnumerator()

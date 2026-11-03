@@ -146,7 +146,7 @@ namespace PdfSharp.Pdf.Attachments
             // /Subtype and /AFRelationship are PDF names; report them without the leading slash, as they are set.
             var type = efs.Elements.GetString(PdfEmbeddedFileStream.Keys.Subtype);
             if (!String.IsNullOrEmpty(type))
-                info.FileType = type.StartsWith('/') ? type[1..] : type;
+                info.FileType = type.TrimStart('/');
 
             var relationship = Elements.GetName(Keys.AFRelationship, false, "");
             if (relationship.Length > 1)

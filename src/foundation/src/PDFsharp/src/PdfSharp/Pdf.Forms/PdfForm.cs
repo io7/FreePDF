@@ -40,6 +40,17 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// Gets or sets whether viewers shall build the appearances of the form's fields (/NeedAppearances).
+        /// FreePDF builds appearances when fields are filled; this flag is for appearances it cannot build.
+        /// PDF 2.0 deprecates it and PDF/A does not allow it.
+        /// </summary>
+        public bool NeedAppearances
+        {
+            get => Elements.GetBoolean(Keys.NeedAppearances);
+            set => Elements.SetBoolean(Keys.NeedAppearances, value);
+        }
+
+        /// <summary>
         /// Predefined keys of this dictionary.
         /// </summary>
         internal class Keys : KeysBase

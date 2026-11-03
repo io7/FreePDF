@@ -267,7 +267,8 @@ namespace PdfSharp.Pdf
             }
 
             // A /Count or /C of the wrong type in a damaged file is ignored rather than failing the document.
-            Count = Elements.TryGetInteger(Keys.Count, out var count) ? count : 0;
+            Elements.TryGetInteger(Keys.Count, out var count);
+            Count = count;
 
             if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
                 && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
