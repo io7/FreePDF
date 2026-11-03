@@ -886,6 +886,8 @@ namespace PdfSharp.Pdf
 
         internal EmbeddedFilesManager? EmbeddedFilesManager { get; set; }
 
+        internal Invoicing.FacturXManager? FacturXManager { get; set; }
+
         internal EmbeddedFilesManager GetEmbeddedFilesManager()
             => EmbeddedFilesManager ?? EmbeddedFilesManager.ForDocument(this);
 
