@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Text works without a font resolver in the portable packages. With no
+  `GlobalFontSettings.FontResolver` set, FreePDF uses the TrueType fonts
+  installed on Windows, Linux and macOS, after the Windows font table and the
+  fallback font resolver. Missing common families get a substitute with the same
+  widths (Liberation Sans, Serif and Mono for Arial, Times New Roman and Courier
+  New; Carlito and Caladea for Calibri and Cambria), else a DejaVu or Noto font
+  of the same kind, with a logged warning. Fonts whose licence forbids embedding
+  are skipped, and the error says so. New: `GlobalFontSettings.AddFontDirectory`
+  for fonts deployed with the application, and `GlobalFontSettings.UseSystemFonts`
+  (set it to false for 6.2.4's behaviour). Before, MigraDoc stopped with "The
+  font 'Courier New' cannot be resolved" on a machine without Microsoft's fonts.
+- `GlobalFontSettings.ResetFontManagement()` now also forgets resolved typefaces
+  and font families; before, a typeface resolved before the reset was still used
+  after it, even with a different font resolver.
 - `PdfDocument.Flatten()` flattens the form: every visible field is drawn into
   its page as it appears, placed on the widget's rectangle as ISO 32000-1
   12.5.5 describes, and the form and its widgets are removed; other annotations

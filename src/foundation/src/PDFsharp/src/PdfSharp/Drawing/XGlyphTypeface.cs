@@ -161,6 +161,24 @@ namespace PdfSharp.Drawing
                     => PdfSharpLogHost.Logger.LogError("A font resolver cannot resolve font family '{familyName}' and throws an exception, " +
                                                        "but it must return null if the font cannot be resolved. Exception text: " + ex.Message, name);
 
+#if CORE
+                // FreePDF: without a custom font resolver, look among the installed fonts last.
+                if (fontResolverInfo == null && GlobalFontSettings.FontResolver is null && GlobalFontSettings.UseSystemFonts)
+                {
+                    var systemFonts = SystemFontResolver.Instance;
+                    fontResolverInfo = systemFonts.ResolveTypeface(familyName, fontResolvingOptions.IsBold, fontResolvingOptions.IsItalic);
+                    if (fontResolverInfo != null)
+                        FontFactory.RegisterResolverResult(systemFonts, familyName, fontResolvingOptions, fontResolverInfo, typefaceKey);
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"No appropriate font found for family name '{familyName}'. {systemFonts.DescribeMissingFamily(familyName)} " +
+                            "Install the font, add its folder with 'GlobalFontSettings.AddFontDirectory', or implement IFontResolver " +
+                            $"and assign it to 'GlobalFontSettings.FontResolver'. See {UrlLiterals.LinkToFontResolving}");
+                    }
+                }
+#endif
+
                 if (fontResolverInfo == null)
                 {
                     // No fallback - just stop.

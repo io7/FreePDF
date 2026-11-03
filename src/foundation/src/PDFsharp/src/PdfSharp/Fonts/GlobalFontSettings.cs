@@ -254,7 +254,63 @@ namespace PdfSharp.Fonts
             }
         }
 
+        /// <summary>
+        /// Gets or sets whether the Core build uses the fonts installed on the machine when no custom
+        /// <see cref="FontResolver"/> is set. The default is true. FreePDF asks the Windows font table (if
+        /// <see cref="UseWindowsFontsUnderWindows"/> or <see cref="UseWindowsFontsUnderWsl2"/> is set) and the
+        /// <see cref="FallbackFontResolver"/> first, then the folders added with <see cref="AddFontDirectory"/>, then the
+        /// system's font folders. A common family that is not installed, such as Arial or Courier New, is replaced by a
+        /// font with the same widths (Liberation Sans, Liberation Mono) or else by a common font of the same kind
+        /// (DejaVu Sans), and a warning is logged. Only TrueType fonts whose licence allows embedding are used.
+        /// Set it to false before the first font is used to require a custom font resolver, as PDFsharp 6.2.4 did.
+        /// A custom font resolver gives fully reproducible output on every machine.
+        /// </summary>
+        public static bool UseSystemFonts
+        {
+            get => !PsGlobals.Global.Fonts.SystemFontsDisabled;
+            set => PsGlobals.Global.Fonts.SystemFontsDisabled = !value;
+        }
+
+        /// <summary>
+        /// Adds a folder of font files, for example fonts deployed with the application, that the Core build searches
+        /// before the system's font folders when no custom <see cref="FontResolver"/> is set. Subfolders are searched
+        /// too. Families that were already used keep the font they resolved to.
+        /// </summary>
+        /// <param name="path">The folder.</param>
+        public static void AddFontDirectory(string path)
+        {
+            if (String.IsNullOrEmpty(path))
+                throw new ArgumentException("The font folder must not be empty.", nameof(path));
+            try
+            {
+                Locks.EnterFontManagement();
+                SystemFontResolver.Instance.AddDirectory(path);
+            }
+            finally { Locks.ExitFontManagement(); }
+        }
+
 #elif GDI || WPF
+        /// <summary>
+        /// The GDI and WPF builds always use the fonts installed on the machine; this property has no effect there.
+        /// </summary>
+        public static bool UseSystemFonts
+        {
+            get => true;
+            set
+            {
+                if (value == false)
+                    PdfSharpLogHost.Logger.LogWarning("Setting UseSystemFonts to false has no effect in the GDI and WPF builds and is ignored.");
+            }
+        }
+
+        /// <summary>
+        /// Not supported by the GDI and WPF builds, which use the fonts installed on the machine. Use a custom
+        /// <see cref="FontResolver"/> for fonts deployed with the application.
+        /// </summary>
+        /// <param name="path">The folder.</param>
+        public static void AddFontDirectory(string path)
+            => throw new NotSupportedException("AddFontDirectory is supported by the Core build only. In the GDI and WPF builds, use a custom FontResolver for fonts deployed with the application.");
+
         /// <summary>
         /// This property has no effect under a GDI or WPF build of PDFsharp.
         /// </summary>
@@ -339,6 +395,11 @@ namespace PdfSharp.Internal
             /// /mnt/c/Windows/Fonts if the code runs under WSL2.
             /// </summary>
             public bool? UseWindowsFontsUnderWsl2;
+
+            /// <summary>
+            /// True if the Core build must not use the fonts installed on the machine (UseSystemFonts = false).
+            /// </summary>
+            public bool SystemFontsDisabled;
         }
     }
 }
