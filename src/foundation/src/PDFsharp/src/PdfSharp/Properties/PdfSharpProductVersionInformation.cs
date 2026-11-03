@@ -10,6 +10,10 @@ namespace PdfSharp
     /// <summary>
     /// Version information for all PDFsharp related assemblies.
     /// </summary>
+    /// <remarks>
+    /// FreePDF writes these names into every document it saves (Producer, Creator, XMP metadata, file comments),
+    /// so they name FreePDF and io7, never empira's PDFsharp. empira's copyright is kept.
+    /// </remarks>
     // TODO_OLD: These literals are not in sync with the NuGet metadata. Should be fixed.
     public static class PdfSharpProductVersionInformation
     {
@@ -19,7 +23,7 @@ namespace PdfSharp
         /// <summary>
         /// The title of the product.
         /// </summary>
-        public const string Title = "PDFsharp";
+        public const string Title = "FreePDF";
 
         /// <summary>
         /// A characteristic description of the product.
@@ -75,7 +79,7 @@ namespace PdfSharp
         /// <summary>
         /// The home page of this product.
         /// </summary>
-        public const string Url = "www.pdfsharp.com";
+        public const string Url = "https://github.com/io7/FreePDF";
 
         /// <summary>
         /// Unused.
@@ -83,24 +87,24 @@ namespace PdfSharp
         public const string Configuration = "";
 
         /// <summary>
-        /// The company that created/owned the product.
+        /// The company that maintains the product.
         /// </summary>
-        public const string Company = "empira Software GmbH, Troisdorf (Cologne Area), Germany";
+        public const string Company = "io7";
 
         /// <summary>
         /// The name of the product.
         /// </summary>
-        public const string Product = "PDFsharp";
+        public const string Product = "FreePDF";
 
         /// <summary>
         /// The copyright information.
         /// </summary>
-        public const string Copyright = "Copyright © 2005-2026 empira Software GmbH."; // Not used as NuGet Copyright. See Directory.Build.Props.
+        public const string Copyright = "Copyright © 2005-2026 empira Software GmbH; FreePDF changes © 2026 io7"; // Not used as NuGet Copyright. See Directory.Build.Props.
 
         /// <summary>
         /// The trademark of the product.
         /// </summary>
-        public const string Trademark = "PDFsharp";
+        public const string Trademark = "FreePDF";
 
         /// <summary>
         /// Unused.

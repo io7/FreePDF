@@ -579,7 +579,7 @@ namespace PdfSharp.Pdf.IO
 
             if (IsVerboseLayout)
             {
-                WriteRaw($"% PDFsharp {PdfSharpProductVersionInformation.Version} (verbose layout)\n");
+                WriteRaw($"% {PdfSharpProductVersionInformation.Title} {PdfSharpProductVersionInformation.Version} (verbose layout)\n");
                 WriteRaw($"% Version  {PdfSharpProductVersionInformation.SemanticVersion} ({Capabilities.Build.BuildName}) under .NET {Capabilities.Build.Framework}\n");
                 // Keep some space for later fix-up.
                 _commentPosition = (int)_stream.Position + 2;
@@ -596,7 +596,7 @@ namespace PdfSharp.Pdf.IO
                 WriteRaw("%                                                          \n");  // User password placeholder
                 WriteRaw("%                                                          \n");  // Owner password placeholder
 #if DEBUG
-                WriteRaw("% This document is created from a DEBUG build. Do not use a DEBUG build of PDFsharp for production.\n");
+                WriteRaw($"% This document is created from a DEBUG build. Do not use a DEBUG build of {PdfSharpProductVersionInformation.Title} for production.\n");
 #endif
                 WriteRaw("%--------------------------------------------------------------------------------------------------\n");
             }
@@ -605,7 +605,7 @@ namespace PdfSharp.Pdf.IO
         // ReSharper disable once IdentifierTypo
         public void WriteEof(PdfDocument document, SizeType startxref)
         {
-            WriteRaw($"% Created with PDFsharp {PdfSharpProductVersionInformation.SemanticVersion} ({Capabilities.Build.BuildName}) under .NET {Capabilities.Build.Framework}\n");
+            WriteRaw($"% Created with {PdfSharpProductVersionInformation.Title} {PdfSharpProductVersionInformation.SemanticVersion} ({Capabilities.Build.BuildName}) under .NET {Capabilities.Build.Framework}\n");
 #if DEBUG
             WriteRaw($"% Branch {SemVersionInformation.BranchName} ({SemVersionInformation.Sha}) {SemVersionInformation.CommitDate}\n");
 #endif
