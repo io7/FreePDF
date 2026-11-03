@@ -150,4 +150,22 @@ public class FacturXTests
 
         Assert.Throws<InvalidOperationException>(() => FacturXManager.ForDocument(document).SetInvoice(Xml, FacturXProfile.Minimum));
     }
+
+    [Fact]
+    public void A_tagged_invoice_declares_both_extension_schemas_in_one_list()
+    {
+        // XMP allows pdfaExtension:schemas once per resource; a second list made the whole metadata unreadable.
+        using var document = new PdfDocument();
+        FacturXManager.ForDocument(document).SetInvoice(Xml, FacturXProfile.EN16931);
+        PdfSharp.UniversalAccessibility.UAManager.ForDocument(document);
+        document.Info.Title = "Tagged invoice";
+        document.AddPage();
+
+        var xmp = SaveAndReadMetadata(document, out _);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(xmp, "<pdfaExtension:schemas>"));
+        Assert.Contains("<pdfaSchema:prefix>fx</pdfaSchema:prefix>", xmp);
+        Assert.Contains("<pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>", xmp);
+        Assert.Contains("<fx:ConformanceLevel>EN 16931</fx:ConformanceLevel>", xmp);
+        Assert.Contains("<pdfuaid:part>1</pdfuaid:part>", xmp);
+    }
 }
