@@ -216,6 +216,10 @@ namespace PdfSharp.Pdf.Advanced
                 currentTrailer = currentTrailer.PreviousTrailer;
             } while (currentTrailer != null);
 
+            // The catalog must be a dictionary; a number, name or string there is a damaged file.
+            if (Document.Trailer.Elements.GetValue(Keys.Root, VCF.NoTransform) is not PdfDictionary)
+                throw new PdfReaderException("The trailer's /Root is not a dictionary.");
+
             // /Info
             //iref = Document.Trailer.Elements[Keys.Info] as PdfReference;
             iref = Document.Trailer.Elements.GetReference(Keys.Info); // TODO #US373

@@ -266,14 +266,12 @@ namespace PdfSharp.Pdf
                     Parent = parent;
             }
 
-            Count = Elements.GetInteger(Keys.Count);
+            // A /Count or /C of the wrong type in a damaged file is ignored rather than failing the document.
+            Count = Elements.TryGetInteger(Keys.Count, out var count) ? count : 0;
 
-            var colors = Elements.GetArray(Keys.C);
-            if (colors is { Elements.Count: 3 })
+            if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
+                && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
             {
-                double r = colors.Elements.GetReal(0);
-                double g = colors.Elements.GetReal(1);
-                double b = colors.Elements.GetReal(2);
                 TextColor = XColor.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
             }
 

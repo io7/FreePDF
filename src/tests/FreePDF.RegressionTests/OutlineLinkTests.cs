@@ -60,4 +60,20 @@ public class OutlineLinkTests
         Assert.Equal(2, outlines);
         Assert.Equal(new[] { "One", "Two" }, reopened.Outlines.Select(o => o.Title));
     }
+
+    [Fact]
+    public void Count_and_colour_entries_of_the_wrong_type_are_ignored()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count /Many >>",
+            "<< /Title (One) /Parent 4 0 R /Count (two) /C [1 (red) 0] >>" });
+
+        using var reopened = OpenSaveReopen(bytes, out var outlines);
+
+        Assert.Equal(1, outlines);
+        Assert.Equal("One", Assert.Single(reopened.Outlines).Title);
+    }
 }

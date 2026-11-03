@@ -1,4 +1,4 @@
-// A page without a MediaBox, neither its own nor inherited. ISO 32000-1 Table 30 requires one; Poppler and MuPDF
+// A page without a usable MediaBox, neither its own nor inherited. ISO 32000-1 Table 30 requires one; Poppler and MuPDF
 // show such a page at US Letter size. FreePDF threw InvalidOperationException while opening.
 // Found by mutation fuzzing. Original fixtures; MIT, see LICENSE.
 using PdfSharp.Pdf;
@@ -23,6 +23,21 @@ public class MissingMediaBoxTests
 
         Assert.Equal(612, document.Pages[0].Width.Point);
         Assert.Equal(792, document.Pages[0].Height.Point);
+    }
+
+    [Theory]
+    [InlineData("[0 0 240]")]
+    [InlineData("[0 0 (wide) 200]")]
+    [InlineData("/Letter")]
+    public void A_page_with_a_malformed_media_box_is_US_Letter(string mediaBox)
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox {mediaBox} >>" });
+
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+        Assert.Equal(612, document.Pages[0].Width.Point);
     }
 
     [Fact]

@@ -544,14 +544,23 @@ namespace PdfSharp.Pdf.Security
             else
                 throw TH.PdfReaderException_UnknownEncryption();
 
-            GetEncryption().InitializeFromLoadedSecurityHandler();
-
-            // Load, initialize and prepare crypt filters.
-            LoadCryptFilters(true);
-            if (_loadedCryptFilters is not null)
+            // The value and crypt filter checks guard writing as well. For a file being read they mean an encryption
+            // dictionary that is damaged or inconsistent, which is a reader error.
+            try
             {
-                foreach (var cryptFilter in _loadedCryptFilters.Values)
-                    cryptFilter.PrepareForProcessing();
+                GetEncryption().InitializeFromLoadedSecurityHandler();
+
+                // Load, initialize and prepare crypt filters.
+                LoadCryptFilters(true);
+                if (_loadedCryptFilters is not null)
+                {
+                    foreach (var cryptFilter in _loadedCryptFilters.Values)
+                        cryptFilter.PrepareForProcessing();
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new PdfReaderException("The document's encryption dictionary is invalid: " + ex.Message, ex);
             }
         }
 
@@ -585,7 +594,16 @@ namespace PdfSharp.Pdf.Security
         {
             inputPassword ??= "";
 
-            var passwordValidity = GetEncryption().ValidatePassword(inputPassword);
+            PasswordValidity passwordValidity;
+            try
+            {
+                passwordValidity = GetEncryption().ValidatePassword(inputPassword);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The value checks guard writing as well; for a file being read they mean a damaged dictionary.
+                throw new PdfReaderException("The document's encryption dictionary is invalid: " + ex.Message, ex);
+            }
             Document.SecuritySettings.HasFullPermission = passwordValidity == PasswordValidity.OwnerPassword;
 
             return passwordValidity;

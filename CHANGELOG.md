@@ -119,6 +119,14 @@
   metadata expects a dictionary returns it instead of throwing, so a `/Pages`
   that names one is reported as a missing page tree. The parser's error message
   no longer overflows for offsets far outside the file.
+- Further damaged input from a second fuzzing campaign: a `/Pages` that names
+  the catalog itself, or a `/Root` that is not a dictionary, is a reader error;
+  an encryption dictionary whose values do not fit together (crypt filters on a
+  revision without them, a wrong `/Length`) fails with `PdfReaderException`
+  instead of `InvalidOperationException`; a `/MediaBox` that is not four numbers
+  reads as US Letter like a missing one; an outline `/Count` or `/C` of the
+  wrong type is ignored. `TryGetRectangle` no longer throws for an array that
+  holds a non-number.
 
 ## 7.0.1
 

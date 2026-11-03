@@ -445,7 +445,9 @@ namespace PdfSharp.Pdf.IO
 
                 // ISO 32000-1 Table 28: the page tree is required. Without it the file's pages are unreachable, and
                 // Modify would drop them as unreachable objects.
-                if (_document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Pages) == null)
+                // A /Pages naming an object that already has another type (the catalog itself, say) is no page tree.
+                var pages = _document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Pages);
+                if (pages == null || (pages.GetType() != typeof(PdfDictionary) && pages is not PdfPages))
                     throw new PdfReaderException("The document catalog has no page tree (/Pages).");
 
 #if DEBUG_ // TODO_OLD: Delete or rewrite.

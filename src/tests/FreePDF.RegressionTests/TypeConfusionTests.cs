@@ -68,6 +68,24 @@ public class TypeConfusionTests
     }
 
     [Fact]
+    public void A_page_tree_entry_naming_the_catalog_is_a_reader_error()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 1 0 R >>",
+            "<< /Type /Page /MediaBox [0 0 240 200] >>" });
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify));
+    }
+
+    [Fact]
+    public void A_root_entry_naming_a_string_is_a_reader_error()
+    {
+        var bytes = TestPdf.Create(new[] { "(not a catalog)", "<< /Type /Pages /Kids [] /Count 0 >>" });
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify));
+    }
+
+    [Fact]
     public void A_page_tree_entry_naming_a_name_object_is_a_reader_error()
     {
         var bytes = TestPdf.Create(new[] {
