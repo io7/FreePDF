@@ -88,7 +88,9 @@ the form already contains, under whatever on-state name it uses. Limits:
   (for example Japanese) is left to the viewer through NeedAppearances; a PDF/A
   document refuses such a value, because PDF/A does not allow NeedAppearances.
 - Centred and right-aligned text, line wrapping and automatic font sizes use the
-  font's `/Widths`; standard fonts that do not list widths use an estimate.
+  font's `/Widths`. Since 7.1.1, the twelve Latin standard fonts (and Arial,
+  Times New Roman and Courier New) use Adobe's metrics when they list no widths;
+  other fonts without widths use an estimate.
 - Saving rewrites the file, so filling a signed form invalidates its signatures.
 
 ## Repeatable API evidence
