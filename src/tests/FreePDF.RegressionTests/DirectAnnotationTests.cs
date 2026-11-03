@@ -37,7 +37,7 @@ public class DirectAnnotationTests
     [InlineData("null")]
     [InlineData("5")]
     [InlineData("(text)")]
-    public void An_annots_entry_that_is_not_a_dictionary_does_not_stop_the_document(string entry)
+    public void An_annots_entry_that_is_not_a_dictionary_is_dropped(string entry)
     {
         var bytes = TestPdf.Create(new[] {
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -46,9 +46,12 @@ public class DirectAnnotationTests
 
         using var saved = new MemoryStream();
         using (var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify))
+        {
+            Assert.IsType<PdfSquareAnnotation>(Assert.Single(document.Pages[0].Annotations));
             document.Save(saved);
+        }
         using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), PdfDocumentOpenMode.Import);
-        Assert.Equal(1, reopened.PageCount);
+        Assert.IsType<PdfSquareAnnotation>(Assert.Single(reopened.Pages[0].Annotations));
     }
 
     [Fact]

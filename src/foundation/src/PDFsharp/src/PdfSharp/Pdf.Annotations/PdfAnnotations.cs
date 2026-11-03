@@ -183,15 +183,21 @@ namespace PdfSharp.Pdf.Annotations
                     var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
                     if (annots != null)
                     {
-                        var count = annots.Elements.Count;
-                        for (int idx = 0; idx < count; idx++)
+                        for (int idx = 0; idx < annots.Elements.Count; idx++)
                         {
                             var annot = annots.Elements.GetDictionary(idx);
 
-                            // Entries that are not dictionaries (null, numbers, strings, missing objects) are invalid
-                            // but must not stop the document; they are kept as read. Typed dictionaries were already
-                            // created elsewhere, for example widget annotations together with their form fields.
-                            if (annot == null || annot.GetType() != typeof(PdfDictionary))
+                            // Entries that are not dictionaries (null, numbers, strings, missing objects) cannot be
+                            // annotations. Drop them, so that the page's Annotations hold only annotations.
+                            if (annot == null)
+                            {
+                                annots.Elements.RemoveAt(idx--);
+                                continue;
+                            }
+
+                            // Typed dictionaries were already created elsewhere, for example widget annotations
+                            // together with their form fields.
+                            if (annot.GetType() != typeof(PdfDictionary))
                                 continue;
 
                             var annotation = PdfAnnotation.CreateAnnotation(annot);

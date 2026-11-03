@@ -518,8 +518,6 @@ namespace PdfSharp.Pdf.IO
         {
             Debug.Assert(_document.IrefTable.IsUnderConstruction);
 
-            // TODO: Can a direct container in a top-level object also contain references to be updated?
-
             foreach (var iref in _document.IrefTable.AllReferences)
             {
                 var pdfObject = iref.Value;
@@ -530,41 +528,54 @@ namespace PdfSharp.Pdf.IO
                 if (pdfObject.IsDead)
                     throw new InvalidOperationException("TODO: REPORT A BUG"); // TODO
 
-                // Update all references to PdfDictionary’s and PdfArray’s child objects.
-                switch (pdfObject)
-                {
-                    case PdfDictionary dictionary:
-                        // Dictionary elements are modified inside the loop. Avoid "Collection was modified; enumeration operation may not execute" error occuring in net 4.6.2.
-                        // There is no way to access KeyValuePairs via index natively to use a for loop with.
-                        // Instead, enumerate Keys and get value via Elements[key], which should be O(1).
-                        foreach (var key in dictionary.Elements.Keys)
-                        {
-                            var item = dictionary.Elements[key]; // #US373 ??? Do not use GetValue - see below.
-
-                            // Replace each reference with its final item, if necessary.
-                            if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
-                                dictionary.Elements[key] = finalItem;
-                        }
-                        break;
-
-                    case PdfArray array:
-                        var elements = array.Elements;
-                        for (var i = 0; i < elements.Count; i++)
-                        {
-                            var item = elements[i];
-
-                            // Replace each reference with its final item, if necessary.
-                            if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
-                                elements[i] = finalItem;
-                        }
-                        break;
-                }
+                FinalizeReferencesIn(pdfObject);
             }
 
             _document.IrefTable.IsUnderConstruction = false;
 
             // Fix references of trailer values and then objects and irefs are consistent.
             _document.Trailer.Finish();
+        }
+
+        /// <summary>
+        /// Replaces the references in a dictionary or array, and in the direct dictionaries and arrays it contains
+        /// (for example a page's /Annots array), by their final items. Indirect children are handled as top-level
+        /// objects of their own.
+        /// </summary>
+        void FinalizeReferencesIn(PdfItem container)
+        {
+            switch (container)
+            {
+                case PdfDictionary dictionary:
+                    // Dictionary elements are modified inside the loop. Avoid "Collection was modified; enumeration operation may not execute" error occuring in net 4.6.2.
+                    // There is no way to access KeyValuePairs via index natively to use a for loop with.
+                    // Instead, enumerate Keys and get value via Elements[key], which should be O(1).
+                    foreach (var key in dictionary.Elements.Keys)
+                    {
+                        var item = dictionary.Elements[key]; // #US373 ??? Do not use GetValue - see below.
+
+                        // Replace each reference with its final item, if necessary.
+                        if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
+                            dictionary.Elements[key] = finalItem;
+                        else if (item is PdfContainer { IsIndirect: false } child)
+                            FinalizeReferencesIn(child);
+                    }
+                    break;
+
+                case PdfArray array:
+                    var elements = array.Elements;
+                    for (var i = 0; i < elements.Count; i++)
+                    {
+                        var item = elements[i];
+
+                        // Replace each reference with its final item, if necessary.
+                        if (item is PdfReference currentReference && ShouldUpdateReference(currentReference, out var finalItem))
+                            elements[i] = finalItem;
+                        else if (item is PdfContainer { IsIndirect: false } child)
+                            FinalizeReferencesIn(child);
+                    }
+                    break;
+            }
         }
 
         /// <summary>
