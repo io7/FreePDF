@@ -232,6 +232,7 @@
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfAnnotations.cs" Link="Pdf.Annotations\PdfAnnotations.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\Pdf3DAnnotation.cs" Link="Pdf.Annotations\Pdf3DAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfCaretAnnotation.cs" Link="Pdf.Annotations\PdfCaretAnnotation.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Annotations\PdfUnknownAnnotation.cs" Link="Pdf.Annotations\PdfUnknownAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfFileAttachmentAnnotation.cs" Link="Pdf.Annotations\PdfFileAttachmentAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfFreeTextAnnotation.cs" Link="Pdf.Annotations\PdfFreeTextAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfInkAnnotation.cs" Link="Pdf.Annotations\PdfInkAnnotation.cs" />
@@ -256,6 +257,8 @@
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfWidgetAnnotation.cs" Link="Pdf.Annotations\PdfWidgetAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\EmbeddedFileInfo.cs" Link="Pdf.Attachments\EmbeddedFileInfo.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\EmbeddedFilesManager.cs" Link="Pdf.Attachments\EmbeddedFilesManager.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Invoicing\FacturXManager.cs" Link="Pdf.Invoicing\FacturXManager.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Invoicing\FacturXProfile.cs" Link="Pdf.Invoicing\FacturXProfile.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfAFRelationship.cs" Link="Pdf.Attachments\PdfAFRelationship.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfEmbeddedFiles.cs" Link="Pdf.Attachments\PdfEmbeddedFiles.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfFileSpecification.cs" Link="Pdf.Attachments\PdfFileSpecification.cs" />

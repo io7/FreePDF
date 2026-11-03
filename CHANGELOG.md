@@ -12,6 +12,17 @@
   `io7.FreePDF.Layout.Wpf` replace `PDFsharp-WPF` and `PDFsharp-MigraDoc-WPF`.
   They target Windows .NET 8, 9, 10 and .NET Framework 4.6.2, keep upstream's
   assembly names, and are installed and run on Windows in CI.
+- Add `FacturXManager` for Factur-X / ZUGFeRD hybrid invoices.
+  `SetInvoice(xml, profile)` embeds the Cross Industry Invoice as `factur-x.xml`
+  (`xrechnung.xml` for XRechnung) with MIME type `text/xml` and the profile's
+  `/AFRelationship` (Data for MINIMUM and BASIC WL, Alternative otherwise, or the
+  caller's choice), lists it in the catalog `/AF`, makes the document PDF/A-3B
+  if it has no PDF/A format yet, and adds the Factur-X extension schema and
+  properties to the XMP metadata. It accepts only well-formed Cross Industry
+  Invoice XML. The package release check validates a Factur-X file with veraPDF.
+- `EmbeddedFilesManager.GetEmbeddedFileInfo` now reports the file's
+  `AFRelationship` (it always reported none) and its MIME type without the
+  leading slash of the PDF name, as they were set.
 - Fix the BMP importer's file-size check, which was inverted since the v7 import
   refactoring: it rejected bitmaps followed by extra bytes and accepted truncated
   ones. GDI+ and WPF images (`XImage.FromGdiPlusImage`, `XImage.FromBitmapSource`)
@@ -26,6 +37,107 @@
   `PdfDocument.SetPdfA()` (declares PDF/A-1b). The migration guide lists the
   remaining breaks and their fixes. The survey tool is `eng/research/Survey-Consumers.ps1`.
 - Fix `PdfAFormats.PdfA_2u`, which described PDF/A-2b.
+- Read encrypted files whose trailer holds the encryption dictionary directly
+  rather than by reference, as MuPDF writes them. The reader ignored such a
+  dictionary: it opened password-protected files without asking for the password,
+  could not decrypt their content, and saving wrote the still-encrypted streams
+  into an unencrypted file. These files now require the password and decrypt
+  like any other. Found by the corpus round trip (`eng/research/CorpusCheck`).
+- Open documents with annotations of a subtype FreePDF does not model (private,
+  misspelled or missing subtypes). One such annotation made the whole document
+  fail with "Invalid annotation subtype"; it is now read as `PdfUnknownAnnotation`
+  and saved unchanged. Found by the corpus round trip, including files that pass
+  PDF/UA-1.
+- Open files whose header names a later PDF 2.x minor version (`%PDF-2.1` to
+  `%PDF-2.9`, which PDF/A-4 allows); they are read and saved as PDF 2.0. A file
+  without a readable version header now fails with `PdfReaderException` instead
+  of `InvalidOperationException`.
+- Open documents containing streams whose data is in an external file (`/F` in
+  the stream dictionary). The reader threw `NotImplementedException: File streams
+  are not yet implemented` for the whole document (upstream issue 389); such
+  streams are now parsed by `/Length` and saved with their `/F` entry. FreePDF
+  deliberately never loads the external file, so a PDF cannot make it read local
+  files.
+- Treat a trailer `/Info` entry that references a missing object as absent
+  (ISO 32000 treats such references as null); opening threw
+  `ArgumentNullException`. References to missing or misplaced objects now fail
+  with `PdfReaderException` instead of `AggregateException` (upstream issue 73).
+- Save pages whose `/Annots` array holds annotations directly rather than by
+  reference. Opening converted them to typed annotations but left the retired
+  dictionaries in the array, so saving failed with "This dictionary cannot be
+  used anymore". `/Annots` entries that are not dictionaries (null, numbers,
+  strings, missing objects) are dropped when the document opens; they stopped it
+  from opening, and iterating `PdfPage.Annotations` threw on them.
+- The verbose writer layout's statistics comment no longer has fields for the
+  user and owner passwords; they read "(never written)". The security manager
+  behind them is still a stub that printed "(TODO)", so no password has been
+  written so far, but the comment is plain text in an encrypted file.
+- `OpenTypeFontFace.GetOrCreateFrom` returns the cached face of a font source
+  that already has one instead of failing a Debug assertion.
+- Write the outline root when it has no items. The writer skipped its body but
+  kept it in the cross-reference table, so the saved file could not be reopened
+  ("Unexpected token 'xref'"). This hit every new document that read
+  `document.Outlines` without adding an item, and every opened file with an empty
+  `/Outlines` dictionary. Found by mutation fuzzing (`CorpusCheck fuzz`).
+- Treat a dictionary entry whose value is `null`, or a reference to a missing
+  object, as absent when a typed value is read (ISO 32000-1 7.3.9). A catalog
+  `/Metadata` or `/Outlines` like that made opening or saving fail with a type
+  mismatch; it now reads as absent and is created on demand.
+- Refuse a document whose catalog has no page tree (`/Pages` absent, `null` or
+  dangling) with `PdfReaderException`. Such a file opened as an empty document,
+  and saving it dropped every page in the file.
+- Read an outline only as far as its `/First` and `/Next` links lead to outline
+  items. A link back to an earlier item made opening loop until memory ran out;
+  a link to the catalog or a page converted that object into an outline item, so
+  saving failed; a link to a number threw `InvalidCastException`. The outline now
+  ends at such a link.
+- Resolve references to missing objects as `null` at any depth (ISO 32000-1
+  7.3.10). Inside a direct array or dictionary, such as a page's `/Annots`, they
+  stayed references without a value, and reading them threw
+  `InvalidOperationException`.
+- Read a page without a `/MediaBox`, own or inherited, as US Letter
+  (612 x 792 points) as Poppler and MuPDF do, and write that box on save.
+  Opening threw `InvalidOperationException`.
+- Recover the length of a stream whose indirect `/Length` is not an integer by
+  searching for `endstream`, as for a missing `/Length`; the parser threw
+  `InvalidCastException`.
+- Damaged files now fail with `PdfReaderException` instead of
+  other exception types from inside the reader: cross-reference streams whose
+  `/Size`, `/W`, `/Index` or `/Prev` is missing, mistyped or larger than the
+  data; object streams with an invalid `/N`, `/First` or header, or whose
+  container is missing or not a stream; cross-reference and object streams that
+  cannot be decoded (unknown filter, corrupt Flate data); a trailer `/Root` that
+  refers to a missing object; a `stream` keyword inside an array or dictionary;
+  a number with two decimal points; an AES-256 `/Perms` that is not 16 bytes.
+  Before, these threw `InvalidOperationException`, `IndexOutOfRangeException`,
+  `OverflowException`, `NullReferenceException`, `ArgumentNullException`,
+  `NotImplementedException`, `InvalidDataException`, `CryptographicException` or
+  `ContentReaderException`. A damaged object stream `/N` also no longer
+  allocates its header before anything is read. All found by mutation fuzzing.
+- Read cross-reference stream entries without a type field (`/W` starting with
+  0) as in-use objects, as ISO 32000-1 Table 17 specifies; they were read as
+  free.
+- A typed read of a direct dictionary or array (for example
+  `GetDictionary<PdfEmbeddedFiles>`) now converts it even after an untyped read
+  of the same entry. The untyped read marked it as tried, and the typed read
+  failed with a type mismatch; Debug builds hit this when saving a read document
+  with embedded files.
+- A typed read no longer converts an object that already has an unrelated type.
+  In a damaged file where `/Outlines` or `/Info` names the catalog or a
+  cross-reference stream, the conversion destroyed that object and opening or
+  saving failed with "This dictionary cannot be used anymore"; the entry now
+  reads as absent. An untyped read of an indirect number, name or string where
+  metadata expects a dictionary returns it instead of throwing, so a `/Pages`
+  that names one is reported as a missing page tree. The parser's error message
+  no longer overflows for offsets far outside the file.
+- Further damaged input from a second fuzzing campaign: a `/Pages` that names
+  the catalog itself, or a `/Root` that is not a dictionary, is a reader error;
+  an encryption dictionary whose values do not fit together (crypt filters on a
+  revision without them, a wrong `/Length`) fails with `PdfReaderException`
+  instead of `InvalidOperationException`; a `/MediaBox` that is not four numbers
+  reads as US Letter like a missing one; an outline `/Count` or `/C` of the
+  wrong type is ignored. `TryGetRectangle` no longer throws for an array that
+  holds a non-number.
 
 ## 7.0.1
 

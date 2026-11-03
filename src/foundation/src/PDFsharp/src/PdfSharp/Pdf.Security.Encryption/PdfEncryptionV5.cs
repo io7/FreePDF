@@ -686,6 +686,10 @@ namespace PdfSharp.Pdf.Security.Encryption
         /// </summary>
         bool ValidatePermissions(byte[] permsValue, uint pValue)
         {
+            // Perms is a 16-byte string (ISO 32000-2 Table 21); anything else cannot be valid.
+            if (permsValue.Length != 16)
+                return false;
+
             // a) Decrypt permsValue using AES-256 in ECB mode with an initialization vector of zero and the file encryption key as the key.
             using var aes = CreateAesForPermissionsCryptography();
 

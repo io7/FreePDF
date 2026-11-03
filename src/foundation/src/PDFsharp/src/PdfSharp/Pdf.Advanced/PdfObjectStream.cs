@@ -44,14 +44,30 @@ namespace PdfSharp.Pdf.Advanced
         internal PdfObjectStream(PdfDictionary dict, Parser documentParser)
             : base(dict)
         {
-            int n = Elements.GetInteger(Keys.N);
-            int first = Elements.GetInteger(Keys.First);
-            Stream?.TryUncompress();
+            byte[]? data;
+            try
+            {
+                Stream?.TryUncompress();
+                data = Stream?.UnfilteredValue;
+            }
+            catch (Exception ex) when (ex is not PdfSharp.Pdf.IO.PdfReaderException)
+            {
+                // The compressed objects are in this data, so a filter that is unknown, unsupported or fails on it
+                // means the file is damaged.
+                throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} cannot be decoded: {ex.Message}", ex);
+            }
+            if (data == null)
+                throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} has no stream data.");
 
-            if (Stream == null)
-                throw new InvalidOperationException("PdfObjectStream has no stream. Unexpected error.");
+            // ISO 32000-1 7.5.7: /N pairs of integers, at least two bytes each, precede the objects at offset /First.
+            // Checking /N against the data also keeps a damaged /N from allocating a huge header.
+            if (!Elements.TryGetInteger(Keys.N, out int n) || n < 0 || n > data.Length / 2
+                || !Elements.TryGetInteger(Keys.First, out int first) || first < 0 || first > data.Length)
+            {
+                throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} has an invalid /N or /First.");
+            }
 
-            var parser = new Parser(base.Document, new MemoryStream(Stream.UnfilteredValue), documentParser);
+            var parser = new Parser(base.Document, new MemoryStream(data), documentParser);
             _header = parser.ReadObjectStreamHeader(n, first);
 
 #if DEBUG_ && CORE

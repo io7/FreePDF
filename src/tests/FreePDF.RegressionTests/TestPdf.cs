@@ -8,6 +8,9 @@ namespace FreePDF.RegressionTests;
 
 static class TestPdf
 {
+    // ISO-8859-1 maps every byte to one char and back; Encoding.Latin1 does not exist on .NET Framework.
+    public static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
+
     public static PdfDocument OpenCatalog(string entries)
     {
         var objects = new[] {

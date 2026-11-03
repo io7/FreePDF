@@ -266,14 +266,12 @@ namespace PdfSharp.Pdf
                     Parent = parent;
             }
 
-            Count = Elements.GetInteger(Keys.Count);
+            // A /Count or /C of the wrong type in a damaged file is ignored rather than failing the document.
+            Count = Elements.TryGetInteger(Keys.Count, out var count) ? count : 0;
 
-            var colors = Elements.GetArray(Keys.C);
-            if (colors is { Elements.Count: 3 })
+            if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
+                && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
             {
-                double r = colors.Elements.GetReal(0);
-                double g = colors.Elements.GetReal(1);
-                double b = colors.Elements.GetReal(2);
                 TextColor = XColor.FromArgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
             }
 
@@ -450,26 +448,15 @@ namespace PdfSharp.Pdf
 
         void InitializeChildren()
         {
-            var firstRef = Elements.GetReference(Keys.First);
-            //var lastRef = Elements.GetReference(Keys.Last);
-            var current = firstRef;
-            while (current != null)
+            // Follow /First and /Next only to dictionaries that have no type yet. A link to a non-dictionary, or to an
+            // object that already has one (the catalog, a page, an item read earlier in a loop), ends the chain:
+            // converting it would destroy that object or never stop.
+            var current = Elements.GetReference(Keys.First);
+            while (current?.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary))
             {
-                // Create item and add it to outline items dictionary.
-                var item = new PdfOutline((PdfDictionary)current.Value);
+                var item = new PdfOutline(dict);
                 Outlines.Add(item);
-
                 current = item.Elements.GetReference(Keys.Next);
-#if DEBUG_
-                if (current == null)
-                {
-                    if (item.Reference != lastRef)
-                    {
-                        // Word produces PDFs that come to this case.
-                        _ = typeof(int);
-                    }
-                }
-#endif
             }
         }
 
@@ -620,21 +607,9 @@ namespace PdfSharp.Pdf
                     writer.WriteRaw("% Title: \u0093" + FilterUnicode(Title) + "\u0094\n");
             }
 
-            // TODO_OLD: Proof that there is nothing to do here.
-            bool hasKids = HasChildren;
-            if (_parent != null || hasKids)
-            {
-                ////// Everything done in PrepareForSave
-                ////if (_parent == null)
-                ////{
-                ////    // This is the outline dictionary (the root)
-                ////}
-                ////else
-                ////{
-                ////    // This is an outline item dictionary
-                ////}
-                base.WriteObject(writer);
-            }
+            // Everything is done in PrepareForSave. An empty root is written too: it is in the cross-reference
+            // table and the catalog refers to it, so skipping it left the reference pointing at the next token.
+            base.WriteObject(writer);
 
             static string FilterUnicode(string text)
             {

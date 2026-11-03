@@ -69,9 +69,14 @@ namespace PdfSharp.Pdf
             if (setupSizeFromMediaBox)
             {
                 // Setup page size from MediaBox.
-                var rectangle = Elements.GetRectangle(InheritablePageKeys.MediaBox, false);
-                if (rectangle == null)
-                    throw new InvalidOperationException("Page has no MediaBox.");
+                if (!Elements.TryGetRectangle(InheritablePageKeys.MediaBox, out var rectangle))
+                {
+                    // ISO 32000-1 Table 30 requires a MediaBox, own or inherited. Poppler and MuPDF show a page
+                    // without a usable one at US Letter size; read it the same way and write that box on save.
+                    PdfSharpLogHost.PdfReadingLogger.LogWarning("Page has no valid MediaBox; using US Letter (612 x 792 points).");
+                    rectangle = new PdfRectangle(0, 0, 612, 792);
+                    Elements.SetRectangle(InheritablePageKeys.MediaBox, rectangle);
+                }
 
                 _width = XUnit.FromPoint(rectangle.X2 - rectangle.X1);
                 _height = XUnit.FromPoint(rectangle.Y2 - rectangle.Y1);
