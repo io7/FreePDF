@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.1.0
 
 - Fill forms through the v7 form model: `PdfFormFields["address.city"]`,
   `TryGetField` and `Count`; `PdfFormTextField.Text`, `PdfFormCheckBoxField.Checked`,
