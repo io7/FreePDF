@@ -44,9 +44,20 @@ namespace PdfSharp.Pdf.Advanced
         internal PdfObjectStream(PdfDictionary dict, Parser documentParser)
             : base(dict)
         {
-            Stream?.TryUncompress();
-            var data = Stream?.UnfilteredValue
-                       ?? throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} has no stream data.");
+            byte[]? data;
+            try
+            {
+                Stream?.TryUncompress();
+                data = Stream?.UnfilteredValue;
+            }
+            catch (Exception ex) when (ex is not PdfSharp.Pdf.IO.PdfReaderException)
+            {
+                // The compressed objects are in this data, so a filter that is unknown, unsupported or fails on it
+                // means the file is damaged.
+                throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} cannot be decoded: {ex.Message}", ex);
+            }
+            if (data == null)
+                throw new PdfSharp.Pdf.IO.PdfReaderException($"Object stream {ObjectID.ObjectNumber} has no stream data.");
 
             // ISO 32000-1 7.5.7: /N pairs of integers, at least two bytes each, precede the objects at offset /First.
             // Checking /N against the data also keeps a damaged /N from allocating a huge header.

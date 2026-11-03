@@ -13,7 +13,7 @@ public class XRefStreamHeaderTests
     // Catalog, page tree and page, then the cross-reference stream as object 4. Each entry is a type byte (left out
     // when typeField is false), a 2-byte offset and a generation byte; entries cover objects 0 to 4 unless
     // firstObject skips the free entry for object 0.
-    static byte[] File(string entries, int keepEntries = 5, bool typeField = true, int firstObject = 0)
+    static byte[] File(string entries, int keepEntries = 5, bool typeField = true, int firstObject = 0, string filter = "/ASCIIHexDecode")
     {
         var objects = new[] {
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -32,7 +32,7 @@ public class XRefStreamHeaderTests
         var rows = new List<string> { (typeField ? "00" : "") + "000000" };
         rows.AddRange(offsets.Select(o => (typeField ? "01" : "") + $"{o:X4}00"));
         var data = string.Concat(rows.Skip(firstObject).Take(keepEntries)) + ">";
-        text.Append($"4 0 obj\n<< /Type /XRef {entries} /Root 1 0 R /Filter /ASCIIHexDecode /Length {data.Length} >>\n" +
+        text.Append($"4 0 obj\n<< /Type /XRef {entries} /Root 1 0 R /Filter {filter} /Length {data.Length} >>\n" +
                     $"stream\n{data}\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n");
         return Encoding.ASCII.GetBytes(text.ToString());
     }
@@ -69,6 +69,15 @@ public class XRefStreamHeaderTests
     public void A_header_that_does_not_describe_the_data_is_a_reader_error(string entries)
     {
         Assert.Throws<PdfReaderException>(() => Open(File(entries)));
+    }
+
+    [Theory]
+    [InlineData("/FlateDecmde")]
+    [InlineData("/FlateDecode")]
+    [InlineData("[/ASCIIHexDecode /RunLengthDecode]")]
+    public void Data_that_cannot_be_decoded_is_a_reader_error(string filter)
+    {
+        Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", filter: filter)));
     }
 
     [Fact]

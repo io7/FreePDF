@@ -17,7 +17,7 @@ public class ObjectStreamHeaderTests
     // Catalog (1) at file level; page tree (2) and page (3) compressed in object stream 4; cross-reference stream 5.
     // streamEntries replaces the object stream's /N and /First, header its header, and container the object number
     // the compressed entries name as their object stream.
-    static byte[] File(string? streamEntries = null, string? header = null, int container = 4)
+    static byte[] File(string? streamEntries = null, string? header = null, int container = 4, string filter = "")
     {
         header ??= $"2 0 3 {Pages.Length + 1} ";
         var data = header + Pages + " " + Page;
@@ -27,7 +27,7 @@ public class ObjectStreamHeaderTests
         var offset1 = text.Length;
         text.Append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
         var offset4 = text.Length;
-        text.Append($"4 0 obj\n<< /Type /ObjStm {streamEntries} /Length {data.Length} >>\nstream\n{data}\nendstream\nendobj\n");
+        text.Append($"4 0 obj\n<< /Type /ObjStm {streamEntries} {filter} /Length {data.Length} >>\nstream\n{data}\nendstream\nendobj\n");
         var offset5 = text.Length;
 
         var rows = $"00000000 01{offset1:X4}00 02{container:X4}00 02{container:X4}01 01{offset4:X4}00 01{offset5:X4}00".Replace(" ", "") + ">";
@@ -64,6 +64,15 @@ public class ObjectStreamHeaderTests
     public void An_invalid_header_entry_is_a_reader_error(string header)
     {
         Assert.Throws<PdfReaderException>(() => Open(File(header: header)));
+    }
+
+    [Theory]
+    [InlineData("/Filter /Bogus")]
+    [InlineData("/Filter /FlateDecode")]
+    [InlineData("/Filter /JBIG2Decode")]
+    public void Data_that_cannot_be_decoded_is_a_reader_error(string filter)
+    {
+        Assert.Throws<PdfReaderException>(() => Open(File(filter: filter)));
     }
 
     [Theory]

@@ -1635,7 +1635,17 @@ namespace PdfSharp.Pdf.IO
             Debug.Assert(xrefStream.Stream != null);
             //string sValue = new RawEncoding().GetString(xrefStream.Stream.UnfilteredValue,);
             //_ = typeof(int);
-            byte[] bytes = xrefStream.Stream.UnfilteredValue;
+            byte[] bytes;
+            try
+            {
+                bytes = xrefStream.Stream.UnfilteredValue;
+            }
+            catch (Exception ex) when (ex is not PdfReaderException)
+            {
+                // The file's structure is in this data, so a filter that is unknown, unsupported or fails on it
+                // means the file is damaged.
+                throw new PdfReaderException($"The cross-reference stream at offset {xrefStart} cannot be decoded: {ex.Message}", ex);
+            }
 
             // The dictionary must describe the data (ISO 32000-1 7.5.8.2): /Size, /W with three widths and optional
             // /Index pairs, all direct non-negative integers, and enough data for every entry. Anything else is a
