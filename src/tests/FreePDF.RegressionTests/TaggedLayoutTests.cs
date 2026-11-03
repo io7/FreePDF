@@ -151,6 +151,24 @@ public class TaggedLayoutTests
         Assert.Equal(80, types.Count(t => t == "/LI"));
     }
 
+    [Fact]
+    public void Hyperlinks_are_link_elements_that_own_their_annotations()
+    {
+        var document = Invoice();
+        var paragraph = document.LastSection.AddParagraph("Pay at ");
+        paragraph.AddHyperlink("https://example.com/pay", HyperlinkType.Web).AddText("example.com");
+        paragraph.AddText(" today.");
+
+        using var pdf = RenderAndReopen(document);
+
+        var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
+        Assert.Equal(1, types.Count(t => t == "/Link"));
+        var annotation = Assert.Single(pdf.Pages[0].Annotations.OfType<PdfSharp.Pdf.Annotations.PdfLinkAnnotation>());
+        Assert.Equal("https://example.com/pay", annotation.Elements.GetString("/Contents"));
+        Assert.True(annotation.Elements.ContainsKey("/StructParent"));
+        Assert.Equal("/S", pdf.Pages[0].Elements.GetName("/Tabs"));
+    }
+
     // A 2 x 2 pixel 8-bit RGB PNG, as MigraDoc's base64 image name.
     const string Pixel = "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVQI12N0a9rCwMDAxMDAwMDAAAARjAGAcK5hlwAAAABJRU5ErkJggg==";
 

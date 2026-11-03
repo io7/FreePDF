@@ -872,13 +872,37 @@ namespace MigraDoc.Rendering
                 // If a DocumentObjectCollection is returned as a leaf, it is obviously empty.
                 // There is no need to render an empty DocumentObjectCollection. Also, RenderElement() will throw an exception, because it doesn’t contain implementations for DocumentObjectCollections. So we better won¹t call it for them.
                 if (_currentLeaf.Current is not DocumentObjectCollection)
+                {
+                    TagHyperlinkTransition(GetHyperlink());
                     RenderElement(_currentLeaf.Current);
+                }
 
                 _currentLeaf = _currentLeaf.GetNextLeaf();
             }
+            // Link annotations are made per line, so a tagged link element ends with the line too.
+            TagHyperlinkTransition(null);
             _currentYPosition += lineInfo.Vertical.Height;
             _isFirstLine = false;
         }
+
+        /// <summary>
+        /// In a tagged PDF, ends the open Link element and starts one for the next hyperlink, before the element that
+        /// changes the hyperlink is drawn. The annotations, made after their text, are attached in EndHyperlink.
+        /// </summary>
+        void TagHyperlinkTransition(Hyperlink? hyperlink)
+        {
+            var structure = _documentRenderer.ContentStructure;
+            if (structure == null || hyperlink == _taggedHyperlink)
+                return;
+            if (_taggedHyperlink != null)
+                structure.End();
+            _taggedHyperlink = hyperlink;
+            if (hyperlink != null)
+                _linkElements.Enqueue(structure.BeginLinkElement());
+        }
+
+        Hyperlink? _taggedHyperlink;
+        readonly Queue<PdfSharp.Pdf.Structure.PdfStructureElement> _linkElements = new();
 
         void ReMeasureLine(ref LineInfo lineInfo)
         {
@@ -1323,6 +1347,7 @@ namespace MigraDoc.Rendering
             {
                 XRect rect = _gfx.Transformer.WorldToDefaultPage(_hyperlinkRect);
 
+                PdfSharp.Pdf.Annotations.PdfLinkAnnotation? annotation = null;
                 switch (hyperlink.Type)
                 {
                     case HyperlinkType.Local:
@@ -1331,32 +1356,44 @@ namespace MigraDoc.Rendering
                         var pdfDocument = _gfx.PdfPage?.Owner;
                         if (pdfDocument != null)
                         {
-                            page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.BookmarkName);
+                            annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.BookmarkName);
                         }
                         // Otherwise use page from bookmark’s fieldInfo.
                         else
                         {
                             var pageRef = _fieldInfos?.GetPhysicalPageNumber(hyperlink.BookmarkName) ?? NRT.ThrowOnNull<int>();
                             if (pageRef > 0)
-                                page.AddDocumentLink(new PdfRectangle(rect.AsXRect), pageRef);
+                                annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), pageRef);
                         }
                         break;
 
                     case HyperlinkType.ExternalBookmark:
-                        page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
+                        annotation = page.AddDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
                         break;
 
                     case HyperlinkType.EmbeddedDocument:
-                        page.AddEmbeddedDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
+                        annotation = page.AddEmbeddedDocumentLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename, hyperlink.BookmarkName, ConvertHyperlinkTargetWindow(hyperlink.NewWindow));
                         break;
 
                     case HyperlinkType.Web:
-                        page.AddWebLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
+                        annotation = page.AddWebLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
                         break;
 
                     case HyperlinkType.File:
-                        page.AddFileLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
+                        annotation = page.AddFileLink(new PdfRectangle(rect.AsXRect), hyperlink.Filename);
                         break;
+                }
+
+                // In a tagged PDF the annotation belongs to the Link element begun before its text was drawn.
+                var structure = _documentRenderer.ContentStructure;
+                if (structure != null && _linkElements.Count > 0)
+                {
+                    var linkElement = _linkElements.Dequeue();
+                    if (annotation != null)
+                    {
+                        var target = String.IsNullOrEmpty(hyperlink.Filename) ? hyperlink.BookmarkName : hyperlink.Filename;
+                        structure.AddLinkAnnotation(linkElement, annotation, target);
+                    }
                 }
                 _hyperlinkRect = new XRect();
             }

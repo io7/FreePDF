@@ -135,6 +135,31 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         /// <summary>
+        /// Starts a link element for content that is drawn before its link annotation exists, as in text layout.
+        /// Pass the returned element and the annotation to <see cref="AddLinkAnnotation"/> once the annotation is
+        /// added to the page; the element can be ended before that.
+        /// </summary>
+        public PdfStructureElement BeginLinkElement()
+        {
+            EndMarkedContentsWithId();
+            var ste = CreateStructureElement(TagToString(PdfInlineLevelElementTag.Link));
+            var item = new InlineLevelItem(ste) { EndMark = true };
+            _elementStack.Push(item);
+            item.BeginItem();
+            return ste;
+        }
+
+        /// <summary>
+        /// Connects a link annotation on the current page with a link element started by
+        /// <see cref="BeginLinkElement"/>, and sets the annotation's alternative description.
+        /// </summary>
+        public void AddLinkAnnotation(PdfStructureElement linkElement, PdfLinkAnnotation linkAnnotation, string altText)
+        {
+            linkAnnotation.Elements.SetString(PdfAnnotation.Keys.Contents, altText);
+            AddAnnotationToStructureElement(linkElement, linkAnnotation);
+        }
+
+        /// <summary>
         /// Ends the current element.
         /// </summary>
         public void End()
@@ -445,7 +470,9 @@ namespace PdfSharp.UniversalAccessibility
         void AddAnnotationToStructureElement(PdfStructureElement ste, PdfAnnotation annotation)
         {
             var page = UaManager.CurrentPage;
-            page.Annotations.Add(annotation);
+            // PdfPage.AddWebLink and its siblings have added the annotation already.
+            if (!ReferenceEquals(annotation.Page, page))
+                page.Annotations.Add(annotation);
 
             // Tab order must be set to "/S" (Structure) on pages with Annotations.
             if (page.Elements.GetName(PdfPage.Keys.Tabs) != "/S")
