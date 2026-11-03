@@ -49,8 +49,8 @@ headers, footers, borders and shading are artifacts. A multi-page fixture with
 all of these is validated by veraPDF's PDF/UA-1 profile in CI. veraPDF checks
 what a machine can check; reading order, alternative text quality and heading
 structure need human review (the Matterhorn Protocol lists these checks). A
-table split across pages is one Table element per page, and PDF/UA-2 is not
-covered.
+table split across pages is one Table element, with heading rows repeated on
+later pages as artifacts. PDF/UA-2 is not covered.
 
 The signing checks verify cryptographic integrity and tamper detection using
 synthetic self-signed certificates. They do not establish trusted identity,

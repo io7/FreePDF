@@ -16,6 +16,10 @@
 - `GlobalFontSettings.ResetFontManagement()` now also forgets resolved typefaces
   and font families; before, a typeface resolved before the reset was still used
   after it, even with a different font resolver.
+- Tagged PDF (`PdfDocumentRenderer.TaggedPdf`): a table that runs over several
+  pages is one Table element, and the heading rows repeated on later pages are
+  artifacts, so a screen reader meets the table and its headers once. Before,
+  each page's part was a separate Table with its own header cells.
 
 ## 7.1.1
 

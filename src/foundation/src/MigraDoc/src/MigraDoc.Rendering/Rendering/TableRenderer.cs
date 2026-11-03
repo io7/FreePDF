@@ -323,19 +323,26 @@ namespace MigraDoc.Rendering
         {
             InitRendering();
             var structure = _documentRenderer.ContentStructure;
-            structure?.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Table);
+            var formatInfo = (TableFormatInfo)_renderInfo.FormatInfo;
             _taggedRowIndex = -1;
 
-            // Each page's part of a tagged table is its own Table element, so heading rows repeated on later pages are
-            // tagged as header cells again: every part has the headers its data cells refer to.
-            RenderHeaderRows();
+            // A tagged table is one Table element across all its pages: the first part opens it and the last part
+            // closes it, as the content in between continues on the next page. Heading rows repeated on later pages
+            // are artifacts, so the structure has each header cell once.
+            if (structure != null && formatInfo.IsStarting)
+                structure.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.Table);
+            if (structure != null && !formatInfo.IsStarting)
+                _documentRenderer.RenderAsArtifact(RenderHeaderRows);
+            else
+                RenderHeaderRows();
             RenderContentRows();
 
             if (structure != null)
             {
                 if (_taggedRowIndex >= 0)
                     structure.End();
-                structure.End();
+                if (formatInfo.IsEnding)
+                    structure.End();
             }
         }
 

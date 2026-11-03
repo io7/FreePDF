@@ -100,14 +100,15 @@ public class TaggedLayoutTests
     }
 
     [Fact]
-    public void Each_page_of_a_long_table_repeats_its_header_cells()
+    public void A_long_table_stays_one_table_and_its_repeated_heading_rows_are_artifacts()
     {
         using var pdf = RenderAndReopen(InvoiceWithTable(rows: 80));
 
         Assert.True(pdf.PageCount > 1);
         var types = StructureTypes(pdf.Catalog.Elements.GetDictionary("/StructTreeRoot")!).ToArray();
-        Assert.Equal(pdf.PageCount, types.Count(t => t == "/Table"));
-        Assert.Equal(pdf.PageCount * 2, types.Count(t => t == "/TH"));
+        Assert.Equal(1, types.Count(t => t == "/Table"));
+        Assert.Equal(81, types.Count(t => t == "/TR"));
+        Assert.Equal(2, types.Count(t => t == "/TH"));
     }
 
     static void AddList(Section section, ListType type, int items)
