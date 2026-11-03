@@ -384,7 +384,7 @@ namespace PdfSharp.Pdf.IO
 
                     // More than one period?
                     if (period)
-                        ContentReaderDiagnostics.ThrowContentReaderException("More than one decimal point in number.");
+                        ParserDiagnostics.ThrowParserException("More than one decimal point in number.");
 
                     period = true;
                     canBeLeadingZero = false;

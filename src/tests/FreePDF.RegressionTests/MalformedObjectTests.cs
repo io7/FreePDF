@@ -1,4 +1,5 @@
-// Object syntax that cannot be parsed. The reader threw NotImplementedException instead of PdfReaderException.
+// Object syntax that cannot be parsed: a stream keyword inside an array or dictionary, a number with two decimal
+// points. The reader threw NotImplementedException or ContentReaderException instead of PdfReaderException.
 // Found by mutation fuzzing. Original fixtures; MIT, see LICENSE.
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -11,7 +12,8 @@ public class MalformedObjectTests
     [Theory]
     [InlineData("/Junk [1 stream 2]")]
     [InlineData("/Junk << /Inner stream >>")]
-    public void A_stream_keyword_inside_an_array_or_dictionary_is_a_reader_error(string entry)
+    [InlineData("/Junk 1.2.3")]
+    public void Unparsable_object_syntax_is_a_reader_error(string entry)
     {
         var bytes = TestPdf.Create(new[] {
             $"<< /Type /Catalog /Pages 2 0 R {entry} >>",
