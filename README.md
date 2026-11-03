@@ -26,6 +26,24 @@ what the other three needed, each a one-line change or a font file you supply.
 Applications that fill forms through the legacy `PdfSharp.Pdf.AcroForms` model
 need more work; see [issue #9](https://github.com/io7/FreePDF/issues/9).
 
+## Factur-X and ZUGFeRD invoices
+
+One call turns a document into a hybrid e-invoice: PDF/A-3 with your UN/CEFACT
+Cross Industry Invoice XML embedded as `factur-x.xml` and declared the way
+Factur-X 1.0 and ZUGFeRD 2.x require (associated file, XMP extension schema).
+
+```csharp
+using var document = new PdfDocument();
+FacturXManager.ForDocument(document).SetInvoice(invoiceXml, FacturXProfile.EN16931);
+var page = document.AddPage();   // then draw the human-readable invoice
+document.Save("invoice.pdf");
+```
+
+Call `SetInvoice` before adding pages. FreePDF checks that the XML is a
+well-formed Cross Industry Invoice; checking its content against EN 16931 and
+the profile's business rules is up to your invoicing software. CI validates
+the generated PDF/A-3 file with veraPDF.
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries

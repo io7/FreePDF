@@ -13,6 +13,7 @@ using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Annotations;
 using PdfSharp.Pdf.Attachments;
+using PdfSharp.Pdf.Invoicing;
 using PdfSharp.Pdf.IO;
 using PdfSharp.Pdf.PdfA;
 using PdfSharp.Pdf.Signatures;
@@ -21,15 +22,23 @@ static class ReleaseWorkflows
 {
     const string Attachment = "<invoice id=\"INV-2026-001\" total=\"5200.00\" currency=\"NOK\"/>";
 
+    // Synthetic Cross Industry Invoice; FreePDF only checks that it is well-formed CII.
+    const string FacturXInvoice =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rsm:CrossIndustryInvoice xmlns:rsm=\"urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100\" " +
+        "xmlns:ram=\"urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100\"><rsm:ExchangedDocumentContext>" +
+        "<ram:GuidelineSpecifiedDocumentContextParameter><ram:ID>urn:cen.eu:en16931:2017</ram:ID></ram:GuidelineSpecifiedDocumentContextParameter>" +
+        "</rsm:ExchangedDocumentContext><rsm:ExchangedDocument><ram:ID>INV-2026-002</ram:ID><ram:TypeCode>380</ram:TypeCode></rsm:ExchangedDocument></rsm:CrossIndustryInvoice>";
+
     internal static void Run(string output, string certificatePath, string version)
     {
         Directory.CreateDirectory(output);
         var manifest = new XElement("releaseChecks", new XAttribute("version", version), new XAttribute("runtime", Environment.Version));
-        void Record(string name, int pages, string[] text, string profile = "", string password = "", string digest = "", bool attachment = false) =>
+        void Record(string name, int pages, string[] text, string profile = "", string password = "", string digest = "", bool attachment = false,
+            string attachmentName = "invoice.xml", string attachmentContent = Attachment) =>
             manifest.Add(new XElement("document", new XAttribute("file", name + ".pdf"), new XAttribute("pages", pages),
                 new XAttribute("pdfa", profile), new XAttribute("password", password), new XAttribute("signature", digest),
                 text.Select(t => new XElement("text", t)),
-                attachment ? new XElement("attachment", new XAttribute("name", "invoice.xml"), Attachment) : null));
+                attachment ? new XElement("attachment", new XAttribute("name", attachmentName), attachmentContent) : null));
 
         var invoice = new Document();
         var normal = invoice.Styles[StyleNames.Normal] ?? throw new InvalidDataException("Default document style missing.");
@@ -110,6 +119,19 @@ static class ReleaseWorkflows
             Record(name, 1, new[] { "ARCHIVAL ORIGINAL " + part }, profile: part + "b", attachment: part == 3);
         }
 
+        // Factur-X: PDF/A-3B with the CII invoice declared in /AF and in the XMP extension schema; veraPDF validates it.
+        using (var facturX = new PdfDocument())
+        {
+            FacturXManager.ForDocument(facturX).SetInvoice(Encoding.UTF8.GetBytes(FacturXInvoice), FacturXProfile.EN16931);
+            using (var graphics = XGraphics.FromPdfPage(facturX.AddPage()))
+                graphics.DrawString("FACTUR-X ORIGINAL", new XFont("Package Font", 14), XBrushes.Black, 30, 60);
+            facturX.Save(Path.Combine(output, "facturx-en16931.pdf"));
+            using var reopened = PdfReader.Open(Path.Combine(output, "facturx-en16931.pdf"), PdfDocumentOpenMode.Modify);
+            var file = EmbeddedFilesManager.ForDocument(reopened).GetEmbeddedFileInfo("factur-x.xml");
+            Expect(file != null && Encoding.UTF8.GetString(file.Data) == FacturXInvoice && file.AFRelationship == PdfAFRelationship.Alternative, "Factur-X invoice changed.");
+            Record("facturx-en16931", 1, new[] { "FACTUR-X ORIGINAL" }, profile: "3b", attachment: true, attachmentName: "factur-x.xml", attachmentContent: FacturXInvoice);
+        }
+
 #pragma warning disable SYSLIB0057 // Cross-target test consumer includes Framework.
         using var certificate = new X509Certificate2(certificatePath, "test-only");
 #pragma warning restore SYSLIB0057
@@ -132,7 +154,7 @@ static class ReleaseWorkflows
             File.WriteAllBytes(Path.Combine(output, "negative", name + "-tampered.pdf"), changed);
         }
         new XDocument(manifest).Save(Path.Combine(output, "consumer-results.xml"));
-        Console.WriteLine("PASS: invoice/RTF, attachments, merge/stamp, AES-128/256, PDF/A generation and three cryptographically verified PDF signatures.");
+        Console.WriteLine("PASS: invoice/RTF, attachments, merge/stamp, AES-128/256, PDF/A generation, a Factur-X invoice and three cryptographically verified PDF signatures.");
     }
 
     static PdfDocument Basic(string text, int archivalPart = 0)

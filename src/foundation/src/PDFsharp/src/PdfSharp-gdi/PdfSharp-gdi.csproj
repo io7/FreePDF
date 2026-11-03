@@ -262,6 +262,8 @@
     <Compile Include="..\PdfSharp\Pdf.Annotations\PdfWidgetAnnotation.cs" Link="Pdf.Annotations\PdfWidgetAnnotation.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\EmbeddedFileInfo.cs" Link="Pdf.Attachments\EmbeddedFileInfo.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\EmbeddedFilesManager.cs" Link="Pdf.Attachments\EmbeddedFilesManager.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Invoicing\FacturXManager.cs" Link="Pdf.Invoicing\FacturXManager.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Invoicing\FacturXProfile.cs" Link="Pdf.Invoicing\FacturXProfile.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfAFRelationship.cs" Link="Pdf.Attachments\PdfAFRelationship.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfEmbeddedFiles.cs" Link="Pdf.Attachments\PdfEmbeddedFiles.cs" />
     <Compile Include="..\PdfSharp\Pdf.Attachments\PdfFileSpecification.cs" Link="Pdf.Attachments\PdfFileSpecification.cs" />

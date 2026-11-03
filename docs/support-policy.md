@@ -35,6 +35,12 @@ using SHA-256/384/512. Original PDF/A-1b, 2b and 3b fixtures are independently
 validated. PDF/A conformance is a property of each output document; validate
 your own output, fonts and images before archival use.
 
+Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
+PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
+`/AF` and declared in the XMP extension schema. FreePDF only checks that the XML
+is a well-formed Cross Industry Invoice; it does not validate invoice content
+against EN 16931, a profile or a national CIUS such as XRechnung.
+
 The signing checks verify cryptographic integrity and tamper detection using
 synthetic self-signed certificates. They do not establish trusted identity,
 revocation checking, timestamp-authority behaviour, PAdES/LTV or a legal
