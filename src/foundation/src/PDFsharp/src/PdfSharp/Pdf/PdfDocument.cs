@@ -1012,11 +1012,14 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
-        /// Flattens a document (make the fields non-editable).
+        /// Flattens the document's form: draws every visible form field into its page as it currently appears, then
+        /// removes the fields, so the values can no longer be edited or read as form data. Text and choice fields
+        /// without an up-to-date appearance get one drawn first; if a value cannot be drawn (no usable font in the
+        /// form's resources), an <see cref="InvalidOperationException"/> is thrown and the document is not changed.
+        /// Annotations other than form fields are kept. A document without a form is left as it is.
+        /// (PDFsharp 6.2.4 only marked the top-level fields read-only; FreePDF 7.0 threw.)
         /// </summary>
-        [Obsolete("This function does nothing useful and was removed.")]
-        public void Flatten()
-            => throw new InvalidOperationException("This function does nothing useful and was removed.");
+        public void Flatten() => PdfSharp.Pdf.Forms.FormFlattener.Flatten(this);
 
         /// <summary>
         /// TODO. Experimental, do no use.

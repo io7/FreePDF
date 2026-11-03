@@ -36,7 +36,7 @@ are not product dependencies.
 | Metadata dates and `DocumentRenderer.PrintDate` are `DateTime` | Use nullable `DateTimeOffset`; choose an explicit offset when converting an old value. |
 | `PdfDocument` is a `PdfObject` and `ICloneable` | Treat it as the document owner; rework casts, cloning and helpers that require the old base class. |
 | `PdfDocument.Internals` returns `PdfInternals` | Its type is `PdfDocumentInternals`; recompile and check explicit type declarations. |
-| Legacy `PdfSharp.Pdf.AcroForms` types are the form model | v7 exposes `PdfForm` through `document.Catalog.GetAcroForm()` or `GetOrCreateAcroForm()`. Since 7.1 its fields are found by name and filled through typed members; see [Filling forms](#filling-forms). Flattening is not supported. |
+| Legacy `PdfSharp.Pdf.AcroForms` types are the form model | v7 exposes `PdfForm` through `document.Catalog.GetAcroForm()` or `GetOrCreateAcroForm()`. Since 7.1 its fields are found by name and filled through typed members, and `document.Flatten()` draws them into the pages; see [Filling forms](#filling-forms). |
 | A one-argument dictionary getter has the old binary signature | Several getters gained optional arguments. Source calls can still compile while precompiled binaries require rebuilding. |
 | Font, glyph, image and content-parser implementation types are unchanged | Review explicit references against the API report; Imaging/OpenType now have separate assemblies. |
 | Standard-target helper types are stable | `PdfSharp.SystemStringExtensions` is removed in v7's Standard build; review direct calls to inherited helper types as well as the main PDF APIs. |
@@ -105,7 +105,7 @@ form-filling program moves over with renames:
 | `PdfComboBoxField` / `PdfListBoxField`: `SelectedIndex` | `PdfFormComboBoxField` / `PdfFormListBoxField`: `SelectedIndex`, `SelectedValue` (export value), `Options`, `ExportValues` |
 | `field.ReadOnly` | `field.IsReadOnly` |
 | `form.Elements.SetBoolean("/NeedAppearances", true)` | Not needed: FreePDF draws the filled appearance. `form.NeedAppearances` remains for special cases. |
-| `document.Flatten()` | Not supported. |
+| `document.Flatten()` (made the top-level fields read-only) | `document.Flatten()` draws every visible field into its page and removes the form, so the values can no longer be edited or read as form data. Read values you still need before flattening. 7.0 threw `InvalidOperationException` here. |
 
 FreePDF draws text and choice fields with the font, size, colour and alignment
 of the field's default appearance (`/DA`, `/Q`) and the widget's border and
@@ -120,6 +120,11 @@ the form already contains, under whatever on-state name it uses. Limits:
   Times New Roman and Courier New) use Adobe's metrics when they list no widths;
   other fonts without widths use an estimate.
 - Saving rewrites the file, so filling a signed form invalidates its signatures.
+- `Flatten()` draws each visible widget's appearance where the widget sits and
+  removes the form and its widgets; other annotations stay. Text and choice fields
+  without an up-to-date appearance (for example a `/V` written directly with
+  NeedAppearances set) get one first. If a value cannot be drawn, such as
+  Japanese text in a WinAnsi font, `Flatten()` throws and changes nothing.
 
 ## Repeatable API evidence
 
