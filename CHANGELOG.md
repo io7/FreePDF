@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.1.1
 
 - Filled form fields whose font is a standard font without a `/Widths` array
   (the usual `/Helv`) now measure text with Adobe's metrics for the twelve Latin
