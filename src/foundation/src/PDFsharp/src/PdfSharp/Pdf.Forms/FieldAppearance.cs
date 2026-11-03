@@ -345,20 +345,25 @@ namespace PdfSharp.Pdf.Forms
     }
 
     /// <summary>
-    /// Character widths of a simple font from its /Widths array. Without one (a standard font that does not list
-    /// widths) an average of half the font size is used; this affects only centred and right-aligned text, wrapping
-    /// and automatic font sizes.
+    /// Character widths of a simple font: from its /Widths array, or for a standard font that lists no widths (the
+    /// usual /Helv of a form), from Adobe's metrics for the twelve Latin standard fonts. Other fonts without widths
+    /// get an average of half the font size, which affects only centred and right-aligned text, wrapping and
+    /// automatic font sizes.
     /// </summary>
     sealed class FontWidths
     {
         readonly int _firstChar;
         readonly double[]? _widths;
+        readonly short[]? _standardWidths;
 
         public FontWidths(PdfDictionary font)
         {
             var widths = font.Elements.GetArray("/Widths");
             if (widths == null)
+            {
+                _standardWidths = StandardFontWidths.Get(StandardFontName(font.Elements.GetName("/BaseFont")));
                 return;
+            }
             _firstChar = font.Elements.GetInteger("/FirstChar");
             _widths = new double[widths.Elements.Count];
             for (int index = 0; index < _widths.Length; index++)
@@ -381,7 +386,47 @@ namespace PdfSharp.Pdf.Forms
             int index = code - _firstChar;
             if (_widths != null && index >= 0 && index < _widths.Length && _widths[index] > 0)
                 return _widths[index];
+            if (_standardWidths != null && code >= 32 && _standardWidths[code - 32] > 0)
+                return _standardWidths[code - 32];
             return 500;
+        }
+
+        /// <summary>
+        /// Maps a base font name to one of the twelve Latin standard fonts: the standard names themselves, without a
+        /// subset prefix (ABCDEF+), and Arial, Times New Roman and Courier New, which are metric-compatible with
+        /// Helvetica, Times and Courier.
+        /// </summary>
+        static string StandardFontName(string baseFont)
+        {
+            var name = baseFont.TrimStart('/');
+            if (name.Length > 7 && name[6] == '+')
+                name = name.Substring(7);
+            if (StandardFontWidths.Get(name) != null)
+                return name;
+
+            bool bold = name.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool italic = name.IndexOf("Italic", StringComparison.OrdinalIgnoreCase) >= 0
+                          || name.IndexOf("Oblique", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (name.StartsWith("Arial", StringComparison.OrdinalIgnoreCase))
+                return StyledName("Helvetica", bold, italic, "Oblique");
+            if (name.StartsWith("TimesNewRoman", StringComparison.OrdinalIgnoreCase))
+                return StyledName("Times", bold, italic, "Italic");
+            if (name.StartsWith("CourierNew", StringComparison.OrdinalIgnoreCase))
+                return StyledName("Courier", bold, italic, "Oblique");
+            return name;
+        }
+
+        static string StyledName(string family, bool bold, bool italic, string slant)
+        {
+            if (bold && italic)
+                return family + "-Bold" + slant;
+            if (bold)
+                return family + "-Bold";
+            if (italic)
+                return family + "-" + slant;
+            if (family == "Times")
+                return "Times-Roman";
+            return family;
         }
     }
 }

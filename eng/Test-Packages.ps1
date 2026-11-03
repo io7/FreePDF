@@ -50,7 +50,7 @@ foreach ($id in $expected.Keys) {
         if ($nuspec.package.metadata.icon -cne 'icon.png') { throw "Incorrect package icon metadata: $id" }
         $icon = $archive.GetEntry('icon.png')
         if (!$icon -or $icon.Length -eq 0 -or $icon.Length -gt 1MB) { throw "Missing or invalid package icon: $id" }
-        foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
+        foreach ($file in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt')) { if (!$archive.GetEntry($file)) { throw "Missing notice: $file" } }
         $folders = @($archive.Entries | Where-Object { $_.FullName -like 'lib/*/*.dll' } | ForEach-Object { $_.FullName.Split('/')[1] } | Sort-Object -Unique)
         if (Compare-Object ($expected[$id].frameworks | Sort-Object) $folders) { throw "Incorrect target frameworks in ${id}: $($folders -join ', ')" }
         foreach ($tfm in $expected[$id].frameworks) {

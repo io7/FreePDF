@@ -1,5 +1,15 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Filled form fields whose font is a standard font without a `/Widths` array
+  (the usual `/Helv`) now measure text with Adobe's metrics for the twelve Latin
+  standard fonts instead of an estimated width, so centred, right-aligned,
+  wrapped and auto-sized text is placed as a viewer would place it. Arial, Times
+  New Roman and Courier New, with or without a subset prefix or style suffix,
+  use the metrics of Helvetica, Times and Courier, with which they share widths.
+  Adobe's notice ships in each package as `THIRD-PARTY/Adobe-Core14-AFM.txt`.
+
 ## 7.1.0
 
 - Fill forms through the v7 form model: `PdfFormFields["address.city"]`,
