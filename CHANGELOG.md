@@ -16,6 +16,14 @@
 - `GlobalFontSettings.ResetFontManagement()` now also forgets resolved typefaces
   and font families; before, a typeface resolved before the reset was still used
   after it, even with a different font resolver.
+- `PdfDocument.Flatten()` flattens the form: every visible field is drawn into
+  its page as it appears, placed on the widget's rectangle as ISO 32000-1
+  12.5.5 describes, and the form and its widgets are removed; other annotations
+  stay. Fields without an up-to-date appearance get one first, and a value that
+  cannot be drawn stops the call before anything changes. PDFsharp 6.2.4's
+  `Flatten()` only marked the top-level fields read-only, and FreePDF 7.0 threw
+  `InvalidOperationException`, so 6.2.4 code that called it compiled and then
+  failed at run time.
 
 ## 7.1.1
 
