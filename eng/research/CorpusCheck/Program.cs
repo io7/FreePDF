@@ -17,12 +17,14 @@ return args.FirstOrDefault() switch
 {
     "check" when args.Length == 3 => Child.Check(args[1], args[2]),
     "run" when args.Length >= 3 => Parent.Run(args[1], args[2], args.Skip(3).ToArray()),
+    "fuzz" when args.Length >= 3 => Fuzzer.Run(args[1], args[2], args.Skip(3).ToArray()),
     _ => Usage(),
 };
 
 static int Usage()
 {
     Console.Error.WriteLine("Usage: CorpusCheck run <corpus-dir> <output-dir> [--timeout <seconds>] [--no-render]");
+    Console.Error.WriteLine("       CorpusCheck fuzz <seed-dir> <output-dir> [--minutes <n>] [--seed <n>] [--workers <n>]");
     return 2;
 }
 
@@ -133,9 +135,10 @@ static class Parent
         return 0;
     }
 
-    static (int? Code, string Output) Execute(string file, string[] arguments, TimeSpan timeout)
+    internal static (int? Code, string Output) Execute(string file, string[] arguments, TimeSpan timeout, IDictionary<string, string>? environment = null)
     {
         var info = new ProcessStartInfo(file) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        if (environment != null) foreach (var (key, value) in environment) info.Environment[key] = value;
         foreach (var a in arguments) info.ArgumentList.Add(a);
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
@@ -206,7 +209,7 @@ static class Parent
         return sb.ToString();
     }
 
-    static string Signature(string detail)
+    internal static string Signature(string detail)
     {
         try
         {
