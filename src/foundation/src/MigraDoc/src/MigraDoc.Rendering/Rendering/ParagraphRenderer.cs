@@ -118,13 +118,14 @@ namespace MigraDoc.Rendering
             ParagraphFormatInfo parFormatInfo = (ParagraphFormatInfo)_renderInfo.FormatInfo;
 
             // A run of consecutive list paragraphs is one L; each paragraph is an LI with its symbol as Lbl and its
-            // text as LBody. The elements stay open across page breaks until the paragraph (and the run) ends.
+            // text as LBody. List levels 2 and 3 nest: a deeper item opens an L inside the previous item's LBody,
+            // which that item left open. The elements stay open across page breaks until they end.
             _tagsListItem = structure != null && IsListParagraph(_paragraph);
             if (_tagsListItem)
             {
                 if (parFormatInfo.IsStarting)
                 {
-                    if (!IsListParagraph(Sibling(-1)))
+                    for (int level = ListLevel(-1); level < ListLevel(0); level++)
                         structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.List);
                     structure!.BeginElement(PdfSharp.UniversalAccessibility.PdfBlockLevelElementTag.ListItem);
                 }
@@ -146,12 +147,22 @@ namespace MigraDoc.Rendering
 
             if (_tagsListItem)
             {
-                if (parFormatInfo.IsEnding)
+                // A deeper item next keeps this item open: its list nests in this item's LBody.
+                int level = ListLevel(0), next = ListLevel(1);
+                if (parFormatInfo.IsEnding && next <= level)
                 {
                     structure!.End(); // LBody
                     structure.End();  // LI
-                    if (!IsListParagraph(Sibling(1)))
+                    // Close each list deeper than the next item, and the item each of them was nested in.
+                    for (int depth = level; depth > next; depth--)
+                    {
                         structure.End(); // L
+                        if (depth > 1)
+                        {
+                            structure.End(); // LBody of the enclosing item
+                            structure.End(); // LI of the enclosing item
+                        }
+                    }
                 }
             }
             else
@@ -166,15 +177,33 @@ namespace MigraDoc.Rendering
                && paragraph.Format.Values.ListInfo is { } listInfo && !listInfo.IsNull();
 
         /// <summary>
-        /// Gets the element before (-1) or after (1) this paragraph in its container, or null.
+        /// Gets the list level of the paragraph before (-1), at (0) or after (1) this one in its container, or 0 if
+        /// that is not a list paragraph. Levels come from the list type (1 to 3) and go at most one level deeper than
+        /// the item before, so a jump from level 1 to 3 still nests validly.
         /// </summary>
-        DocumentObject? Sibling(int offset)
+        int ListLevel(int offset)
         {
             if (DocumentRelations.GetParent(_paragraph) is not DocumentObjectCollection elements)
-                return null;
+                return offset == 0 && IsListParagraph(_paragraph) ? 1 : 0;
             var index = elements.IndexOf(_paragraph) + offset;
-            return index >= 0 && index < elements.Count ? elements[index] : null;
+            if (index < 0 || index >= elements.Count || !IsListParagraph(elements[index]))
+                return 0;
+            var start = index;
+            while (start > 0 && IsListParagraph(elements[start - 1]))
+                start--;
+            var level = 0;
+            for (var i = start; i <= index; i++)
+                level = Math.Min(DeclaredListLevel((Paragraph)elements[i]!), level + 1);
+            return level;
         }
+
+        static int DeclaredListLevel(Paragraph paragraph)
+            => paragraph.Format.ListInfo.ListType switch
+            {
+                ListType.BulletList2 or ListType.NumberList2 => 2,
+                ListType.BulletList3 or ListType.NumberList3 => 3,
+                _ => 1,
+            };
 
         /// <summary>
         /// The structure type of this paragraph in a tagged PDF: H1 to H6 for outline levels 1 to 6 (deeper levels are

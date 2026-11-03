@@ -28,7 +28,7 @@
 - Write tagged PDF for PDF/UA-1 from the layout engine:
   `PdfDocumentRenderer.TaggedPdf`. Paragraphs become P and outline levels 1 to 6
   H1 to H6; consecutive list paragraphs become one L of LI items with Lbl and
-  LBody; tables become Table, TR, TH (with `/Scope`) and TD, each page's part
+  LBody, and list levels 2 and 3 nest inside the item before them; tables become Table, TR, TH (with `/Scope`) and TD, each page's part
   repeating its header cells; images and charts become a Figure with alternative
   text; hyperlinks become Link elements that own their annotations; headers,
   footers, borders, shading and text-frame outlines are artifacts. The title
