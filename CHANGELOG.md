@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fill forms through the v7 form model: `PdfFormFields["address.city"]`,
+  `TryGetField` and `Count`; `PdfFormTextField.Text`, `PdfFormCheckBoxField.Checked`,
+  `PdfFormRadioButtonField.SelectedIndex`/`SelectedValue`/`Options` and
+  `PdfFormChoiceField.SelectedIndex`/`SelectedValue`/`Options`/`ExportValues`;
+  `PdfForm.NeedAppearances`. Filling draws the appearance of text and choice
+  fields from the field's default appearance (font, size, colour, alignment) and
+  the widget's border and background, and switches check boxes and radio buttons
+  to the appearance states the form defines. Named kids now get the field type
+  they inherit (a `city` under a text field `address` is a `PdfFormTextField`).
+  The migration guide maps the 6.2.4 `PdfSharp.Pdf.AcroForms` calls (issue #9).
+
 - Add a shared FreePDF package icon for NuGet and Visual Studio, with an SVG
   source, reproducible PNG generation and package-content checks. The README
   shows it, and `src/packages/social-preview.png` is the matching GitHub social
