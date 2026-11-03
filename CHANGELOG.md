@@ -12,7 +12,13 @@
   to the appearance states the form defines. Named kids now get the field type
   they inherit (a `city` under a text field `address` is a `PdfFormTextField`).
   The migration guide maps the 6.2.4 `PdfSharp.Pdf.AcroForms` calls (issue #9).
-
+- Fixes from a third fuzzing campaign (46,516 inputs, 4 crashing): outline
+  destinations with missing or non-numeric parameters, an unknown type, a page
+  number or a non-page object no longer fail the document, and no longer turn
+  the named object into a page; `/Fields` and `/Kids` entries that cannot be
+  fields are dropped, and a field listed as its own kid no longer recurses
+  without end; a number beyond the single-precision range is clamped to it
+  (ISO 32000-1 Annex C) instead of failing the reader.
 - Add a shared FreePDF package icon for NuGet and Visual Studio, with an SVG
   source, reproducible PNG generation and package-content checks. The README
   shows it, and `src/packages/social-preview.png` is the matching GitHub social
