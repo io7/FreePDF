@@ -126,6 +126,38 @@ the form already contains, under whatever on-state name it uses. Limits:
   NeedAppearances set) get one first. If a value cannot be drawn, such as
   Japanese text in a WinAnsi font, `Flatten()` throws and changes nothing.
 
+## Merging and splitting
+
+6.2.4's way of merging, `output.AddPage(input.Pages[i])` on documents opened with
+`PdfDocumentOpenMode.Import`, works as it did. It copies page content and
+annotations, but not the form, so the fields arrive as widgets that are no longer
+a form; not the bookmarks; and a link to another page leads to a hidden copy of
+that page, which also comes along when you split. Since 7.3, `AppendPages` and
+`ExtractPages` keep all three:
+
+| 6.2.4 | FreePDF 7.3 |
+| --- | --- |
+| `foreach (var page in input.Pages) output.AddPage(page);` | `output.AppendPages(input);` or `output.AppendPages(input, startIndex, pageCount);` |
+| A new document plus `AddPage(input.Pages[i])` | `using var part = input.ExtractPages(i, 1);` |
+
+- Form fields with a widget on a copied page join the document's form and can be
+  filled or flattened. A field whose name is already used is renamed `name_2`,
+  `name_3` and so on; `AppendPages` returns the new names in `RenamedFields`.
+  To merge filled forms into a file that cannot be edited, call `Flatten()` on
+  the result.
+- Links and bookmarks lead to the copied pages. Named destinations are written
+  as the explicit destinations they name. A link to a page that was not copied is
+  removed; so is a bookmark, unless it holds bookmarks that were kept.
+- `new PdfPageImportOptions { BookmarkTitle = "invoice.pdf" }` puts the copied
+  bookmarks under one bookmark that opens the first copied page;
+  `KeepBookmarks = false` leaves them out.
+- Fonts and images are shared between the copied pages and their annotations,
+  and between repeated copies of the same source.
+- Not carried: tags (the structure tree), page labels, optional content (layer)
+  settings, XFA, named destinations as names, and fields without a widget on a
+  copied page. JavaScript that refers to a renamed field by name is not updated.
+- A PDF/UA document refuses copied pages, as it refuses `AddPage(page)`.
+
 ## Repeatable API evidence
 
 `eng/Test-PublicApi.ps1` compares all eleven packaged assemblies for all four

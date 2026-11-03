@@ -1,5 +1,22 @@
 # FreePDF changelog
 
+## Unreleased
+
+- `PdfDocument.AppendPages(source[, startIndex, pageCount][, options])` merges
+  and `PdfDocument.ExtractPages(startIndex, pageCount[, options])` splits, with
+  form fields, bookmarks and links. Fields with a widget on a copied page join
+  the document's form (a name already in use is renamed `name_2` and reported in
+  `PdfPageImportResult.RenamedFields`); links and bookmarks lead to the copied
+  pages, with named destinations written out, and those that lead to pages left
+  out are removed; `PdfPageImportOptions.BookmarkTitle` groups each source under
+  one bookmark. Annotations no longer pull in hidden copies of other pages,
+  fonts and images are shared between pages, annotations and repeated copies,
+  and the pages keep their transparency group, tab order and user unit.
+  `AddPage(page)` and `Pages.InsertRange` are unchanged: they drop the form and
+  the bookmarks, as in 6.2.4.
+- An annotation whose `/Subtype` is a number no longer stops the document from
+  opening; it is read as an unknown annotation.
+
 ## 7.2.0
 
 - Text works without a font resolver in the portable packages. With no

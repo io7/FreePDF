@@ -37,4 +37,27 @@ public class UnknownAnnotationTests
         else Assert.Equal(subtype, kept.Elements.GetName(PdfAnnotation.Keys.Subtype));
         Assert.Equal("kept", kept.Elements.GetString(PdfAnnotation.Keys.Contents));
     }
+
+    [Fact]
+    public void An_annotation_whose_subtype_is_a_number_opens_and_survives_saving()
+    {
+        // Opening threw InvalidOperationException ("expected to be of type PdfName") before. Found while testing
+        // AppendPages, which types copied annotations the same way.
+        var bytes = PageWithAnnotation("<< /Type /Annot /Subtype 7 /Rect [10 10 50 50] /Contents (kept) >>");
+
+        using var saved = new MemoryStream();
+        using (var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify))
+        {
+            Assert.Equal(1, document.Pages[0].Annotations.Count);
+            var unknown = Assert.IsType<PdfUnknownAnnotation>(document.Pages[0].Annotations[0]);
+            Assert.Equal("", unknown.Subtype);
+            document.Save(saved);
+        }
+
+        using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), PdfDocumentOpenMode.Import);
+        Assert.Equal(1, reopened.Pages[0].Annotations.Count);
+        var kept = reopened.Pages[0].Annotations[0];
+        Assert.Equal(7, kept.Elements.GetInteger(PdfAnnotation.Keys.Subtype));
+        Assert.Equal("kept", kept.Elements.GetString(PdfAnnotation.Keys.Contents));
+    }
 }

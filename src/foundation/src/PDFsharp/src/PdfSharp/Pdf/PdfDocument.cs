@@ -961,6 +961,81 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
+        /// Appends all pages of a document opened with <see cref="PdfDocumentOpenMode.Import"/>, with their form
+        /// fields, bookmarks and links. See <see cref="AppendPages(PdfDocument, int, int, PdfPageImportOptions)"/>.
+        /// </summary>
+        public PdfPageImportResult AppendPages(PdfDocument source)
+            => AppendPages(source, new PdfPageImportOptions());
+
+        /// <summary>
+        /// Appends all pages of a document opened with <see cref="PdfDocumentOpenMode.Import"/>, with their form
+        /// fields, bookmarks and links. See <see cref="AppendPages(PdfDocument, int, int, PdfPageImportOptions)"/>.
+        /// </summary>
+        public PdfPageImportResult AppendPages(PdfDocument source, PdfPageImportOptions options)
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+            return AppendPages(source, 0, source.PageCount, options);
+        }
+
+        /// <summary>
+        /// Appends pages of a document opened with <see cref="PdfDocumentOpenMode.Import"/>, with their form fields,
+        /// bookmarks and links. See <see cref="AppendPages(PdfDocument, int, int, PdfPageImportOptions)"/>.
+        /// </summary>
+        public PdfPageImportResult AppendPages(PdfDocument source, int startIndex, int pageCount)
+            => AppendPages(source, startIndex, pageCount, new PdfPageImportOptions());
+
+        /// <summary>
+        /// Appends pages of a document opened with <see cref="PdfDocumentOpenMode.Import"/>, with their form fields,
+        /// bookmarks and links, for merging documents. Unlike <see cref="AddPage(PdfPage)"/>:
+        /// <list type="bullet">
+        /// <item>Form fields with a widget on an appended page are added to this document's form, so they can be
+        /// filled or flattened. A field whose name this document already uses is renamed name_2, name_3 and so on;
+        /// <see cref="PdfPageImportResult.RenamedFields"/> lists the new names.</item>
+        /// <item>Links and bookmarks lead to the appended pages. Named destinations are written as the explicit
+        /// destinations they name. Links to pages that are not appended are removed; bookmarks to them are removed
+        /// unless they hold bookmarks that are kept.</item>
+        /// <item>Annotations do not pull in hidden copies of other pages.</item>
+        /// </list>
+        /// Not carried: the structure tree (tags), page labels, optional content (layers) settings, named
+        /// destinations as names, XFA, and fields without a widget on an appended page. Nothing is changed if the
+        /// arguments are refused.
+        /// </summary>
+        /// <param name="source">The document to take the pages from, opened with <see cref="PdfDocumentOpenMode.Import"/>.</param>
+        /// <param name="startIndex">The index of the first page to append.</param>
+        /// <param name="pageCount">The number of pages to append, at least one.</param>
+        /// <param name="options">Whether and where to add the source's bookmarks.</param>
+        public PdfPageImportResult AppendPages(PdfDocument source, int startIndex, int pageCount, PdfPageImportOptions options)
+        {
+            PdfPageImporter.Validate(this, source, startIndex, pageCount, options);
+            EnsureNotYetSaved();
+            if (!CanModify)
+                throw new InvalidOperationException(PsMsgs.CannotModify);
+            return PdfPageImporter.Import(this, source, startIndex, pageCount, options);
+        }
+
+        /// <summary>
+        /// Creates a new document from pages of this document, which must be opened with
+        /// <see cref="PdfDocumentOpenMode.Import"/>, with their form fields, bookmarks and links, for splitting a
+        /// document. See <see cref="AppendPages(PdfDocument, int, int, PdfPageImportOptions)"/> for what comes along.
+        /// </summary>
+        public PdfDocument ExtractPages(int startIndex, int pageCount)
+            => ExtractPages(startIndex, pageCount, new PdfPageImportOptions());
+
+        /// <summary>
+        /// Creates a new document from pages of this document, which must be opened with
+        /// <see cref="PdfDocumentOpenMode.Import"/>, with their form fields, bookmarks and links, for splitting a
+        /// document. See <see cref="AppendPages(PdfDocument, int, int, PdfPageImportOptions)"/> for what comes along.
+        /// </summary>
+        public PdfDocument ExtractPages(int startIndex, int pageCount, PdfPageImportOptions options)
+        {
+            PdfPageImporter.Validate(null, this, startIndex, pageCount, options);
+            var part = new PdfDocument();
+            PdfPageImporter.Import(part, this, startIndex, pageCount, options);
+            return part;
+        }
+
+        /// <summary>
         /// Adds a named destination to the document.
         /// </summary>
         /// <param name="destinationName">The Named Destination’s name.</param>

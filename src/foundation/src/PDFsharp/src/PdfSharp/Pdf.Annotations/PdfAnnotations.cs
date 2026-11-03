@@ -177,37 +177,42 @@ namespace PdfSharp.Pdf.Annotations
 
             static void CreateAnnotationObjects(PdfDocument doc)
             {
-                var pages = doc.Catalog.Pages;
-                foreach (var page in pages)
+                foreach (var page in doc.Catalog.Pages)
+                    PreparePage(page);
+            }
+
+            /// <summary>
+            /// Types the annotations of a page: after reading, and for pages added to a document later
+            /// (PdfDocument.AppendPages).
+            /// </summary>
+            public static void PreparePage(PdfPage page)
+            {
+                var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
+                if (annots == null)
+                    return;
+                for (int idx = 0; idx < annots.Elements.Count; idx++)
                 {
-                    var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
-                    if (annots != null)
+                    var annot = annots.Elements.GetDictionary(idx);
+
+                    // Entries that are not dictionaries (null, numbers, strings, missing objects) cannot be
+                    // annotations. Drop them, so that the page's Annotations hold only annotations.
+                    if (annot == null)
                     {
-                        for (int idx = 0; idx < annots.Elements.Count; idx++)
-                        {
-                            var annot = annots.Elements.GetDictionary(idx);
-
-                            // Entries that are not dictionaries (null, numbers, strings, missing objects) cannot be
-                            // annotations. Drop them, so that the page's Annotations hold only annotations.
-                            if (annot == null)
-                            {
-                                annots.Elements.RemoveAt(idx--);
-                                continue;
-                            }
-
-                            // Typed dictionaries were already created elsewhere, for example widget annotations
-                            // together with their form fields.
-                            if (annot.GetType() != typeof(PdfDictionary))
-                                continue;
-
-                            var annotation = PdfAnnotation.CreateAnnotation(annot);
-
-                            // An indirect annotation's reference now points at the typed object. A direct one lives in
-                            // the array slot, which would otherwise keep the dictionary the transformation retired.
-                            if (!annot.IsIndirect)
-                                annots.Elements[idx] = annotation;
-                        }
+                        annots.Elements.RemoveAt(idx--);
+                        continue;
                     }
+
+                    // Typed dictionaries were already created elsewhere, for example widget annotations
+                    // together with their form fields.
+                    if (annot.GetType() != typeof(PdfDictionary))
+                        continue;
+
+                    var annotation = PdfAnnotation.CreateAnnotation(annot);
+
+                    // An indirect annotation's reference now points at the typed object. A direct one lives in
+                    // the array slot, which would otherwise keep the dictionary the transformation retired.
+                    if (!annot.IsIndirect)
+                        annots.Elements[idx] = annotation;
                 }
             }
         }

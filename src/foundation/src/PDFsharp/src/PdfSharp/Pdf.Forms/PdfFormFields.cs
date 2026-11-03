@@ -141,8 +141,15 @@ namespace PdfSharp.Pdf.Forms
             {
                 var fields = doc.Catalog.GetAcroForm()?.Elements.GetArray(PdfForm.Keys.Fields);
                 if (fields != null)
-                    PrepareFields(fields, new HashSet<PdfReference>());
+                    PrepareFields(fields);
             }
+
+            /// <summary>
+            /// Types the fields of a /Fields or /Kids array and their descendants: after reading, and for fields
+            /// added to a document later (PdfDocument.AppendPages).
+            /// </summary>
+            public static void PrepareFields(PdfArray fields)
+                => PrepareFields(fields, new HashSet<PdfReference>());
 
             /// <summary>
             /// Types the fields of a /Fields or /Kids array and their descendants. Entries that cannot be fields
@@ -174,33 +181,34 @@ namespace PdfSharp.Pdf.Forms
 
             static void CreateAnnotationObjects(PdfDocument doc)
             {
-                var pages = doc.Catalog.Pages;
-                foreach (var page in pages)
-                {
-                    var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
-                    if (annots != null)
-                    {
-                        for (int idx = 0; idx < annots.Elements.Count; idx++)
-                        {
-                            var annot = annots.Elements.GetDictionary(idx);
-                            if (annot is PdfWidgetAnnotation widget)
-                            {
-                                throw new InvalidOperationException("WTF happened???");
-                            }
-                            else if (annot is PdfFormField field)
-                            {
-                                if (field.TryGetAsWidgetAnnotation(out var proxyWidget))
-                                    annots.Elements[idx] = proxyWidget;
-                                else
-                                {
-                                    PdfSharpLogHost.Logger.LogWarning("A PdfFormField was found in the /Annots array instead of a PdfWidgetAnnotation. The field is not valid here and will be removed to avoid exceptions.");
-                                    annots.Elements.RemoveAt(idx--);
-                                }
-                            }
-                            else
-                            {
+                foreach (var page in doc.Catalog.Pages)
+                    PrepareWidgets(page);
+            }
 
-                            }
+            /// <summary>
+            /// Replaces the typed fields in a page's /Annots by their widget annotations: after reading, and for pages
+            /// added to a document later (PdfDocument.AppendPages).
+            /// </summary>
+            public static void PrepareWidgets(PdfPage page)
+            {
+                var annots = page.Elements.GetArray(PdfPage.Keys.Annots);
+                if (annots == null)
+                    return;
+                for (int idx = 0; idx < annots.Elements.Count; idx++)
+                {
+                    var annot = annots.Elements.GetDictionary(idx);
+                    if (annot is PdfWidgetAnnotation)
+                    {
+                        throw new InvalidOperationException("WTF happened???");
+                    }
+                    else if (annot is PdfFormField field)
+                    {
+                        if (field.TryGetAsWidgetAnnotation(out var proxyWidget))
+                            annots.Elements[idx] = proxyWidget;
+                        else
+                        {
+                            PdfSharpLogHost.Logger.LogWarning("A PdfFormField was found in the /Annots array instead of a PdfWidgetAnnotation. The field is not valid here and will be removed to avoid exceptions.");
+                            annots.Elements.RemoveAt(idx--);
                         }
                     }
                 }
