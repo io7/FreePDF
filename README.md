@@ -122,8 +122,9 @@ producer of the files it writes. 7.4.0 saves documents as incremental updates,
 so signed PDFs can be filled in and signed again; 7.4.1 fixes cases where that
 broke earlier signatures and opens encrypted files with incremental updates.
 7.5.0 refuses Append-mode changes that a document's signatures do not permit
-and opens encrypted documents in Append mode. See the release notes
-for [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
+and opens encrypted documents in Append mode; 7.5.1 encrypts empty streams and
+strings in AES-encrypted documents. See the release notes
+for [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
 [upstream feature tracking](docs/upstream-feature-tracking.md).
