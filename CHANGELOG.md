@@ -9,6 +9,12 @@
   appearance that draws nothing. This applies to new documents, `Modify` and
   `Append` mode; RC4 leaves empty data empty, and empty data written by other
   tools still reads as empty.
+- With `EncryptMetadata` false, saving a metadata stream that holds only
+  whitespace threw `IndexOutOfRangeException`; such a stream, like an empty one,
+  is left unencrypted, as metadata that holds XML is.
+- A stream whose `/Crypt` filter parameters leave out `/Type` or `/Name` uses
+  the Identity crypt filter, as ISO 32000-1 specifies, when it is read or
+  written; it threw `InvalidOperationException`.
 
 ## 7.5.0
 

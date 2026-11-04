@@ -957,10 +957,15 @@ namespace PdfSharp.Pdf.Security
 
                 if (filterDecodeParms is PdfDictionary filterDecodeParmsDict)
                 {
-                    var decodeParmsType = filterDecodeParmsDict.Elements.GetName(CryptFilterConstants.DecodeParmsTypeKey);
-                    if (decodeParmsType == CryptFilterConstants.DecodeParmsTypeValue)
+                    // /Type is optional, and a missing /Name means Identity (ISO 32000-1, Table 14).
+                    var elements = filterDecodeParmsDict.Elements;
+                    if (!elements.ContainsKey(CryptFilterConstants.DecodeParmsTypeKey) ||
+                        elements.GetName(CryptFilterConstants.DecodeParmsTypeKey) == CryptFilterConstants.DecodeParmsTypeValue)
                     {
-                        var cryptFilterNameValue = filterDecodeParmsDict.Elements.GetName(CryptFilterConstants.DecodeParmsNameKey);
+                        if (!elements.ContainsKey(CryptFilterConstants.DecodeParmsNameKey))
+                            return IdentityCryptFilter.Instance;
+
+                        var cryptFilterNameValue = elements.GetName(CryptFilterConstants.DecodeParmsNameKey);
 
                         // For Identity crypt filter return its instance.
                         if (cryptFilterNameValue == CryptFilterConstants.IdentityFilterValue)
@@ -987,8 +992,9 @@ namespace PdfSharp.Pdf.Security
             type = dictionary.Elements.GetName(PdfMetadata.Keys.Type);
             if (type == "/Metadata" && !GetEncryption().EncryptMetadata)
             {
+                // Empty or blank metadata is left as it is too.
                 var possiblyReadableXml = dictionary.Stream?.ToString().TrimStart();
-                if (possiblyReadableXml != null && possiblyReadableXml[0] == '<')
+                if (possiblyReadableXml != null && (possiblyReadableXml.Length == 0 || possiblyReadableXml[0] == '<'))
                     return IdentityCryptFilter.Instance;
             }
 

@@ -18,13 +18,14 @@ public class EncryptedEmptyDataTests
         { "AES-256", 32 },
     };
 
-    static void Encrypt(PdfDocument document, string kind)
+    static void Encrypt(PdfDocument document, string kind, bool encryptMetadata = true)
     {
         switch (kind)
         {
             case "RC4-128": document.SecurityHandler.SetEncryptionToV2With128Bits(); break;
-            case "AES-128": document.SecurityHandler.SetEncryptionToV4UsingAES(); break;
-            case "AES-256": document.SecurityHandler.SetEncryptionToV5(); break;
+            case "V4-RC4": document.SecurityHandler.SetEncryptionToV4UsingRC4(encryptMetadata); break;
+            case "AES-128": document.SecurityHandler.SetEncryptionToV4UsingAES(encryptMetadata); break;
+            case "AES-256": document.SecurityHandler.SetEncryptionToV5(encryptMetadata); break;
             default: throw new ArgumentOutOfRangeException(nameof(kind));
         }
         document.SecuritySettings.UserPassword = "user";
@@ -60,20 +61,25 @@ public class EncryptedEmptyDataTests
         return Save(document);
     }
 
-    // The raw lengths of the empty stream and strings as written in the file.
-    static (int Stream, int Literal, int Hex) RawLengths(string text)
+    // The raw data, as written in the file, of the stream that the last "<key> N 0 R" refers to.
+    static string RawStream(string text, string key)
     {
-        var number = Regex.Matches(text, @"/EmptyStream\s*(\d+) 0 R").Cast<Match>().Last().Groups[1].Value;
+        var number = Regex.Matches(text, Regex.Escape(key) + @"\s*(\d+) 0 R").Cast<Match>().Last().Groups[1].Value;
         var objectAt = Regex.Matches(text, @"(?<!\d)" + number + @" 0 obj\b").Cast<Match>().Last().Index;
         var streamAt = text.IndexOf("stream", objectAt, StringComparison.Ordinal);
         var length = int.Parse(Regex.Match(text.Substring(objectAt, streamAt - objectAt), @"/Length\s+(\d+)").Groups[1].Value,
             CultureInfo.InvariantCulture);
         var dataAt = streamAt + "stream".Length + (text[streamAt + "stream".Length] == '\r' ? 2 : 1);
         Assert.Equal("endstream", text.Substring(dataAt + length).TrimStart('\r', '\n').Substring(0, "endstream".Length));
+        return text.Substring(dataAt, length);
+    }
 
+    // The raw lengths of the empty stream and strings as written in the file.
+    static (int Stream, int Literal, int Hex) RawLengths(string text)
+    {
         var hex = Regex.Matches(text, @"/EmptyHex\s*<([0-9A-Fa-f]*)>").Cast<Match>().Last().Groups[1].Value;
         var literalAt = Regex.Matches(text, @"/EmptyLiteral\s*\(").Cast<Match>().Last();
-        return (length, LiteralLength(text, literalAt.Index + literalAt.Length), hex.Length / 2);
+        return (RawStream(text, "/EmptyStream").Length, LiteralLength(text, literalAt.Index + literalAt.Length), hex.Length / 2);
     }
 
     // The number of bytes in a literal string that starts after its opening parenthesis.
@@ -161,5 +167,64 @@ public class EncryptedEmptyDataTests
 
         using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), "user", PdfDocumentOpenMode.Import);
         Assert.Equal("", document.Catalog.Elements.GetString("/EmptyHex"));
+    }
+
+    // Review findings for PR #41.
+
+    // With EncryptMetadata false, FreePDF leaves metadata streams that hold XML unencrypted. Deciding that read the
+    // first character of the stream's text, so an empty or blank metadata stream threw IndexOutOfRangeException
+    // once empty streams reached it. Such a stream is left as it is too.
+    [Theory]
+    [InlineData("V4-RC4", "")]
+    [InlineData("AES-128", "")]
+    [InlineData("AES-256", "")]
+    [InlineData("AES-256", " \n")]
+    public void Empty_metadata_is_saved_when_metadata_is_not_encrypted(string kind, string content)
+    {
+        byte[] file;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            // Not the document's own metadata, which an empty stream would not be written for.
+            var metadata = new PdfDictionary(document);
+            metadata.Elements.SetName("/Type", "/Metadata");
+            metadata.Elements.SetName("/Subtype", "/XML");
+            metadata.CreateStream(TestPdf.Latin1.GetBytes(content));
+            document.Internals.AddObject(metadata);
+            document.Catalog.Elements.SetObject("/OtherMetadata", metadata);
+            Encrypt(document, kind, encryptMetadata: false);
+            file = Save(document);
+        }
+
+        Assert.Equal(content, RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata"));
+        using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
+        Assert.Equal(content, TestPdf.Latin1.GetString(reopened.Catalog.Elements.GetDictionary("/OtherMetadata")!.Stream!.Value));
+    }
+
+    // A /Crypt filter's parameters may leave out /Type, and a missing /Name means Identity (ISO 32000-1, Table 14).
+    // Such a stream threw InvalidOperationException when it was read, and once empty streams reached the crypt
+    // filter lookup, also when it was saved.
+    [Theory]
+    [InlineData("")]
+    [InlineData("plain text")]
+    public void A_crypt_filter_without_type_or_name_is_identity(string content)
+    {
+        byte[] file;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            var stream = new PdfDictionary(document);
+            stream.Elements.SetName("/Filter", "/Crypt");
+            stream.Elements["/DecodeParms"] = new PdfDictionary(document);
+            stream.CreateStream(TestPdf.Latin1.GetBytes(content));
+            document.Internals.AddObject(stream);
+            document.Catalog.Elements.SetObject("/IdentityStream", stream);
+            Encrypt(document, "AES-256");
+            file = Save(document);
+        }
+
+        Assert.Equal(content, RawStream(TestPdf.Latin1.GetString(file), "/IdentityStream"));
+        using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
+        Assert.Equal(content, TestPdf.Latin1.GetString(reopened.Catalog.Elements.GetDictionary("/IdentityStream")!.Stream!.Value));
     }
 }
