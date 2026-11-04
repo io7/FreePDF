@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.4.1
 
 - Encrypted files with an incremental update whose trailer names the encryption
   dictionary again, as Acrobat and pyHanko write them (a signed encrypted PDF,
