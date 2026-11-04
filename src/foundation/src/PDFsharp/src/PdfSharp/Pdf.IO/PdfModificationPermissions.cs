@@ -319,19 +319,29 @@ namespace PdfSharp.Pdf.IO
         static string Describe(PdfObject value, PdfObjectID id)
         {
             var type = (value as PdfDictionary)?.Elements.GetName("/Type");
-            return String.IsNullOrEmpty(type) ? $"object {id.ObjectNumber}" : $"object {id.ObjectNumber} ({type})";
+            if (String.IsNullOrEmpty(type))
+                return $"object {id.ObjectNumber}";
+            return $"object {id.ObjectNumber} ({type})";
         }
 
         static string FieldName(PdfItem item)
-            => (Resolve(item) as PdfDictionary)?.Elements.GetString("/T") is { Length: > 0 } name ? name : Key(item);
+        {
+            var name = (Resolve(item) as PdfDictionary)?.Elements.GetString("/T");
+            if (String.IsNullOrEmpty(name))
+                return Key(item);
+            return name!;
+        }
 
         // Array entries compared across the original and the update: references by object number, other items as text.
         static HashSet<string> Entries(PdfArray? array)
             => new((array?.Elements ?? Enumerable.Empty<PdfItem>()).Select(Key), StringComparer.Ordinal);
 
-        static string Key(PdfItem item) => item is PdfReference reference
-            ? $"{reference.ObjectNumber} {reference.GenerationNumber} R"
-            : item.ToString() ?? "";
+        static string Key(PdfItem item)
+        {
+            if (item is PdfReference reference)
+                return $"{reference.ObjectNumber} {reference.GenerationNumber} R";
+            return item.ToString() ?? "";
+        }
 
         static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
 
@@ -363,9 +373,15 @@ namespace PdfSharp.Pdf.IO
                     continue;
                 if (item is PdfReference reference && !visited.Add(reference.ObjectID))
                     continue;
+                // A node without /T is a widget of its parent field; /FT is inherited (ISO 32000-1 12.7.3.1).
                 var partial = dictionary.Elements.GetString("/T");
-                var name = String.IsNullOrEmpty(partial) ? parent : (parent.Length == 0 ? partial : parent + "." + partial);
-                var type = dictionary.Elements.GetName("/FT") is { Length: > 0 } own ? own : inheritedType;
+                var name = parent;
+                if (!String.IsNullOrEmpty(partial))
+                    name = parent.Length == 0 ? partial : parent + "." + partial;
+                var type = inheritedType;
+                var ownType = dictionary.Elements.GetName("/FT");
+                if (!String.IsNullOrEmpty(ownType))
+                    type = ownType;
                 yield return new FieldNode(dictionary, item as PdfReference, name, type);
                 if (Resolve(dictionary.Elements["/Kids"]) is PdfArray kids)
                 {
