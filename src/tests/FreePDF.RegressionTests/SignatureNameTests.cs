@@ -41,6 +41,23 @@ public class SignatureNameTests
         Assert.Equal("Signature4", resultingFields.Elements.GetDictionary(3)!.Elements.GetString("/T"));
     }
 
+    // The widget of a new signature field had /Ff 132 (field flags) instead of /F 132 (annotation flags: Print and
+    // Locked), so the signature appearance was not printed and the field carried meaningless field flags.
+    [Fact]
+    public async Task A_new_signature_widget_is_printed_and_locked()
+    {
+        using var document = new PdfDocument();
+        document.AddPage();
+        var handler = DigitalSignatureHandler.ForDocument(document, new PlaceholderSigner(),
+            new DigitalSignatureOptions { Rectangle = new XRect(20, 20, 120, 40), AppearanceHandler = new EmptyAppearance() });
+        var add = typeof(DigitalSignatureHandler).GetMethod("AddSignatureComponentsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)add.Invoke(handler, null)!;
+
+        var field = document.Catalog.Elements.GetDictionary("/AcroForm")!.Elements.GetArray("/Fields")!.Elements.GetDictionary(0)!;
+        Assert.Equal(132, field.Elements.GetInteger("/F"));
+        Assert.False(field.Elements.ContainsKey("/Ff"));
+    }
+
     static PdfDictionary Field(PdfDocument document, string name)
     {
         var field = new PdfDictionary(document);
