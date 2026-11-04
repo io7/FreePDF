@@ -72,7 +72,8 @@ namespace PdfSharp.Pdf
                 if (!Elements.TryGetRectangle(InheritablePageKeys.MediaBox, out var rectangle))
                 {
                     // ISO 32000-1 Table 30 requires a MediaBox, own or inherited. Poppler and MuPDF show a page
-                    // without a usable one at US Letter size; read it the same way and write that box on save.
+                    // without a usable one at US Letter size; read it the same way and write that box on save
+                    // (an Append-mode update leaves it out, as it leaves out inherited values, unless it changes).
                     PdfSharpLogHost.PdfReadingLogger.LogWarning("Page has no valid MediaBox; using US Letter (612 x 792 points).");
                     rectangle = new PdfRectangle(0, 0, 612, 792);
                     Elements.SetRectangle(InheritablePageKeys.MediaBox, rectangle);
@@ -907,10 +908,17 @@ namespace PdfSharp.Pdf
 
                 if (resources == null)
                 {
-                    //resources = values.Resources.Clone();
-                    //resources.Document = Owner;
-                    Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources.IsIndirect
-                        ? inheritedValues.Resources.RequiredReference : inheritedValues.Resources.Clone());
+                    if (inheritedValues.Resources.IsIndirect)
+                    {
+                        Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources.RequiredReference);
+                    }
+                    else
+                    {
+                        // The copy needs the document, or drawing on the page cannot add resources to it.
+                        var copy = inheritedValues.Resources.Clone();
+                        copy.Document = Owner;
+                        Elements.Add(InheritablePageKeys.Resources, copy);
+                    }
                 }
                 else
                 {
