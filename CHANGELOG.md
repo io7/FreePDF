@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Saving a document opened with `Append` refuses changes that its signatures do
+  not permit, with `InvalidOperationException` before anything is written: a
+  certification signature's DocMDP permission (P=1 no changes; P=2 filling in
+  fields, signing and the document information; P=3 also annotations), fields
+  locked by FieldMDP or a signature field's `/Lock`, and a `/Lock` with `/P`.
+  Page content, pages, bookmarks and other catalog entries cannot change in a
+  certified document. Documents without a certification or locks are saved as
+  before. `Save(path)` in `Append` mode now saves in memory first, so a refused
+  or failed save leaves the file as it was, also when it is the file the
+  document was opened from.
+
 ## 7.4.0
 
 - `PdfDocumentOpenMode.Append` opens a document so that saving it writes an

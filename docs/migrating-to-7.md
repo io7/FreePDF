@@ -193,13 +193,27 @@ await approved.SaveAsync("approved.pdf");
   Object numbers and the page tree stay as they are in the file.
 - The signatures in the file stay valid. A new signature covers the whole file,
   earlier signatures included.
-- Whether a validator accepts what you changed after a signature depends on the
-  signature's permissions and on the validator. Filling in fields and adding
-  signatures are permitted changes for an ordinary (approval) signature. Adding
-  comments is permitted by Acrobat, but some validators, such as pyHanko, report
-  any added comment. FreePDF does not check a certification signature's
-  permissions (DocMDP); a document certified with "no changes allowed" should not
-  be changed at all.
+- A save that would change more than the document's signatures permit throws
+  `InvalidOperationException` before anything is written, and saving to a path
+  leaves the file as it was. The message names the permission and the change.
+  - A certification signature (DocMDP, ISO 32000-1 12.8.2.2) with "no changes"
+    (P=1) permits no update at all; with "form filling and signing" (P=2) it
+    permits filling in fields, adding signature fields and signing, and changing
+    the document information; with P=3 also adding, changing and removing
+    comments and other annotations. Page content, pages, bookmarks and other
+    parts of the document cannot change under any level.
+  - Fields that a signature locks (FieldMDP, or the `/Lock` of its signature
+    field) cannot be filled in. A `/Lock` with `/P` also limits later changes like
+    a certification.
+  - Without a certification or locks, any change is saved, as before.
+- Whether a validator accepts what you changed after a signature still depends on
+  the validator. Filling in fields and adding signatures are permitted changes for
+  an ordinary (approval) signature. Acrobat permits added comments and new visible
+  signature fields where the permissions allow them; pyHanko's default policy
+  reports any added comment, and after a certification it accepts only invisible
+  new signature fields (`DigitalSignatureOptions.Rectangle` left empty) and
+  signing existing ones. After an ordinary signature, pyHanko also reports
+  changes to pages, which no permission forbids and FreePDF saves.
 - A document with no changes is saved as it was. Otherwise the document
   information gets a new modification date (unless you set one) and FreePDF as
   its producer. Reading `page.Annotations`, `document.Outlines` or

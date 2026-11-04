@@ -43,6 +43,11 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Gets or sets the changes the document's signatures permit; null if they restrict nothing.
+        /// </summary>
+        internal PdfModificationPermissions? Permissions { get; set; }
+
+        /// <summary>
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
@@ -115,15 +120,16 @@ namespace PdfSharp.Pdf.IO
                     written.Add(iref);
             }
 
-            var stream = writer.Stream;
-            stream.Write(_original, 0, _original.Length);
-
             // When nothing changed but what PrepareForSave puts into the document information (the producer), the
             // file is saved as it was. Otherwise the update also gets a new modification date, unless the
             // application set one.
+            var stream = writer.Stream;
             var info = document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference;
             if (!_documentInformationChanged && written.All(iref => info != null && iref.ObjectID == info.ObjectID))
+            {
+                stream.Write(_original, 0, _original.Length);
                 return;
+            }
             if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
                 document.Info.ModificationDate = DateTimeOffset.Now;
             if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
@@ -131,6 +137,10 @@ namespace PdfSharp.Pdf.IO
                 written.Add(info);
                 written.Sort(PdfReference.Comparer);
             }
+
+            // A change the signatures do not permit is refused before anything is written.
+            Permissions?.Check(document, _original, written);
+            stream.Write(_original, 0, _original.Length);
 
             if (_original.Length > 0 && _original[_original.Length - 1] is not ((byte)'\n' or (byte)'\r'))
                 writer.WriteRaw('\n');

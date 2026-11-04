@@ -267,6 +267,17 @@ namespace PdfSharp.Pdf
             if (!SaveAnyway && !CanModify)
                 throw new InvalidOperationException(PsMsgs.CannotModify);
 
+            if (IncrementalUpdate != null)
+            {
+                // Saved in memory first, which already holds the original: a refused or failed save must not
+                // truncate the file, which may be the one the document was opened from.
+                using var buffer = new MemoryStream();
+                await SaveAsync(buffer).ConfigureAwait(false);
+                using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+                buffer.WriteTo(file);
+                return;
+            }
+
             // We need ReadWrite when adding a signature. Write is sufficient if not adding a signature.
             var fileAccess = DigitalSignatureHandler == null ? FileAccess.Write : FileAccess.ReadWrite;
 
