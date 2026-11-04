@@ -68,7 +68,7 @@ public class CertificationPermissionTests
         var request = new CertificateRequest("CN=FreePDF permission test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
         DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
-            new DigitalSignatureOptions { Rectangle = new XRect(250, 20, 120, 40) });
+            new DigitalSignatureOptions { Rectangle = new XRect(250, 20, 120, 40), AppearanceHandler = new EmptyAppearance() });
     }
 
     static byte[] Save(byte[] original, Action<PdfDocument> change)
@@ -240,5 +240,11 @@ public class CertificationPermissionTests
         {
             File.Delete(path);
         }
+    }
+
+    // The default appearance draws text, which would resolve fonts before TestFonts installs its resolver.
+    sealed class EmptyAppearance : IAnnotationAppearanceHandler
+    {
+        public void DrawAppearance(XGraphics gfx, XRect rect) { }
     }
 }
