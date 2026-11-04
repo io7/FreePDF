@@ -74,6 +74,26 @@ public class FormFlatteningTests
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(list, "0.6 0.75 0.86 rg").Count);
     }
 
+    // Review of #47: a value held as an indirect string was ignored, and with /V in another order than /Opt the
+    // value and the index named different options.
+    [Fact]
+    public void List_box_values_held_as_indirect_strings_or_in_another_order_are_read()
+    {
+        using var document = Open();
+        var colour = (PdfFormListBoxField)Fields(document)["colour"]!;
+        colour.Elements.SetInteger("/Ff", 1 << 21);
+        // The constructor makes the string an indirect object of the document.
+        var green = new PdfStringObject(document, "Green");
+        colour.Elements["/V"] = green.Reference;
+        Assert.Equal("Green", colour.SelectedValue);
+        Assert.Equal(1, colour.SelectedIndex);
+
+        var red = new PdfStringObject(document, "Red");
+        colour.Elements["/V"] = new PdfArray(document, new PdfString("Blue"), red.Reference!);
+        Assert.Equal("Red", colour.SelectedValue);
+        Assert.Equal(0, colour.SelectedIndex);
+    }
+
     [Fact]
     public void Each_widget_is_placed_on_its_rectangle()
     {

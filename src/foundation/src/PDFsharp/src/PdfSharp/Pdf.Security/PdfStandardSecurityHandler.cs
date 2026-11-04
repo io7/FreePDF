@@ -926,13 +926,42 @@ namespace PdfSharp.Pdf.Security
                     throw TH.ArgumentException_UnknownCryptFilter();
             }
 
-            dictionary.Elements.ArrayOrSingleItem.Add(PdfStream.Keys.Filter, new PdfName(CryptFilterConstants.FilterValue), true);
-
             var decodeParams = new PdfDictionary(dictionary.Document);
             decodeParams.Elements.SetName(CryptFilterConstants.DecodeParmsTypeKey, CryptFilterConstants.DecodeParmsTypeValue);
             decodeParams.Elements.SetName(CryptFilterConstants.DecodeParmsNameKey, cryptFilterName);
 
-            dictionary.Elements.ArrayOrSingleItem.Add(PdfStream.Keys.DecodeParms, decodeParams);
+            // The crypt filter comes first (ISO 32000-1 7.4.10), and /DecodeParms holds one entry per filter
+            // (Table 5): the other filters keep their parameters, with null where they have none. The parameters
+            // were appended instead, so a compressed stream got a lone dictionary next to two filters.
+            var filters = Items(dictionary.Elements[PdfStream.Keys.Filter]);
+            if (filters.Count == 0)
+            {
+                dictionary.Elements[PdfStream.Keys.Filter] = new PdfName(CryptFilterConstants.FilterValue);
+                dictionary.Elements[PdfStream.Keys.DecodeParms] = decodeParams;
+                return;
+            }
+            var parameters = Items(dictionary.Elements[PdfStream.Keys.DecodeParms]);
+            var filterArray = new PdfArray(dictionary.Document, new PdfName(CryptFilterConstants.FilterValue));
+            var parameterArray = new PdfArray(dictionary.Document, decodeParams);
+            for (var index = 0; index < filters.Count; index++)
+            {
+                filterArray.Elements.Add(filters[index]);
+                parameterArray.Elements.Add(index < parameters.Count && parameters.Count == filters.Count ? parameters[index] : PdfNull.Value);
+            }
+            dictionary.Elements[PdfStream.Keys.Filter] = filterArray;
+            dictionary.Elements[PdfStream.Keys.DecodeParms] = parameterArray;
+
+            static List<PdfItem> Items(PdfItem? item)
+            {
+                if (item is PdfReference reference)
+                    item = reference.Value;
+                return item switch
+                {
+                    null or PdfNull or PdfNullObject => [],
+                    PdfArray array => array.Elements.ToList(),
+                    _ => [item]
+                };
+            }
         }
 
         /// <summary>

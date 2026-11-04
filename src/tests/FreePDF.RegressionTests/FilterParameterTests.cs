@@ -33,6 +33,8 @@ public class FilterParameterTests
     [InlineData("/Filter [/ASCIIHexDecode] /DecodeParms << >>")]
     [InlineData("/Filter [/Crypt /ASCIIHexDecode] /DecodeParms [<< /Type /CryptFilterDecodeParms /Name /Identity >> null]")]
     [InlineData("/Filter /Crypt")]
+    // As FreePDF 7.6.0 and earlier wrote a crypt filter in front of another filter.
+    [InlineData("/Filter [/Crypt /ASCIIHexDecode] /DecodeParms << /Type /CryptFilterDecodeParms /Name /Identity >>")]
     public void Filters_and_parameters_in_every_allowed_form_are_decoded(string streamEntries)
     {
         using var document = WithStream(streamEntries);
@@ -81,6 +83,47 @@ public class FilterParameterTests
         Assert.Contains("/Crypt", metadata.Elements["/Filter"]!.ToString());
         Assert.Contains("<metadata-check/>", TestPdf.Latin1.GetString(metadata.Stream!.UnfilteredValue));
         Assert.Contains("<metadata-check/>", TestPdf.Latin1.GetString(file));
+    }
+
+    // Review of #47: compressed document metadata got /Filter [/Crypt /FlateDecode] with a lone /DecodeParms
+    // dictionary, which ISO 32000-1 Table 5 does not allow and FreePDF could not decode. /DecodeParms is now an array
+    // with one entry per filter.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compressed_document_metadata_gets_aligned_crypt_filter_parameters(bool aes)
+    {
+        const string xmp = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +
+            "<compressed-check/></x:xmpmeta><?xpacket end=\"w\"?>";
+        byte[] file;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            var metadata = new PdfDictionary(document);
+            metadata.Elements.SetName("/Type", "/Metadata");
+            metadata.Elements.SetName("/Subtype", "/XML");
+            metadata.Elements.SetName("/Filter", "/FlateDecode");
+            metadata.CreateStream(PdfSharp.Pdf.Filters.Filtering.FlateDecode.Encode(TestPdf.Latin1.GetBytes(xmp), PdfFlateEncodeMode.Default));
+            document.Internals.AddObject(metadata);
+            document.Catalog.Elements.SetObject("/Metadata", metadata);
+            if (aes)
+                document.SecurityHandler.SetEncryptionToV5(encryptMetadata: false);
+            else
+                document.SecurityHandler.SetEncryptionToV4UsingRC4(encryptMetadata: false);
+            document.SecuritySettings.UserPassword = "user";
+            document.SecuritySettings.OwnerPassword = "owner";
+            using var output = new MemoryStream();
+            document.Save(output);
+            file = output.ToArray();
+        }
+
+        using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
+        var written = reopened.Catalog.Elements.GetDictionary("/Metadata")!;
+        Assert.Equal("[/Crypt /FlateDecode]", written.Elements["/Filter"]!.ToString());
+        var parameters = written.Elements.GetArray("/DecodeParms")!;
+        Assert.Equal(2, parameters.Elements.Count);
+        Assert.Equal("/Identity", parameters.Elements.GetDictionary(0)!.Elements.GetName("/Name"));
+        Assert.Contains("<compressed-check/>", TestPdf.Latin1.GetString(written.Stream!.UnfilteredValue));
     }
 
     // A document without metadata got a /Metadata dictionary that held only the crypt filter and no stream, which

@@ -300,7 +300,7 @@ namespace PdfSharp.Pdf.Filters
                     result = filter.Decode(data, new FilterParms(parmsValue as PdfDictionary));
             }
             else if (filterValue is PdfArray itemArray
-                     && (parmsValue is null or PdfArray || (parmsValue is PdfDictionary && itemArray.Elements.Count == 1)))
+                     && (parmsValue is null or PdfArray || (parmsValue is PdfDictionary lone && (itemArray.Elements.Count == 1 || IsCryptFilterParms(lone)))))
             {
                 var decodeArray = parmsValue as PdfArray;
                 // Array length of filter and decode parms should match. If they don’t, return data unmodified.
@@ -309,14 +309,25 @@ namespace PdfSharp.Pdf.Filters
                 for (var i = 0; i < itemArray.Elements.Count; i++)
                 {
                     var item = itemArray.Elements[i];
-                    // The parameters of a one-filter array may also be given as a dictionary.
-                    var parms = decodeArray != null ? decodeArray.Elements[i] : parmsValue;
+                    // The parameters of a one-filter array may also be given as a dictionary. FreePDF 7.6.0 and earlier
+                    // wrote a crypt filter's parameters as a lone dictionary next to several filters: they belong to
+                    // /Crypt, which needs none to pass the data on, so no filter gets them.
+                    PdfItem? parms;
+                    if (decodeArray != null)
+                        parms = decodeArray.Elements[i];
+                    else if (itemArray.Elements.Count == 1)
+                        parms = parmsValue;
+                    else
+                        parms = null;
                     data = Decode(data, item, parms);
                 }
                 result = data;
             }
             return result ?? NRT.ThrowOnNull<byte[]>();
         }
+
+        static bool IsCryptFilterParms(PdfDictionary parameters)
+            => parameters.Elements.GetName("/Type") == "/CryptFilterDecodeParms";
 
         /// <summary>
         /// A filter or its parameters as they apply: an indirect object is read, null means no parameters

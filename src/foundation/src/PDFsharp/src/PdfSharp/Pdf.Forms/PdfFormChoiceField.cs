@@ -68,6 +68,12 @@ namespace PdfSharp.Pdf.Forms
         {
             get
             {
+                // The first selected option in /Opt order, as SelectedIndex reports it; a value that is not an
+                // option (an editable combo box) as it is.
+                var options = ReadOptions();
+                var selected = SelectedIndices(options);
+                if (selected.Count > 0)
+                    return options[selected[0]].Export;
                 var values = SelectedValues();
                 return values.Count > 0 ? values[0] : null;
             }
@@ -128,19 +134,27 @@ namespace PdfSharp.Pdf.Forms
             var value = GetElementsValue<PdfItem>(Keys.V);
             if (value is PdfSharp.Pdf.Advanced.PdfReference reference)
                 value = reference.Value;
-            if (value is PdfString text)
-                values.Add(text.Value);
-            else if (value is PdfArray array)
+            if (value is PdfArray array)
             {
                 foreach (var item in array.Elements)
                 {
                     var entry = item;
                     PdfSharp.Pdf.Advanced.PdfReference.Dereference(ref entry);
-                    if (entry is PdfString element)
-                        values.Add(element.Value);
+                    if (Text(entry) is { } element)
+                        values.Add(element);
                 }
             }
+            else if (Text(value) is { } text)
+                values.Add(text);
             return values;
+
+            // A string may also be an indirect object.
+            static string? Text(PdfItem? item) => item switch
+            {
+                PdfString text => text.Value,
+                PdfStringObject text => text.Value,
+                _ => null
+            };
         }
 
         /// <summary>

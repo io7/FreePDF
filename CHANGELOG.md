@@ -12,7 +12,11 @@
   parameters in a one-element array (and the other way round). A `/Crypt` filter
   passes the data on, as it was decrypted when the file was read; decoding threw
   "Filter not implemented: Crypt", for example for FreePDF's own document
-  metadata with `EncryptMetadata` false.
+  metadata with `EncryptMetadata` false. When FreePDF marks a compressed stream
+  with a crypt filter, `/DecodeParms` is now an array with one entry per filter;
+  it was a lone dictionary next to two filters, which ISO 32000-1 Table 5 does
+  not allow. Streams written that way by earlier versions still decode.
+- A list box value held as an indirect string is read; it was ignored.
 - With `EncryptMetadata` false, only the document's own metadata stream stays
   unencrypted, as ISO 32000-1 Table 20 specifies. FreePDF wrote every metadata
   stream that held XML unencrypted, which pyHanko could not read; reading still
