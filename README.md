@@ -99,7 +99,9 @@ In `Append` mode, saving keeps the original file byte for byte and adds only the
 new and changed objects after it, as an incremental update. The signatures
 already in the file stay valid, and a new signature covers the whole file,
 earlier signatures included. A document with no changes is saved as it was.
-Encrypted documents cannot be opened in `Append` mode yet. See
+A change that a certification signature or a field lock does not permit is
+refused before anything is written. Encrypted documents cannot be opened in
+`Append` mode yet. See
 [Signed documents](docs/migrating-to-7.md#signed-documents).
 
 ## Project status

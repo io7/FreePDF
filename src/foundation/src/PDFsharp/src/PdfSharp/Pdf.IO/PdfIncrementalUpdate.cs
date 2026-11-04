@@ -43,6 +43,11 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Gets or sets the changes the document's signatures permit; null if they restrict nothing.
+        /// </summary>
+        internal PdfModificationPermissions? Permissions { get; set; }
+
+        /// <summary>
         /// Gets the inheritable attributes (ISO 32000-1 Table 30) each page of the tree has itself. Call before the
         /// page tree is prepared, which copies the values a page inherits onto it.
         /// </summary>
@@ -100,6 +105,11 @@ namespace PdfSharp.Pdf.IO
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
+
+        /// <summary>
+        /// Gets the length of the original file, which an update starts with.
+        /// </summary>
+        internal int OriginalLength => _original.Length;
 
         /// <summary>
         /// Records whether the document information was changed since the file was opened. Call before
@@ -169,15 +179,16 @@ namespace PdfSharp.Pdf.IO
                     written.Add(iref);
             }
 
-            var stream = writer.Stream;
-            stream.Write(_original, 0, _original.Length);
-
             // When nothing changed but what PrepareForSave puts into the document information (the producer), the
             // file is saved as it was. Otherwise the update also gets a new modification date, unless the
             // application set one.
+            var stream = writer.Stream;
             var info = document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference;
             if (!_documentInformationChanged && written.All(iref => info != null && iref.ObjectID == info.ObjectID))
+            {
+                stream.Write(_original, 0, _original.Length);
                 return;
+            }
             if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
                 document.Info.ModificationDate = DateTimeOffset.Now;
             if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
@@ -185,6 +196,10 @@ namespace PdfSharp.Pdf.IO
                 written.Add(info);
                 written.Sort(PdfReference.Comparer);
             }
+
+            // A change the signatures do not permit is refused before anything is written.
+            Permissions?.Check(document, _original, written);
+            stream.Write(_original, 0, _original.Length);
 
             if (_original.Length > 0 && _original[_original.Length - 1] is not ((byte)'\n' or (byte)'\r'))
                 writer.WriteRaw('\n');

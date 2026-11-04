@@ -331,6 +331,7 @@
     <Compile Include="..\PdfSharp\Pdf.IO\ObjectNotAvailableException.cs" Link="Pdf.IO\ObjectNotAvailableException.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\Parser.cs" Link="Pdf.IO\Parser.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfIncrementalUpdate.cs" Link="Pdf.IO\PdfIncrementalUpdate.cs" />
+    <Compile Include="..\PdfSharp\Pdf.IO\PdfModificationPermissions.cs" Link="Pdf.IO\PdfModificationPermissions.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReader.cs" Link="Pdf.IO\PdfReader.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReaderException.cs" Link="Pdf.IO\PdfReaderException.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReaderOptions.cs" Link="Pdf.IO\PdfReaderOptions.cs" />

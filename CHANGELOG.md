@@ -1,5 +1,23 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Saving a document opened with `Append` refuses changes that its signatures do
+  not permit, with `InvalidOperationException` before anything is written:
+  changes to signed signature fields and to fields locked by FieldMDP or a
+  signature field's `/Lock` (the field, the fields above it, its widget and what
+  they refer to, also removing or moving them), and what a certification
+  signature's DocMDP permission or a `/Lock` with `/P` does not permit (P=1 no
+  changes; P=2 filling in fields, signing and the document information; P=3 also
+  annotations). Page content, pages, bookmarks and other catalog entries cannot
+  change in a certified document. Without a certification, everything but
+  signed and locked fields can change, as before. `Save(path)` in `Append` mode
+  opens the file first, saves in memory and replaces the file through a
+  temporary one, so a refused or failed save leaves the file as it was, also
+  when it is the file the document was opened from.
+- An `Append`-mode update no longer adds `/PageMode /UseOutlines` to the catalog
+  of a document with bookmarks; it changed the catalog, which validators report.
+
 ## 7.4.1
 
 - Encrypted files with an incremental update whose trailer names the encryption

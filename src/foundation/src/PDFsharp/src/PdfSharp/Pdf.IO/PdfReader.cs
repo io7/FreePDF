@@ -566,6 +566,7 @@ namespace PdfSharp.Pdf.IO
                     _document.IncrementalUpdate = new PdfIncrementalUpdate(original!, parser.StartXRef, crossReferenceStream, size,
                         GetPdfFileVersion(header));
                     _document.IncrementalUpdate.RecordOriginalObjects(_document, fileObjects);
+                    _document.IncrementalUpdate.Permissions = PdfModificationPermissions.Read(_document);
                     _document.IncrementalUpdate.RecordInheritedPageValues(_document, ownPageAttributes!);
                 }
 
