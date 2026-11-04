@@ -164,7 +164,7 @@ public class AppendInheritedPageValuesTests
 
         var page = WrittenObject(original, result, 3);
         Assert.NotNull(page);
-        Assert.Contains("/MediaBox[0 0 200 100]", page);
+        Assert.Matches(@"/MediaBox\s*\[0 0 200 100\]", page);
         Assert.DoesNotContain("/CropBox", page);
         using var reopened = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
         Assert.Equal(200, reopened.Pages[0].MediaBox.Width, 3);

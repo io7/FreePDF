@@ -75,7 +75,9 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
-        /// Records the inherited values that preparing the page tree copied onto each page of the file.
+        /// Records the values that opening put onto each page of the file without the page having them: those
+        /// copied from the page tree, and the US Letter media box a page without any gets. A value that cannot be
+        /// written is not recorded, so it is written as before.
         /// </summary>
         internal void RecordInheritedPageValues(PdfDocument document, Dictionary<PdfObjectID, HashSet<string>> ownAttributes)
         {
@@ -85,11 +87,11 @@ namespace PdfSharp.Pdf.IO
                     continue;
                 foreach (var key in InheritablePageAttributes)
                 {
-                    if (pair.Value.Contains(key) || page.Elements[key] is not { } item)
+                    if (pair.Value.Contains(key) || page.Elements[key] is not { } item || TryHashItem(document, item) is not { } hash)
                         continue;
                     if (!_inheritedPageValues.TryGetValue(pair.Key, out var values))
                         _inheritedPageValues[pair.Key] = values = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-                    values[key] = Serialize(document, item);
+                    values[key] = hash;
                 }
             }
         }
@@ -220,7 +222,7 @@ namespace PdfSharp.Pdf.IO
             var omitted = new List<KeyValuePair<string, PdfItem>>();
             foreach (var pair in inherited)
             {
-                if (page.Elements[pair.Key] is { } item && Same(pair.Value, Serialize(document, item)))
+                if (page.Elements[pair.Key] is { } item && TryHashItem(document, item) is { } hash && Same(pair.Value, hash))
                 {
                     omitted.Add(new KeyValuePair<string, PdfItem>(pair.Key, item));
                     page.Elements.Remove(pair.Key);
@@ -362,13 +364,21 @@ namespace PdfSharp.Pdf.IO
 
         static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
 
-        // An item as it is written, in compact layout.
-        static byte[] Serialize(PdfDocument document, PdfItem item)
+        // A hash of an item as it is written, in compact layout; null when it cannot be written.
+        static byte[]? TryHashItem(PdfDocument document, PdfItem item)
         {
-            using var buffer = new MemoryStream();
-            var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
-            item.WriteObject(writer);
-            return buffer.ToArray();
+            try
+            {
+                using var buffer = new MemoryStream();
+                var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
+                item.WriteObject(writer);
+                using var sha = SHA256.Create();
+                return sha.ComputeHash(buffer.GetBuffer(), 0, (int)buffer.Length);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return null;
+            }
         }
 
         // The object as WriteObject writes it, in compact layout so that layout comments cannot differ.
