@@ -280,6 +280,7 @@ namespace PdfSharp.Pdf
             // GoTo action's destination is the one read.
             var dest = Elements.GetValue(Keys.Dest);
             var a = Elements.GetValue(Keys.A);
+            _fileAction = ActionText();
 
             //PdfArray? destArray;
             if (dest != null)
@@ -419,6 +420,11 @@ namespace PdfSharp.Pdf
         (PdfPage?, PdfPageDestinationType, double?, double?, double, double, double?)? _fileDestination;
         bool _fileDestinationIsAction;
 
+        // The /A entry as read from the file: an action set by the application differs from it.
+        string? _fileAction;
+
+        string? ActionText() => Elements[Keys.A]?.ToString();
+
         bool ParsePageDestination(PdfArray destination)  // Reference: 8.2  Destination syntax / Page 582
         {
             // A destination FreePDF cannot use (no page, a page number for a remote document, an unknown type) is
@@ -536,19 +542,24 @@ namespace PdfSharp.Pdf
                     int index = _parent._outlines.IndexOf(this);
                     Debug.Assert(index != -1);
 
-                    // Has destination? /Dest is not permitted next to /A (ISO 32000-1 Table 153). A GoTo action
-                    // read from the file stays while its destination is unchanged; a new or changed destination
-                    // is written as /Dest and replaces any action.
+                    // Has destination? /Dest is not permitted next to /A (ISO 32000-1 Table 153). An action the
+                    // application set wins, and a GoTo action read from the file stays while its destination is
+                    // unchanged. Otherwise the destination is written as /Dest; a new or changed one replaces the
+                    // action read from the file.
                     if (DestinationPage != null!)
                     {
+                        var action = ActionText();
                         bool asRead = _fileDestination.HasValue && _fileDestination.Value.Equals(Destination());
-                        if (!asRead)
+                        bool actionSetByApplication = action != null && action != _fileAction;
+                        bool unchangedGoToAction = asRead && _fileDestinationIsAction && action != null;
+                        if (actionSetByApplication)
                         {
-                            Elements.Remove(Keys.A);
-                            Elements[Keys.Dest] = CreateDestArray();
+                            Elements.Remove(Keys.Dest);
                         }
-                        else if (!_fileDestinationIsAction)
+                        else if (!unchangedGoToAction)
                         {
+                            if (!asRead)
+                                Elements.Remove(Keys.A);
                             Elements[Keys.Dest] = CreateDestArray();
                         }
                     }

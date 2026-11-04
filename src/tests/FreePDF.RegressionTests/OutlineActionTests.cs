@@ -141,15 +141,72 @@ public class OutlineActionTests
     }
 
     [Fact]
-    public void An_Append_mode_update_does_not_rewrite_GoTo_items()
+    public void A_renamed_GoTo_item_is_written_with_its_action_and_no_Dest_in_Append_mode()
     {
         var original = Fixture("<< /Title (Two) /Parent 5 0 R /A << /S /GoTo /D [4 0 R /Fit] >> >>");
 
-        var saved = Save(original, PdfDocumentOpenMode.Append, document => document.Info.Title = "Changed");
+        var saved = Save(original, PdfDocumentOpenMode.Append, document => document.Outlines[0].Title = "Renamed");
 
         var update = TestPdf.Latin1.GetString(saved, original.Length, saved.Length - original.Length);
-        var written = Regex.Matches(update, @"(\d+) 0 obj").Cast<Match>().Select(m => int.Parse(m.Groups[1].Value)).ToArray();
-        Assert.DoesNotContain(6, written);
-        Assert.DoesNotContain(5, written);
+        var item = Regex.Match(update, @"(?ms)^6 0 obj\b(.*?)\bendobj").Groups[1].Value;
+        Assert.Contains("/GoTo", item);
+        Assert.DoesNotContain("/Dest", item);
+        var outline = OnlyItem(saved, out var reopened);
+        using (reopened)
+            Assert.Equal("Renamed", outline.Title);
+    }
+
+    [Theory]
+    [InlineData(PdfDocumentOpenMode.Modify)]
+    [InlineData(PdfDocumentOpenMode.Append)]
+    public void Removing_the_action_of_a_GoTo_item_writes_a_Dest(PdfDocumentOpenMode mode)
+    {
+        var bytes = Fixture("<< /Title (Two) /Parent 5 0 R /A << /S /GoTo /D [4 0 R /Fit] >> >>");
+
+        var saved = Save(bytes, mode, document => document.Outlines[0].Elements.Remove(PdfOutline.Keys.A));
+
+        var outline = OnlyItem(saved, out var reopened);
+        using (reopened)
+        {
+            Assert.False(outline.Elements.ContainsKey(PdfOutline.Keys.A));
+            Assert.True(outline.Elements.ContainsKey(PdfOutline.Keys.Dest));
+            Assert.Equal(300, outline.DestinationPage!.Width.Point);
+        }
+    }
+
+    static PdfDictionary UriAction(PdfDocument document)
+    {
+        var action = new PdfDictionary(document);
+        action.Elements.SetName("/S", "/URI");
+        action.Elements.SetString("/URI", "https://example.com/");
+        return action;
+    }
+
+    [Fact]
+    public void An_action_set_on_a_new_item_is_kept_without_a_Dest()
+    {
+        var saved = Save(Fixture("<< /Title (Two) /Parent 5 0 R /Dest [4 0 R /Fit] >>"), PdfDocumentOpenMode.Modify, document => {
+            var added = document.Outlines.Add("Web", document.Pages[0]);
+            added.Elements[PdfOutline.Keys.A] = UriAction(document);
+        });
+
+        using var reopened = PdfReader.Open(new MemoryStream(saved), PdfDocumentOpenMode.Import);
+        var web = reopened.Outlines.Single(o => o.Title == "Web");
+        Assert.False(web.Elements.ContainsKey(PdfOutline.Keys.Dest));
+        Assert.Equal("/URI", web.Elements.GetDictionary(PdfOutline.Keys.A)!.Elements.GetName("/S"));
+    }
+
+    [Fact]
+    public void An_action_set_on_a_Dest_item_replaces_the_Dest()
+    {
+        var saved = Save(Fixture("<< /Title (Two) /Parent 5 0 R /Dest [4 0 R /Fit] >>"), PdfDocumentOpenMode.Modify,
+            document => document.Outlines[0].Elements[PdfOutline.Keys.A] = UriAction(document));
+
+        var outline = OnlyItem(saved, out var reopened);
+        using (reopened)
+        {
+            Assert.False(outline.Elements.ContainsKey(PdfOutline.Keys.Dest));
+            Assert.Equal("/URI", outline.Elements.GetDictionary(PdfOutline.Keys.A)!.Elements.GetName("/S"));
+        }
     }
 }
