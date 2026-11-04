@@ -114,8 +114,9 @@ and parser fuzzing; 7.1.1 measures filled form text with Adobe's standard font
 metrics. 7.2.0 draws text with installed fonts when no font resolver is set,
 flattens forms and tags multi-page tables as one table. 7.3.0 merges and splits
 documents with their form fields, bookmarks and links, and names FreePDF as the
-producer of the files it writes. See the release notes
-for [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
+producer of the files it writes. 7.4.0 saves documents as incremental updates,
+so signed PDFs can be filled in and signed again. See the release notes
+for [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
 [upstream feature tracking](docs/upstream-feature-tracking.md).
