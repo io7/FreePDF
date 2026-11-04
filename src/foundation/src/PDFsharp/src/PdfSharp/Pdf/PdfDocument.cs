@@ -269,27 +269,7 @@ namespace PdfSharp.Pdf
 
             if (IncrementalUpdate != null)
             {
-                // The file is opened first, without truncating it, so that a path that cannot be written fails before
-                // the document is saved and the save can be repeated. The document is saved in memory, which already
-                // holds the original, and the file is written only when that succeeded: a refused or failed save
-                // leaves the file as it was, also when it is the file the document was opened from.
-                bool existed = File.Exists(path);
-                var file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
-                try
-                {
-                    using var buffer = new MemoryStream(IncrementalUpdate.OriginalLength + 64 * 1024);
-                    await SaveAsync(buffer).ConfigureAwait(false);
-                    file.SetLength(0);
-                    buffer.WriteTo(file);
-                }
-                catch
-                {
-                    file.Dispose();
-                    if (!existed)
-                        File.Delete(path);
-                    throw;
-                }
-                file.Dispose();
+                await SaveIncrementalUpdateAsync(path).ConfigureAwait(false);
                 return;
             }
 
@@ -299,6 +279,46 @@ namespace PdfSharp.Pdf
             // ReSharper disable once UseAwaitUsing because we need no DisposeAsync for a simple FileStream.
             using var stream = new FileStream(path, FileMode.Create, fileAccess, FileShare.None);
             await SaveAsync(stream).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Saves a document opened with <see cref="PdfDocumentOpenMode.Append"/> to a path. The file is opened first,
+        /// without truncating it, so a path that cannot be written fails before the document is saved and the save can
+        /// be repeated. The document is saved in memory, which already holds the original, and only then written to a
+        /// temporary file next to the target that replaces it: a refused save, or one that fails while writing, leaves
+        /// the file as it was, also when it is the file the document was opened from.
+        /// </summary>
+        async Task SaveIncrementalUpdateAsync(string path)
+        {
+            bool existed = File.Exists(path);
+            using (new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
+            {
+            }
+
+            using var buffer = new MemoryStream(IncrementalUpdate!.OriginalLength + 64 * 1024);
+            try
+            {
+                await SaveAsync(buffer).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (!existed)
+                    File.Delete(path);
+                throw;
+            }
+
+            var temporary = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    buffer.WriteTo(file);
+                File.Replace(temporary, path, null);
+            }
+            finally
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
         }
 
         /// <summary>

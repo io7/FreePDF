@@ -196,16 +196,21 @@ await approved.SaveAsync("approved.pdf");
 - A save that would change more than the document's signatures permit throws
   `InvalidOperationException` before anything is written, and saving to a path
   leaves the file as it was. The message names the permission and the change.
+  The document is then marked saved; open the file again to try a different change.
+  - Signed signature fields cannot change, in any signed document: the field, the
+    fields above it, its widget and everything they refer to (the signature, its
+    lock, the appearance and its resources). They cannot be removed, renamed by
+    moving them in the field tree, or moved to another page.
+  - Fields that a signature locks (FieldMDP, or the `/Lock` of its signature
+    field) are protected the same way. A `/Lock` with `/P` also limits later
+    changes like a certification.
   - A certification signature (DocMDP, ISO 32000-1 12.8.2.2) with "no changes"
     (P=1) permits no update at all; with "form filling and signing" (P=2) it
     permits filling in fields, adding signature fields and signing, and changing
     the document information; with P=3 also adding, changing and removing
     comments and other annotations. Page content, pages, bookmarks and other
     parts of the document cannot change under any level.
-  - Fields that a signature locks (FieldMDP, or the `/Lock` of its signature
-    field) cannot be filled in. A `/Lock` with `/P` also limits later changes like
-    a certification.
-  - Without a certification or locks, any change is saved, as before.
+  - Without a certification, everything else can change, as before.
 - Whether a validator accepts what you changed after a signature still depends on
   the validator. Filling in fields and adding signatures are permitted changes for
   an ordinary (approval) signature. Acrobat permits added comments and new visible
@@ -213,12 +218,17 @@ await approved.SaveAsync("approved.pdf");
   reports any added comment, and after a certification it accepts only invisible
   new signature fields (`DigitalSignatureOptions.Rectangle` left empty) and
   signing existing ones. After an ordinary signature, pyHanko also reports
-  changes to pages, which no permission forbids and FreePDF saves.
+  changes to pages, which no permission forbids and FreePDF saves; and after a
+  signature that locks all fields, pyHanko counts signature fields added later as
+  locked too, while FreePDF applies the lock to the fields the document had.
 - A document with no changes is saved as it was. Otherwise the document
   information gets a new modification date (unless you set one) and FreePDF as
-  its producer. Reading `page.Annotations`, `document.Outlines` or
-  `document.ViewerPreferences` creates them when the file has none, and saving
-  writes that as a change.
+  its producer. An update never adds a `/PageMode` to the catalog (a full save
+  makes a document with bookmarks open with them shown). Reading
+  `page.Annotations`, `document.Outlines`, `document.ViewerPreferences` or a form
+  field's `Kids` creates them when the file has none, and saving writes that as a
+  change, which a signed or certified document may refuse; read a field's kids
+  with `GetKids()` instead.
 - Encrypted documents cannot be opened in `Append` mode yet, nor can files whose
   cross-reference table names the wrong objects; open those with `Modify` to save
   a new file. A document opened in `Append` mode cannot be given a password.

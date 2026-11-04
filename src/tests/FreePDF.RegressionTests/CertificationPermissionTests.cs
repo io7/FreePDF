@@ -337,6 +337,49 @@ public class CertificationPermissionTests
         Refused(indirectName, FillName);
     }
 
+    // Second review round.
+
+    [Fact]
+    public void Moving_a_locked_field_in_the_field_tree_is_refused()
+    {
+        // Listing the kid "address.city" at the top renames it "city", out of the lock's reach.
+        var refused = Refused(FieldMdp("Include", "/Fields [(address.city)]"),
+            document => Object(document, 4).Elements.GetArray("/Fields")!.Elements[1] = Object(document, 12).Reference!);
+        Assert.Contains("renames it 'city'", refused.Message);
+    }
+
+    [Fact]
+    public void Objects_a_signed_field_refers_to_cannot_change()
+    {
+        // The signature dictionary, and a font of the signed field's appearance.
+        var original = Fixture(signatureFieldEntries: "/AP << /N 13 0 R >>", more: new[] {
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 20] /Resources << /Font << /F1 14 0 R >> >> /Length 3 >>\nstream\nq Q\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>" });
+        Refused(original, document => Object(document, 10).Elements.SetString("/Reason", "Changed"));
+        Refused(original, document => Object(document, 14).Elements.SetName("/BaseFont", "/Courier"));
+        Allowed(original, FillName);
+    }
+
+    [Fact]
+    public void A_signed_widget_cannot_move_to_another_page()
+    {
+        Refused(Fixture(), document => {
+            var page = document.AddPage();
+            var annotations = document.Pages[0].Elements.GetArray("/Annots")!;
+            var widget = annotations.Elements[3];
+            annotations.Elements.RemoveAt(3);
+            page.Elements["/Annots"] = new PdfArray(document, widget);
+        });
+        Allowed(Fixture(), AddPage);
+    }
+
+    [Fact]
+    public void A_limit_from_a_field_lock_names_the_lock()
+    {
+        var refused = Refused(Locked("/Action /Include /Fields [(name)] /P 2"), Comment);
+        Assert.Contains("signature field lock P=2", refused.Message);
+    }
+
     [Fact]
     public void A_save_to_a_path_that_cannot_be_written_can_be_retried()
     {

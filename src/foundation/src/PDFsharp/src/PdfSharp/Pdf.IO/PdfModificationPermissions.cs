@@ -16,9 +16,10 @@ namespace PdfSharp.Pdf.IO
         // No certification: only signed signature fields and locked fields are protected.
         const int Unrestricted = 4;
 
-        PdfModificationPermissions(int permission, List<FieldLock> locks)
+        PdfModificationPermissions(int permission, List<FieldLock> locks, bool certified)
         {
             _permission = permission;
+            _certified = certified;
             _locks = locks;
         }
 
@@ -31,11 +32,13 @@ namespace PdfSharp.Pdf.IO
             int permission = Unrestricted;
             var locks = new List<FieldLock>();
             bool signed = false;
+            bool certified = false;
 
             if (Resolve(document.Catalog.Elements[PdfCatalog.Keys.Perms]) is PdfDictionary perms
                 && Resolve(perms.Elements["/DocMDP"]) is PdfDictionary certification)
             {
                 permission = Math.Min(permission, CertificationLevel(certification) ?? 2);
+                certified = true;
             }
 
             // Signed signature fields: the FieldMDP and DocMDP references of their signatures, and their locks.
@@ -53,7 +56,10 @@ namespace PdfSharp.Pdf.IO
                         var parameters = Resolve(reference.Elements["/TransformParams"]) as PdfDictionary;
                         var method = reference.Elements.GetName("/TransformMethod");
                         if (method == "/DocMDP")
+                        {
                             permission = Math.Min(permission, Level(parameters) ?? 2);
+                            certified = true;
+                        }
                         else if (method == "/FieldMDP" && parameters != null)
                             locks.Add(FieldLock.From(parameters));
                     }
@@ -68,7 +74,7 @@ namespace PdfSharp.Pdf.IO
 
             if (permission == Unrestricted && locks.Count == 0 && !signed)
                 return null;
-            return new PdfModificationPermissions(permission, locks);
+            return new PdfModificationPermissions(permission, locks, certified);
         }
 
         // A signature field whose /V is a signature dictionary.
@@ -139,17 +145,26 @@ namespace PdfSharp.Pdf.IO
                     throw ProtectionRefusal($"changing {reason}");
                 CheckChange(iref.ObjectID, oldObject, iref.Value, old, now);
             }
+            // They also keep their place: the same name in the field tree and their widgets on the same page.
             foreach (var pair in protectedNodes)
             {
-                if (!now.Fields.ContainsKey(pair.Key))
+                if (!now.Fields.TryGetValue(pair.Key, out var field))
                     throw ProtectionRefusal($"removing {pair.Value} from the form");
-                if (old.Annotations.ContainsKey(pair.Key) && !now.Annotations.ContainsKey(pair.Key))
+                if (field.Name != old.Fields[pair.Key].Name)
+                    throw ProtectionRefusal($"moving {pair.Value} in the field tree, which renames it '{field.Name}'");
+                if (!old.Annotations.TryGetValue(pair.Key, out var oldWidget))
+                    continue;
+                if (!now.Annotations.TryGetValue(pair.Key, out var newWidget))
                     throw ProtectionRefusal($"removing the widget of {pair.Value} from its page");
+                if (newWidget.PageID != oldWidget.PageID)
+                    throw ProtectionRefusal($"moving the widget of {pair.Value} to another page");
             }
         }
 
-        // The objects of signed signature fields and locked fields, each with a description of its field; the
-        // field nodes (fields and widgets) among them are also returned on their own.
+        // The objects of signed signature fields and locked fields, each with a description of its field: the
+        // field, the fields above it, and everything the field refers to (its signature, lock, appearances and their
+        // resources), except pages, the catalog, the form and other fields. The field nodes (fields and widgets) are
+        // also returned on their own.
         Dictionary<PdfObjectID, string> ProtectedObjects(Snapshot old, out Dictionary<PdfObjectID, string> nodes)
         {
             var result = new Dictionary<PdfObjectID, string>();
@@ -162,7 +177,7 @@ namespace PdfSharp.Pdf.IO
                 if (signedNames.Contains(field.Name))
                     reason = $"the signed signature field '{field.Name}'";
                 else if (IsLocked(field.Name))
-                    reason = $"the form field '{field.Name}', which a signature locks";
+                    reason = $"the form field '{field.Name}' (locked by a signature)";
                 else
                     continue;
                 nodes[pair.Key] = reason;
@@ -171,10 +186,10 @@ namespace PdfSharp.Pdf.IO
                     if (current.Reference != null && !result.ContainsKey(current.Reference.ObjectID))
                         result[current.Reference.ObjectID] = reason;
                 }
-                foreach (var appearance in AppearanceObjects(field.Dictionary))
+                foreach (var id in ReferencedObjects(old, field.Dictionary))
                 {
-                    if (!result.ContainsKey(appearance))
-                        result[appearance] = reason;
+                    if (!result.ContainsKey(id))
+                        result[id] = reason;
                 }
             }
             return result;
@@ -185,6 +200,42 @@ namespace PdfSharp.Pdf.IO
                     return node;
                 return null;
             }
+        }
+
+        // The indirect objects a field node refers to, directly or through others. It does not follow /Parent, /P
+        // (the page), /Kids or /Data (a signature reference's document), and stops at pages, the page tree, the
+        // catalog, the form, other field nodes and other annotations, which have rules of their own.
+        static HashSet<PdfObjectID> ReferencedObjects(Snapshot old, PdfDictionary field)
+        {
+            var result = new HashSet<PdfObjectID>();
+            var pending = new Stack<PdfItem>();
+            pending.Push(field);
+            while (pending.Count > 0)
+            {
+                var item = pending.Pop();
+                if (item is PdfReference reference)
+                {
+                    if (old.IsBoundary(reference.ObjectID) || !result.Add(reference.ObjectID) || reference.Value is not { } value)
+                        continue;
+                    pending.Push(value);
+                }
+                else if (item is PdfDictionary dictionary)
+                {
+                    foreach (var key in dictionary.Elements.Keys)
+                    {
+                        if (key is "/Parent" or "/P" or "/Kids" or "/Data")
+                            continue;
+                        if (dictionary.Elements[key] is { } child)
+                            pending.Push(child);
+                    }
+                }
+                else if (item is PdfArray array)
+                {
+                    foreach (var child in array.Elements)
+                        pending.Push(child);
+                }
+            }
+            return result;
         }
 
         void CheckChange(PdfObjectID id, PdfObject oldObject, PdfObject newObject, Snapshot old, Snapshot now)
@@ -406,7 +457,7 @@ namespace PdfSharp.Pdf.IO
                 _ => "only filling in forms, signing and annotating",
             };
             return new InvalidOperationException(
-                $"The signatures of this document permit {permits} (DocMDP P={_permission}), so saving would make " +
+                $"The signatures of this document permit {permits} ({(_certified ? "DocMDP" : "signature field lock")} P={_permission}), so saving would make " +
                 $"validators report them as broken: {change}. Nothing was written.");
         }
 
@@ -535,7 +586,7 @@ namespace PdfSharp.Pdf.IO
                         if (item is not PdfReference annotationReference || annotationReference.Value is not PdfDictionary annotation)
                             continue;
                         var subtype = annotation.Elements.GetName("/Subtype");
-                        Annotations[annotationReference.ObjectID] = new AnnotationNode(index, subtype.TrimStart('/'), subtype == "/Widget");
+                        Annotations[annotationReference.ObjectID] = new AnnotationNode(index, page.Reference?.ObjectID, subtype.TrimStart('/'), subtype == "/Widget");
                         if (subtype != "/Widget")
                         {
                             foreach (var appearance in AppearanceObjects(annotation))
@@ -558,6 +609,18 @@ namespace PdfSharp.Pdf.IO
             internal Dictionary<PdfObjectID, int> Pages { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
             internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();
+
+            // Objects with rules of their own, at which the objects of a protected field end.
+            internal bool IsBoundary(PdfObjectID id)
+            {
+                if (id == Catalog || id == Form || id == FieldArray || Pages.ContainsKey(id) || AnnotationArrays.ContainsKey(id)
+                    || Fields.ContainsKey(id) || Annotations.ContainsKey(id))
+                {
+                    return true;
+                }
+                var type = (Document.Internals.GetObject(id) as PdfDictionary)?.Elements.GetName("/Type");
+                return type is "/Page" or "/Pages" or "/Catalog";
+            }
         }
 
         // The indirect objects of an annotation's appearance (ISO 32000-1 12.5.5): the /AP dictionary, its /N, /R and
@@ -594,9 +657,10 @@ namespace PdfSharp.Pdf.IO
             public PdfObjectID? Parent { get; } = parent;
         }
 
-        sealed class AnnotationNode(int page, string subtype, bool isWidget)
+        sealed class AnnotationNode(int page, PdfObjectID? pageID, string subtype, bool isWidget)
         {
             public int Page { get; } = page;
+            public PdfObjectID? PageID { get; } = pageID;
             public string Subtype { get; } = subtype;
             public bool IsWidget { get; } = isWidget;
         }
@@ -655,6 +719,7 @@ namespace PdfSharp.Pdf.IO
         }
 
         readonly int _permission;
+        readonly bool _certified;
         readonly List<FieldLock> _locks;
     }
 }

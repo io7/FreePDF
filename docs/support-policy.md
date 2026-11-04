@@ -54,17 +54,20 @@ had signed, and saved each of 2,930 veraPDF and producer files unchanged (same
 bytes) and with one change (only the changed objects written) before the 7.4.0
 release. Encrypted documents are refused.
 
-An Append-mode save refuses changes that a certification signature (DocMDP) or a
-field lock (FieldMDP, `/Lock`) does not permit. Regression tests cover each
-permission level against filling in fields, signing, the document information,
-comments, page content, pages and the catalog, and locked fields. pyHanko's
+An Append-mode save refuses changes to signed signature fields and to fields a
+signature locks (FieldMDP, `/Lock`), and changes a certification signature
+(DocMDP) does not permit. Regression tests cover each permission level against
+filling in fields, signing, the document information, comments, page content,
+pages and the catalog; changing, removing and moving signed and locked fields and
+the objects they refer to; and saving to a path that cannot be written. pyHanko's
 difference analysis was run on forms that pyHanko certified (P=1, 2, 3) or signed
-with a field lock and that FreePDF then changed: every change FreePDF saved for
-which pyHanko has a rule was accepted, and every change FreePDF refused was
-rejected by pyHanko too. pyHanko's default policy is stricter than the permissions
-in three places, which FreePDF follows the permissions in: added comments, new
-visible signature fields after a certification, and any change to pages after an
-ordinary signature.
+with and without a field lock, also with nested fields, and that FreePDF then
+changed: every change FreePDF saved for which pyHanko has a rule was accepted, and
+every change FreePDF refused was rejected by pyHanko too. pyHanko's default policy
+is stricter than the permissions in four places, which FreePDF follows the
+permissions in: added comments, new visible signature fields after a
+certification, any change to pages after an ordinary signature, and new signature
+fields after a signature that locks all fields.
 
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
