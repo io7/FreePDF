@@ -40,6 +40,7 @@ namespace PdfSharp.Pdf.IO
             if (document.Trailer.Elements[PdfTrailer.Keys.Info] is PdfDictionary directInfo)
                 _directInfoHash = TryHash(document, directInfo);
             _originalModificationDate = InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString();
+            _versionAtOpen = document.Version;
         }
 
         /// <summary>
@@ -96,9 +97,11 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         internal void Write(PdfDocument document, PdfWriter writer)
         {
-            // The header cannot change in an update. The catalog's /Version raises the version instead.
+            // The header cannot change in an update. The catalog's /Version raises the version instead, when the
+            // changes since the file was opened need a higher one (reading AES-256 encryption, for example, already
+            // makes the document 2.0 without the file needing a new /Version).
             int version = document.Version;
-            if (version > _headerVersion)
+            if (version > _headerVersion && version > _versionAtOpen)
             {
                 var name = Invariant($"/{version / 10}.{version % 10}");
                 if (String.CompareOrdinal(document.Catalog.Elements.GetName(PdfCatalog.Keys.Version), name) < 0)
@@ -348,6 +351,7 @@ namespace PdfSharp.Pdf.IO
         readonly Dictionary<PdfObjectID, byte[]?> _hashes = new();
         byte[]? _directInfoHash;
         string? _originalModificationDate;
+        int _versionAtOpen;
         bool _documentInformationChanged;
     }
 }

@@ -144,6 +144,21 @@ public class EncryptedAppendTests
         Assert.NotNull(reopened.Catalog.GetAcroForm());
     }
 
+    // AES-256 is PDF 2.0, and reading it makes the document 2.0. Files from Chrome, LibreOffice or qpdf say 1.7 in
+    // their header; an update wrote a catalog /Version 2.0 even when nothing else changed.
+    [Fact]
+    public void An_AES_256_file_with_a_1_7_header_gets_no_new_version()
+    {
+        var original = Encrypted("AES-256");
+        var header = TestPdf.Latin1.GetString(original, 0, 8);
+        Assert.Equal("%PDF-2.0", header);
+        TestPdf.Latin1.GetBytes("%PDF-1.7").CopyTo(original, 0);
+
+        Assert.Equal(original, Save(original, _ => { }));
+        var update = Update(original, Save(original, document => document.Info.Title = "New title"));
+        Assert.DoesNotContain("/Version", update);
+    }
+
     [Fact]
     public void Opening_with_only_the_user_password_is_refused_as_in_Modify_mode()
     {
