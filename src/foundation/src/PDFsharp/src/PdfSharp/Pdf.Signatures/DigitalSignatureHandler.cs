@@ -229,6 +229,8 @@ namespace PdfSharp.Pdf.Signatures
         {
             var field = FindUnsignedSignatureField();
             CheckField(field);
+            if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.SV) is { } seedValues && SignatureSeedValues.ReasonMustBeOmitted(seedValues))
+                signatureDictionary.Elements.Remove(PdfSignature.Keys.Reason);
 
             field.Elements.SetObject(PdfFormField.Keys.V, signatureDictionary);
             var appearance = Options.AppearanceHandler ?? DefaultAppearance();
@@ -261,7 +263,7 @@ namespace PdfSharp.Pdf.Signatures
                 throw new ArgumentException($"The form field '{name}' has fields below it; name the signature field to sign.",
                     nameof(DigitalSignatureOptions.FieldName));
             }
-            if (signatureField.Elements.GetValue(PdfFormField.Keys.V) is not (null or PdfNull))
+            if (signatureField.Elements.GetValue(PdfFormField.Keys.V) is not (null or PdfNull or PdfNullObject))
                 throw new InvalidOperationException($"The signature field '{name}' is already signed.");
             return signatureField;
         }

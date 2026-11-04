@@ -14,7 +14,6 @@ namespace PdfSharp.Pdf.Signatures
         const int FilterBit = 1;
         const int SubFilterBit = 2;
         const int ReasonsBit = 4;
-        const int LegalAttestationBit = 5;
         const int AddRevInfoBit = 6;
         const int DigestMethodBit = 7;
         const int LockDocumentBit = 8;
@@ -35,8 +34,7 @@ namespace PdfSharp.Pdf.Signatures
                 if (formats.Count > 0 && !formats.Contains("/adbe.pkcs7.detached"))
                     missing.Add($"the signature format {string.Join(" or ", formats)}");
             }
-            if (Required(LegalAttestationBit) && seedValues.Elements.GetArray("/LegalAttestation") is { Elements.Count: > 0 })
-                missing.Add("a legal attestation");
+            // A required /LegalAttestation only limits the attestations a signer may make; FreePDF makes none.
             if (Required(AddRevInfoBit) && seedValues.Elements.GetBoolean("/AddRevInfo"))
                 missing.Add("embedded revocation information (AddRevInfo)");
             if (Required(DigestMethodBit) && seedValues.Elements.GetArray("/DigestMethod") is { Elements.Count: > 0 })
@@ -57,18 +55,35 @@ namespace PdfSharp.Pdf.Signatures
                     "FreePDF cannot sign it.");
             }
 
-            if (Required(ReasonsBit) && seedValues.Elements.GetArray("/Reasons") is { Elements.Count: > 0 } reasons)
+            if (!Required(ReasonsBit))
+                return;
+            var reason = options.Reason ?? "";
+            if (ReasonMustBeOmitted(seedValues))
             {
-                // A single empty string means that no reason may be given.
-                var allowed = Strings(reasons);
-                if (!allowed.Contains(options.Reason))
-                {
-                    var choices = allowed.All(reason => reason.Length == 0)
-                        ? "no reason"
-                        : "one of these reasons: " + string.Join(", ", allowed.Select(reason => $"'{reason}'"));
-                    throw new ArgumentException($"The signature field '{name}' requires {choices}.", nameof(options));
-                }
+                if (reason.Length > 0)
+                    throw new ArgumentException($"The signature field '{name}' does not allow a reason.", nameof(options));
+                return;
             }
+            var allowed = Strings(seedValues.Elements.GetArray("/Reasons")!);
+            if (!allowed.Contains(reason))
+            {
+                throw new ArgumentException($"The signature field '{name}' requires one of these reasons: " +
+                    string.Join(", ", allowed.Select(value => $"'{value}'")) + ".", nameof(options));
+            }
+        }
+
+        /// <summary>
+        /// Tells whether the signature must have no /Reason: the reasons are required and none are listed, or only a
+        /// single period (ISO 32000-2 Table 237).
+        /// </summary>
+        public static bool ReasonMustBeOmitted(PdfDictionary seedValues)
+        {
+            if ((seedValues.Elements.GetInteger("/Ff") & (1 << (ReasonsBit - 1))) == 0)
+                return false;
+            var reasons = seedValues.Elements.GetArray("/Reasons");
+            if (reasons == null || reasons.Elements.Count == 0)
+                return true;
+            return reasons.Elements.Count == 1 && reasons.Elements.GetString(0) == ".";
         }
 
         static List<string> Names(PdfArray array)

@@ -206,10 +206,11 @@ DigitalSignatureHandler.ForDocument(approved, signer,
   the field keeps its name and flags, and the form gets no new field. A field
   lock (`/Lock`) is recorded in the signature (FieldMDP, as Acrobat and pyHanko
   record it), so validators lock its fields from then on. Required seed values
-  (`/SV`) are checked: a required reason must be given as `Reason`, and
+  (`/SV`) are checked: a required reason must be given as `Reason`, or left empty
+  where the field allows none (no reasons or a single "." listed), and
   requirements FreePDF cannot meet or check (a signing certificate, a digest
-  method, a timestamp, a certification, revocation information, a legal
-  attestation) make `ForDocument` throw `NotSupportedException`. A field that is
+  method, a timestamp, a certification, revocation information) make
+  `ForDocument` throw `NotSupportedException`. A field that is
   already signed cannot be signed again, and one that an earlier signature locks
   is refused when saving. It works in `Modify` mode too.
 - A save that would change more than the document's signatures permit throws
@@ -236,7 +237,12 @@ DigitalSignatureHandler.ForDocument(approved, signer,
   signature fields where the permissions allow them; pyHanko's default policy
   reports any added comment, and after a certification it accepts only invisible
   new signature fields (`DigitalSignatureOptions.Rectangle` left empty) and
-  signing existing ones (`DigitalSignatureOptions.FieldName`). After an ordinary signature, pyHanko also reports
+  signing existing ones (`DigitalSignatureOptions.FieldName`). pyHanko accepts
+  signing an existing field when the field is its own widget, as pyHanko and most
+  tools make them; when its widget is a separate object, or it has several
+  widgets or shares its appearance with another widget, pyHanko reports the
+  earlier signatures as changed (its own signer fails the same way). After an
+  ordinary signature, pyHanko also reports
   changes to pages, which no permission forbids and FreePDF saves; and after a
   signature that locks all fields, pyHanko counts signature fields added later as
   locked too, while FreePDF applies the lock to the fields the document had.

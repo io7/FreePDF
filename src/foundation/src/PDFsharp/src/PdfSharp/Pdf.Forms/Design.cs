@@ -1222,12 +1222,16 @@ namespace PdfSharp.Pdf.Forms
         internal static void RenderSignedAppearance(PdfDictionary widget, IAnnotationAppearanceHandler handler)
         {
             var rect = widget.Elements.GetRectangle(PdfAnnotation.Keys.Rect);
-            if (rect == null || rect.Width <= 0 || rect.Height <= 0)
+            if (rect == null)
+                return;
+            // Any two opposite corners may be given (ISO 32000-1 7.9.5).
+            var box = new XRect(Math.Min(rect.X1, rect.X2), Math.Min(rect.Y1, rect.Y2), Math.Abs(rect.X2 - rect.X1), Math.Abs(rect.Y2 - rect.Y1));
+            if (box.Width <= 0 || box.Height <= 0)
                 return;
 
-            var form = new XForm(widget.Owner, rect.Size);
+            var form = new XForm(widget.Owner, box.Size);
             var gfx = XGraphics.FromForm(form);
-            handler.DrawAppearance(gfx, rect.ToXRect());
+            handler.DrawAppearance(gfx, box);
             form.DrawingFinished();
 
             var appearance = new PdfDictionary(widget.Owner);

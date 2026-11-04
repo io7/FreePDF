@@ -293,14 +293,70 @@ public class ExistingSignatureFieldTests
         Assert.Throws<NotSupportedException>(() => SignField("approval")(document));
     }
 
+    // ISO 32000-2 Table 237: with the Reasons bit set, no listed reason or a single period means that the signature
+    // has no /Reason; otherwise one of the listed reasons, an empty string included, is required.
+    [Theory]
+    [InlineData("/Reasons [(.)] /Ff 8", "", false)]
+    [InlineData("/Ff 8", "", false)]
+    [InlineData("/Reasons [] /Ff 8", "", false)]
+    [InlineData("/Reasons [()] /Ff 8", "", true)]
+    [InlineData("/Reasons [(.)]", "Approved", true)]
+    public void Required_reasons_follow_the_period_convention(string seedValues, string reason, bool hasReason)
+    {
+        var signed = Save(Fixture($"/SV << /Type /SV {seedValues} >>"), SignField("approval", reason));
+
+        AssertLastSignatureCoversTheFile(signed);
+        using var document = Open(signed);
+        var signature = Object(document, 8).Elements.GetDictionary("/V")!;
+        Assert.Equal(hasReason, signature.Elements.ContainsKey("/Reason"));
+    }
+
+    [Theory]
+    [InlineData("/Reasons [(.)] /Ff 8")]
+    [InlineData("/Ff 8")]
+    public void A_reason_is_refused_where_the_field_allows_none(string seedValues)
+    {
+        using var document = PdfReader.Open(new MemoryStream(Fixture($"/SV << /Type /SV {seedValues} >>")), PdfDocumentOpenMode.Append);
+        Assert.Throws<ArgumentException>(() => SignField("approval", "Approved")(document));
+    }
+
     [Theory]
     [InlineData("/SubFilter [/ETSI.CAdES.detached]")]
     [InlineData("/SubFilter [/ETSI.CAdES.detached /adbe.pkcs7.detached] /Ff 2")]
     [InlineData("/Reasons [(Approved)] /DigestMethod [/SHA512]")]
     [InlineData("/MDP << /P 0 >> /TimeStamp << /URL (http://tsa.example) >>")]
+    [InlineData("/LegalAttestation [(No dynamic content)] /Ff 16")]
     public void Optional_or_met_seed_values_do_not_stop_signing(string seedValues)
     {
         AssertLastSignatureCoversTheFile(Save(Fixture($"/SV << /Type /SV {seedValues} >>"), SignField("approval")));
+    }
+
+    [Fact]
+    public void A_widget_whose_rectangle_corners_are_swapped_gets_the_signature()
+    {
+        var original = Fixture(moreFields: "13 0 R", moreAnnots: "13 0 R", more: new[] {
+            /* 13 */ "<< /FT /Sig /T (swapped) /Type /Annot /Subtype /Widget /Rect [370 160 250 120] /P 3 0 R /F 4 /AP << /N 12 0 R >> >>",
+        });
+        var handler = new RecordingAppearance();
+
+        var signed = Save(original, document => Sign(document, new DigitalSignatureOptions { FieldName = "swapped", AppearanceHandler = handler }));
+
+        Assert.Equal(new XRect(250, 120, 120, 40), handler.Rectangle);
+        using var document = Open(signed);
+        var normal = Object(document, 13).Elements.GetDictionary("/AP")!.Elements.GetDictionary("/N")!;
+        Assert.NotEqual(12, normal.Reference!.ObjectID.ObjectNumber);
+    }
+
+    [Fact]
+    public void A_field_whose_value_is_an_indirect_null_is_not_signed_yet()
+    {
+        var original = Fixture("/V 13 0 R", more: new[] { /* 13 */ "null" });
+
+        var signed = Save(original, SignField("approval"));
+
+        AssertLastSignatureCoversTheFile(signed);
+        using var document = Open(signed);
+        Assert.Equal("/Sig", Object(document, 8).Elements.GetDictionary("/V")!.Elements.GetName("/Type"));
     }
 
     [Fact]

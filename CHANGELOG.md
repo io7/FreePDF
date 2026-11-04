@@ -9,7 +9,8 @@
   and the page and the form's field list stay as they are. A field lock
   (`/Lock`) is recorded in the signature as a FieldMDP reference, as Acrobat and
   pyHanko record it, so validators lock its fields from then on. Required seed
-  values (`/SV`) are checked: a required reason must be given, and requirements
+  values (`/SV`) are checked: a required reason must be given, or none where the
+  field allows none (the signature then has no `/Reason`), and requirements
   FreePDF cannot meet or check throw `NotSupportedException`. Mistakes (no such
   field, not a signature field, already signed) throw when the handler is
   created. In `Append` mode, certification and lock rules apply as for any
