@@ -54,6 +54,26 @@ public class FormFlatteningTests
         Assert.Contains(drawn, content => content.Contains("q 0 g 2 2 10 10 re f Q"));
     }
 
+    // A list box that allows several selected options holds them as an array of export values (ISO 32000-1 Table
+    // 231). Flattening threw; the drawn list now highlights every selected option.
+    [Fact]
+    public void A_list_box_with_several_selected_options_is_flattened_with_all_of_them_highlighted()
+    {
+        using var document = Open();
+        var colour = (PdfFormListBoxField)Fields(document)["colour"]!;
+        colour.Elements.SetInteger("/Ff", 1 << 21);
+        colour.Elements["/V"] = new PdfArray(document, new PdfString("Red"), new PdfString("Blue"));
+        document.Catalog.GetAcroForm()!.NeedAppearances = true;
+
+        Assert.Equal("Red", colour.SelectedValue);
+        Assert.Equal(0, colour.SelectedIndex);
+        document.Flatten();
+        using var reopened = SaveAndReopen(document);
+
+        var list = Assert.Single(DrawnForms(reopened), content => content.Contains("(Green) Tj"));
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(list, "0.6 0.75 0.86 rg").Count);
+    }
+
     [Fact]
     public void Each_widget_is_placed_on_its_rectangle()
     {
