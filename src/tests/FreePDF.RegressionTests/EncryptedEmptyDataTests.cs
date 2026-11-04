@@ -37,7 +37,7 @@ public class EncryptedEmptyDataTests
         var empty = new PdfDictionary(document);
         empty.CreateStream([]);
         document.Internals.AddObject(empty);
-        document.Catalog.Elements.SetReference("/EmptyStream", empty);
+        document.Catalog.Elements.SetObject("/EmptyStream", empty);
         document.Catalog.Elements["/EmptyLiteral"] = new PdfString("");
         document.Catalog.Elements["/EmptyHex"] = new PdfString("", true);
     }
@@ -63,16 +63,16 @@ public class EncryptedEmptyDataTests
     // The raw lengths of the empty stream and strings as written in the file.
     static (int Stream, int Literal, int Hex) RawLengths(string text)
     {
-        var number = Regex.Matches(text, @"/EmptyStream\s*(\d+) 0 R").Last().Groups[1].Value;
-        var objectAt = Regex.Matches(text, @"(?<!\d)" + number + @" 0 obj\b").Last().Index;
+        var number = Regex.Matches(text, @"/EmptyStream\s*(\d+) 0 R").Cast<Match>().Last().Groups[1].Value;
+        var objectAt = Regex.Matches(text, @"(?<!\d)" + number + @" 0 obj\b").Cast<Match>().Last().Index;
         var streamAt = text.IndexOf("stream", objectAt, StringComparison.Ordinal);
         var length = int.Parse(Regex.Match(text.Substring(objectAt, streamAt - objectAt), @"/Length\s+(\d+)").Groups[1].Value,
             CultureInfo.InvariantCulture);
         var dataAt = streamAt + "stream".Length + (text[streamAt + "stream".Length] == '\r' ? 2 : 1);
         Assert.Equal("endstream", text.Substring(dataAt + length).TrimStart('\r', '\n').Substring(0, "endstream".Length));
 
-        var hex = Regex.Matches(text, @"/EmptyHex\s*<([0-9A-Fa-f]*)>").Last().Groups[1].Value;
-        var literalAt = Regex.Matches(text, @"/EmptyLiteral\s*\(").Last();
+        var hex = Regex.Matches(text, @"/EmptyHex\s*<([0-9A-Fa-f]*)>").Cast<Match>().Last().Groups[1].Value;
+        var literalAt = Regex.Matches(text, @"/EmptyLiteral\s*\(").Cast<Match>().Last();
         return (length, LiteralLength(text, literalAt.Index + literalAt.Length), hex.Length / 2);
     }
 
