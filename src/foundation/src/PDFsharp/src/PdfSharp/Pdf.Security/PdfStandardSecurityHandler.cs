@@ -464,9 +464,8 @@ namespace PdfSharp.Pdf.Security
         /// <param name="bytes">The byte representation of the string.</param>
         internal void EncryptString(ref byte[] bytes)
         {
-            if (bytes.Length == 0)
-                return;
-
+            // Empty data is encrypted too: with AES it becomes an initialization vector and a padding block
+            // (ISO 32000-1, 7.6.2), which readers such as pyHanko require; RC4 leaves it empty.
             if (VersionSupportsCryptFilter())
             {
                 var cryptFilter = _defaultCryptFilterStrings;
@@ -509,9 +508,7 @@ namespace PdfSharp.Pdf.Security
         /// <param name="dictionary">The PdfDictionary holding the stream.</param>
         internal void EncryptStream(ref byte[] bytes, PdfDictionary dictionary)
         {
-            if (bytes.Length == 0)
-                return;
-
+            // Empty data is encrypted too, as in EncryptString.
             if (VersionSupportsCryptFilter())
             {
                 var cryptFilter = GetCryptFilter(dictionary);

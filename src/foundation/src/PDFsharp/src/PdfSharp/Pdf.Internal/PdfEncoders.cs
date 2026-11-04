@@ -172,7 +172,7 @@ namespace PdfSharp.Pdf.Internal
         public static string ToStringLiteral(string text, PdfStringEncoding encoding, PdfStandardSecurityHandler? effectiveSecurityHandler)
         {
             if (String.IsNullOrEmpty(text))
-                return "()";
+                return ToStringLiteral([], false, effectiveSecurityHandler);
 
             var bytes = encoding switch
             {
@@ -191,9 +191,6 @@ namespace PdfSharp.Pdf.Internal
         /// </summary>
         public static string ToStringLiteral(byte[]? bytes, bool unicode, PdfStandardSecurityHandler? effectiveSecurityHandler)
         {
-            if (bytes == null || bytes.Length == 0)
-                return "()";
-
             byte[] temp = FormatStringLiteral(bytes, unicode, true, false, effectiveSecurityHandler);
             return RawEncoding.GetString(temp, 0, temp.Length);
         }
@@ -204,7 +201,7 @@ namespace PdfSharp.Pdf.Internal
         public static string ToHexStringLiteral(string text, PdfStringEncoding encoding, PdfStandardSecurityHandler? effectiveSecurityHandler)
         {
             if (String.IsNullOrEmpty(text))
-                return "<>";
+                return ToHexStringLiteral([], false, false, effectiveSecurityHandler);
 
             byte[] bytes;
             switch (encoding)
@@ -239,9 +236,6 @@ namespace PdfSharp.Pdf.Internal
         /// </summary>
         public static string ToHexStringLiteral(byte[]? bytes, bool unicode, bool prefix, PdfStandardSecurityHandler? securityHandler)
         {
-            if (bytes == null || bytes.Length == 0)
-                return "<>";
-
             byte[] agTemp = FormatStringLiteral(bytes, unicode, prefix, true, securityHandler);
             return RawEncoding.GetString(agTemp, 0, agTemp.Length);
         }
@@ -257,20 +251,11 @@ namespace PdfSharp.Pdf.Internal
         /// <returns>The PDF bytes.</returns>
         public static byte[] FormatStringLiteral(byte[]? bytes, bool unicode, bool prefix, bool hex, PdfStandardSecurityHandler? effectiveSecurityHandler)
         {
-            if (bytes == null || bytes.Length == 0)
-            {
-                byte[] result = hex ? [(byte)'<', (byte)'>'] : [(byte)'(', (byte)')'];
-
-                byte[] test = hex ? "<>"u8.ToArray() : "()"u8.ToArray();
-                Debug.Assert(result == test);
-
-                return result;
-            }
-
+            bytes ??= [];
             Debug.Assert(!unicode || bytes.Length % 2 == 0, "Odd number of bytes in Unicode string.");
 
             // Add unicode BOM, if needed.
-            if (unicode && prefix)
+            if (unicode && prefix && bytes.Length > 0)
             {
                 var bytes2 = new byte[bytes.Length + 2];
                 // Add BOM.
@@ -288,6 +273,10 @@ namespace PdfSharp.Pdf.Internal
                 effectiveSecurityHandler.EncryptString(ref bytes);
                 encrypted = true;
             }
+
+            // An empty string stays empty unless encryption made it longer, as AES does.
+            if (bytes.Length == 0)
+                return hex ? "<>"u8.ToArray() : "()"u8.ToArray();
 
             var count = bytes.Length;
             var pdf = new StringBuilder();

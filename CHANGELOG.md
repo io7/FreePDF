@@ -1,5 +1,15 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Empty streams and strings in an AES-encrypted document (AES-128 or AES-256)
+  are encrypted like any other data: an initialization vector and a padding
+  block, 32 bytes. They were written empty and unencrypted, which pyHanko could
+  not read ("Invalid IV size (0)"), for example a form XObject or a signature
+  appearance that draws nothing. This applies to new documents, `Modify` and
+  `Append` mode; RC4 leaves empty data empty, and empty data written by other
+  tools still reads as empty.
+
 ## 7.5.0
 
 - Saving a document opened with `Append` refuses changes that its signatures do
