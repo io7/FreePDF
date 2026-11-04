@@ -12,6 +12,14 @@
   before. `Save(path)` in `Append` mode now saves in memory first, so a refused
   or failed save leaves the file as it was, also when it is the file the
   document was opened from.
+- Encrypted documents can be opened with `Append` (with the owner password, or
+  the user password and `AllowModifyWithoutOwnerPassword`, as in `Modify`). The
+  update keeps the file's encryption: its objects are encrypted with the file's
+  key, the trailer keeps `/Encrypt` and the first `/ID`, and a signature's
+  `/Contents` stays unencrypted. Changing or removing the encryption is refused.
+- An update raises the catalog's `/Version` only when changes made after opening
+  need it; an AES-256 file whose header says 1.7 got `/Version 2.0` on every
+  update.
 
 ## 7.4.0
 

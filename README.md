@@ -100,8 +100,9 @@ new and changed objects after it, as an incremental update. The signatures
 already in the file stay valid, and a new signature covers the whole file,
 earlier signatures included. A document with no changes is saved as it was.
 A change that a certification signature or a field lock does not permit is
-refused before anything is written. Encrypted documents cannot be opened in
-`Append` mode yet. See
+refused before anything is written. An encrypted document (opened with its
+owner password) keeps its encryption, and the update is encrypted the same way.
+See
 [Signed documents](docs/migrating-to-7.md#signed-documents).
 
 ## Project status
