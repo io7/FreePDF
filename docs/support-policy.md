@@ -51,7 +51,8 @@ still verifies. The release checks also validated signed, filled and
 countersigned files with poppler's pdfsig and pyHanko (whose difference analysis
 rated the changes as signing and form filling), countersigned a file that pyHanko
 had signed, and saved each of 2,930 veraPDF and producer files unchanged (same
-bytes) and with one change (only the changed objects written). Encrypted
+bytes) and with one change (only the changed objects written) before the 7.4.0
+release. Encrypted
 documents are refused, and certification signature permissions (DocMDP) are not
 checked.
 
@@ -79,7 +80,7 @@ PDF-format operations and checksums, never as the recommended signature digest.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 encrypted documents, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
-script shaping are not promised in 7.3. Placeholder inherited types are not
+script shaping are not promised in 7.4. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security

@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.4.0
 
 - `PdfDocumentOpenMode.Append` opens a document so that saving it writes an
   incremental update: the original bytes unchanged, then only the new and
@@ -17,6 +17,8 @@
   not changed, and signature validators count it as an unexplained change.
 - Pages of a document opened with `Append` get no transparency group (`/Group`)
   added when saved; other documents keep getting one, as before.
+
+## 7.3.0
 
 - Saved documents name FreePDF as the application that wrote them. The
   Producer is now `FreePDF 7.x.y+<commit>` and the default Creator

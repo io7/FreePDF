@@ -175,7 +175,7 @@ that page, which also comes along when you split. Since 7.3, `AppendPages` and
 
 PDFsharp 6.2.4 always writes a new file, so saving a signed document after any
 change breaks its signatures, and a signed document cannot be signed a second
-time. FreePDF adds `PdfDocumentOpenMode.Append` for this:
+time. Since 7.4, FreePDF has `PdfDocumentOpenMode.Append` for this:
 
 ```csharp
 using var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append);
