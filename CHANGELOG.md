@@ -12,6 +12,23 @@
 - A new signature field's widget gets the annotation flags Print and Locked
   (`/F 132`). They were written as field flags (`/Ff 132`), so the signature's
   appearance was not printed.
+- An `Append`-mode update no longer writes the values a page inherits from the
+  page tree (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) into the pages it
+  updates, for example when a signature or a comment is added. Opening a
+  document copies these values onto its pages; writing them changed the page's
+  keys, and pyHanko then judged the earlier signatures invalid ("Dict keys
+  differ"). Values the application changes are still written. Saving 15 of
+  2,950 corpus files with a change on the first page wrote such keys in 7.4.0.
+- Drawing on a page whose inherited `/Resources` is a direct dictionary threw
+  `NullReferenceException` in `Modify` and `Append` mode; the copy on the page
+  now belongs to the document.
+- Saving no longer adds a `/Dest` to bookmarks that lead to their page through
+  a GoTo action (`/A`); ISO 32000-1 permits only one of the two. A bookmark keeps
+  its action while its destination is as read from the file. Setting a new
+  `DestinationPage`, view or position writes a `/Dest` and removes the action
+  read from the file, whatever kind of action it was. An action the application
+  puts into `/A` is kept and the bookmark gets no `/Dest`; a bookmark whose
+  action the application removed gets a `/Dest` to its page.
 
 ## 7.4.0
 
