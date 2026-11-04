@@ -270,20 +270,37 @@ namespace PdfSharp.Pdf.Security
             if (pdfObject is not PdfDictionary pdfDictionary)
                 return false;
 
-            // Incrementally updated PDFs contain multiple trailers. Check the SecurityHandler of each one.
+            // Incrementally updated PDFs contain multiple trailers. Check the /Encrypt entry of each one by object
+            // number: reading it as a security handler converts the dictionary, and a second trailer naming the same
+            // dictionary would then convert a dictionary whose content the first conversion already took. An update
+            // can reuse the number of an older encryption dictionary for an ordinary object, so a number named only
+            // by an older trailer counts if the object is an encryption dictionary.
             var currentTrailer = Document.Trailer;
+            bool newest = true;
             while (currentTrailer != null)
             {
-                // Compare PdfReference, as currentTrailer.SecurityHandler contains the dictionary converted to PdfStandardSecurityHandler,
-                // while document.IrefTable.AllReferences still references the original PdfDictionary.
-                if (pdfDictionary.Reference == currentTrailer.SecurityHandler.Reference)
+                if (NamesEncryptionDictionary(currentTrailer, pdfDictionary) && (newest || IsEncryptionDictionary(pdfDictionary)))
                     return true;
 
+                newest = false;
                 currentTrailer = currentTrailer.PreviousTrailer;
             }
 
             return false;
         }
+
+        static bool NamesEncryptionDictionary(PdfTrailer trailer, PdfDictionary dictionary)
+        {
+            var encrypt = trailer.Elements[PdfTrailer.Keys.Encrypt];
+            if (encrypt is PdfReference reference && dictionary.Reference != null && reference.ObjectID == dictionary.ObjectID)
+                return true;
+            return ReferenceEquals(encrypt, dictionary);
+        }
+
+        // ISO 32000-1 Tables 20 and 21: an encryption dictionary has a /Filter, and the standard one /O and /U.
+        static bool IsEncryptionDictionary(PdfDictionary dictionary)
+            => dictionary.Elements.ContainsKey(PdfSecurityHandler.Keys.Filter)
+               && dictionary.Elements.ContainsKey(Keys.O) && dictionary.Elements.ContainsKey(Keys.U);
 
         /// <summary>
         /// Decrypts an indirect PdfObject.
