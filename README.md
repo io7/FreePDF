@@ -103,6 +103,9 @@ A change that a certification signature or a field lock does not permit is
 refused before anything is written. An encrypted document (opened with its
 owner password, or its user password and `AllowModifyWithoutOwnerPassword`)
 keeps its encryption, and the update is encrypted the same way.
+To sign a form's empty "sign here" field instead of adding a new one, set
+`FieldName = "Approval"` in the `DigitalSignatureOptions`; its lock and required
+seed values are honoured.
 See
 [Signed documents](docs/migrating-to-7.md#signed-documents).
 

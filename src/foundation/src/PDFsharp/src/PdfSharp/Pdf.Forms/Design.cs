@@ -1215,6 +1215,30 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// Draws the appearance of a signature in a widget of an existing signature field. The widget gets a new
+        /// appearance dictionary with only a normal appearance, so a "sign here" rollover or down appearance it had
+        /// does not show over the signature. A widget without area (an invisible signature) gets none.
+        /// </summary>
+        internal static void RenderSignedAppearance(PdfDictionary widget, IAnnotationAppearanceHandler handler)
+        {
+            var rect = widget.Elements.GetRectangle(PdfAnnotation.Keys.Rect);
+            if (rect == null || rect.Width <= 0 || rect.Height <= 0)
+                return;
+
+            var form = new XForm(widget.Owner, rect.Size);
+            var gfx = XGraphics.FromForm(form);
+            handler.DrawAppearance(gfx, rect.ToXRect());
+            form.DrawingFinished();
+
+            var appearance = new PdfDictionary(widget.Owner);
+            appearance.Elements["/N"] = form.PdfForm.RequiredReference;
+            widget.Elements[PdfAnnotation.Keys.AP] = appearance;
+
+            // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
+            form.PdfRenderer?.Close();
+        }
+
+        /// <summary>
         /// Predefined keys of this dictionary.
         /// </summary>
         public new class Keys : PdfFormTextFieldBase.Keys
