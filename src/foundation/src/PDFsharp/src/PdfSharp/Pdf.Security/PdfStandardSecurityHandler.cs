@@ -886,8 +886,30 @@ namespace PdfSharp.Pdf.Security
         /// </summary>
         public void ResetCryptFilter(PdfDictionary dictionary)
         {
-            dictionary.Elements.ArrayOrSingleItem.Remove<PdfName>(PdfStream.Keys.Filter, CryptFilterConstants.FilterValue);
-            dictionary.Elements.ArrayOrSingleItem.Remove(PdfStream.Keys.DecodeParms, CryptFilterConstants.DecodeParmsPredicate);
+            var filters = FilterItems(dictionary.Elements[PdfStream.Keys.Filter]);
+            var parameters = FilterItems(dictionary.Elements[PdfStream.Keys.DecodeParms]);
+            if (!filters.Any(IsCryptFilter) && !parameters.Any(IsCryptFilterParms))
+                return;
+
+            // /Crypt and its parameters go; the other filters keep theirs, also when an earlier version wrote the
+            // crypt filter's parameters as a lone dictionary or at the end of the array.
+            var keptFilters = new List<PdfItem>();
+            var keptParameters = new List<PdfItem>();
+            var aligned = parameters.Count == filters.Count;
+            for (var index = 0; index < filters.Count; index++)
+            {
+                if (IsCryptFilter(filters[index]))
+                    continue;
+                keptFilters.Add(filters[index]);
+                if (aligned)
+                    keptParameters.Add(parameters[index]);
+            }
+            if (!aligned)
+            {
+                var others = parameters.Where(item => !IsCryptFilterParms(item)).ToList();
+                keptParameters = others.Count == keptFilters.Count ? others : keptFilters.Select(_ => (PdfItem)PdfNull.Value).ToList();
+            }
+            WriteFilters(dictionary, keptFilters, keptParameters);
         }
 
         void ResetCryptFilterEntriesInAllElements()
@@ -933,34 +955,85 @@ namespace PdfSharp.Pdf.Security
             // The crypt filter comes first (ISO 32000-1 7.4.10), and /DecodeParms holds one entry per filter
             // (Table 5): the other filters keep their parameters, with null where they have none. The parameters
             // were appended instead, so a compressed stream got a lone dictionary next to two filters.
-            var filters = Items(dictionary.Elements[PdfStream.Keys.Filter]);
-            if (filters.Count == 0)
-            {
-                dictionary.Elements[PdfStream.Keys.Filter] = new PdfName(CryptFilterConstants.FilterValue);
-                dictionary.Elements[PdfStream.Keys.DecodeParms] = decodeParams;
-                return;
-            }
-            var parameters = Items(dictionary.Elements[PdfStream.Keys.DecodeParms]);
-            var filterArray = new PdfArray(dictionary.Document, new PdfName(CryptFilterConstants.FilterValue));
-            var parameterArray = new PdfArray(dictionary.Document, decodeParams);
+            var filters = FilterItems(dictionary.Elements[PdfStream.Keys.Filter]);
+            var parameters = FilterItems(dictionary.Elements[PdfStream.Keys.DecodeParms]);
+            var allFilters = new List<PdfItem> { new PdfName(CryptFilterConstants.FilterValue) };
+            var allParameters = new List<PdfItem> { decodeParams };
             for (var index = 0; index < filters.Count; index++)
             {
-                filterArray.Elements.Add(filters[index]);
-                parameterArray.Elements.Add(index < parameters.Count && parameters.Count == filters.Count ? parameters[index] : PdfNull.Value);
+                allFilters.Add(filters[index]);
+                allParameters.Add(parameters.Count == filters.Count ? parameters[index] : PdfNull.Value);
             }
-            dictionary.Elements[PdfStream.Keys.Filter] = filterArray;
-            dictionary.Elements[PdfStream.Keys.DecodeParms] = parameterArray;
+            WriteFilters(dictionary, allFilters, allParameters);
+        }
 
-            static List<PdfItem> Items(PdfItem? item)
+        // The entries of /Filter or /DecodeParms: none, one, or the items of an array, read through references.
+        static List<PdfItem> FilterItems(PdfItem? item)
+        {
+            if (item is PdfReference reference)
+                item = reference.Value;
+            return item switch
             {
-                if (item is PdfReference reference)
-                    item = reference.Value;
-                return item switch
-                {
-                    null or PdfNull or PdfNullObject => [],
-                    PdfArray array => array.Elements.ToList(),
-                    _ => [item]
-                };
+                null or PdfNull or PdfNullObject => [],
+                PdfArray array => array.Elements.ToList(),
+                _ => [item]
+            };
+        }
+
+        static bool IsCryptFilter(PdfItem filter) => FilterName(filter) is PdfName { Value: CryptFilterConstants.FilterValue };
+
+        static bool IsCryptFilterParms(PdfItem parameters)
+        {
+            if (parameters is PdfReference reference)
+                parameters = reference.Value;
+            return parameters is PdfDictionary dictionary && CryptFilterConstants.DecodeParmsPredicate(dictionary);
+        }
+
+        // A filter name held as an indirect object is written as a name, which every reader takes.
+        static PdfItem FilterName(PdfItem item)
+        {
+            if (item is PdfReference reference)
+                item = reference.Value;
+            return item is PdfNameObject name ? new PdfName(name.Value) : item;
+        }
+
+        /// <summary>
+        /// Writes /Filter and /DecodeParms: a single filter as a name with its parameters, several as arrays of the
+        /// same length, and no /DecodeParms when no filter has parameters. Direct parameter dictionaries belong to the
+        /// container they came from and are copied; indirect ones stay references.
+        /// </summary>
+        static void WriteFilters(PdfDictionary dictionary, List<PdfItem> filters, List<PdfItem> parameters)
+        {
+            var hasParameters = parameters.Any(item => item is not (PdfNull or PdfNullObject));
+            dictionary.Elements.Remove(PdfStream.Keys.Filter);
+            dictionary.Elements.Remove(PdfStream.Keys.DecodeParms);
+            if (filters.Count == 0)
+                return;
+            if (filters.Count == 1)
+            {
+                dictionary.Elements[PdfStream.Keys.Filter] = FilterName(filters[0]);
+                if (hasParameters)
+                    dictionary.Elements[PdfStream.Keys.DecodeParms] = Detached(parameters[0]);
+                return;
+            }
+            var filterArray = new PdfArray(dictionary.Document);
+            dictionary.Elements[PdfStream.Keys.Filter] = filterArray;
+            foreach (var filter in filters)
+                filterArray.Elements.Add(FilterName(filter));
+            if (!hasParameters)
+                return;
+            var parameterArray = new PdfArray(dictionary.Document);
+            dictionary.Elements[PdfStream.Keys.DecodeParms] = parameterArray;
+            foreach (var item in parameters)
+                parameterArray.Elements.Add(Detached(item));
+
+            PdfItem Detached(PdfItem item)
+            {
+                if (item is not PdfObject { IsIndirect: false } direct || direct.ParentInfo == null)
+                    return item;
+                var copy = direct.Clone();
+                copy.Document = dictionary.Owner;
+                return copy;
             }
         }
 
