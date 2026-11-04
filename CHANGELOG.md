@@ -3,15 +3,20 @@
 ## Unreleased
 
 - Saving a document opened with `Append` refuses changes that its signatures do
-  not permit, with `InvalidOperationException` before anything is written: a
-  certification signature's DocMDP permission (P=1 no changes; P=2 filling in
-  fields, signing and the document information; P=3 also annotations), fields
-  locked by FieldMDP or a signature field's `/Lock`, and a `/Lock` with `/P`.
-  Page content, pages, bookmarks and other catalog entries cannot change in a
-  certified document. Documents without a certification or locks are saved as
-  before. `Save(path)` in `Append` mode now saves in memory first, so a refused
-  or failed save leaves the file as it was, also when it is the file the
-  document was opened from.
+  not permit, with `InvalidOperationException` before anything is written:
+  changes to signed signature fields and to fields locked by FieldMDP or a
+  signature field's `/Lock` (the field, the fields above it, its widget and what
+  they refer to, also removing or moving them), and what a certification
+  signature's DocMDP permission or a `/Lock` with `/P` does not permit (P=1 no
+  changes; P=2 filling in fields, signing and the document information; P=3 also
+  annotations). Page content, pages, bookmarks and other catalog entries cannot
+  change in a certified document. Without a certification, everything but
+  signed and locked fields can change, as before. `Save(path)` in `Append` mode
+  opens the file first, saves in memory and replaces the file through a
+  temporary one, so a refused or failed save leaves the file as it was, also
+  when it is the file the document was opened from.
+- An `Append`-mode update no longer adds `/PageMode /UseOutlines` to the catalog
+  of a document with bookmarks; it changed the catalog, which validators report.
 - Encrypted documents can be opened with `Append` (with the owner password, or
   the user password and `AllowModifyWithoutOwnerPassword`, as in `Modify`). The
   update keeps the file's encryption: its objects are encrypted with the file's
@@ -20,6 +25,41 @@
 - An update raises the catalog's `/Version` only when changes made after opening
   need it; an AES-256 file whose header says 1.7 got `/Version 2.0` on every
   update.
+
+## 7.4.1
+
+- Encrypted files with an incremental update whose trailer names the encryption
+  dictionary again, as Acrobat and pyHanko write them (a signed encrypted PDF,
+  for example), can be opened. `Import` and `Modify` failed with
+  `InvalidOperationException` ("This dictionary cannot be used anymore", "TODO:
+  REPORT A BUG" or "Indirect reference without value").
+- Selecting an option of a combo box or a single-selection list box no longer
+  adds the selected index (`/I`); ISO 32000-1 says it should not be used for such
+  fields. Adding it changed the field's keys, and pyHanko judged a signature on
+  the form invalid after a choice field was filled. `/I` is still written for
+  multiple-selection lists, when options share an export value (the index then
+  identifies the option, and `SelectedIndex` reads it), and when the field
+  already has one.
+- A new signature field's widget gets the annotation flags Print and Locked
+  (`/F 132`). They were written as field flags (`/Ff 132`), so the signature's
+  appearance was not printed.
+- An `Append`-mode update no longer writes the values a page inherits from the
+  page tree (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) into the pages it
+  updates, for example when a signature or a comment is added. Opening a
+  document copies these values onto its pages; writing them changed the page's
+  keys, and pyHanko then judged the earlier signatures invalid ("Dict keys
+  differ"). Values the application changes are still written. Saving 15 of
+  2,950 corpus files with a change on the first page wrote such keys in 7.4.0.
+- Drawing on a page whose inherited `/Resources` is a direct dictionary threw
+  `NullReferenceException` in `Modify` and `Append` mode; the copy on the page
+  now belongs to the document.
+- Saving no longer adds a `/Dest` to bookmarks that lead to their page through
+  a GoTo action (`/A`); ISO 32000-1 permits only one of the two. A bookmark keeps
+  its action while its destination is as read from the file. Setting a new
+  `DestinationPage`, view or position writes a `/Dest` and removes the action
+  read from the file, whatever kind of action it was. An action the application
+  puts into `/A` is kept and the bookmark gets no `/Dest`; a bookmark whose
+  action the application removed gets a `/Dest` to its page.
 
 ## 7.4.0
 

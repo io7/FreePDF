@@ -59,9 +59,68 @@ namespace PdfSharp.Pdf.IO
         internal string? Password { get; set; }
 
         /// <summary>
+        /// Gets the inheritable attributes (ISO 32000-1 Table 30) each page of the tree has itself. Call before the
+        /// page tree is prepared, which copies the values a page inherits onto it.
+        /// </summary>
+        internal static Dictionary<PdfObjectID, HashSet<string>> OwnPageAttributes(PdfDictionary pageTreeRoot)
+        {
+            var result = new Dictionary<PdfObjectID, HashSet<string>>();
+            // A loop in the tree passes through a reference, so indirect nodes are enough to stop it.
+            var visited = new HashSet<PdfObjectID>();
+            var pending = new Stack<PdfDictionary>();
+            pending.Push(pageTreeRoot);
+            while (pending.Count > 0)
+            {
+                var node = pending.Pop();
+                if (node.Reference != null && !visited.Add(node.ObjectID))
+                    continue;
+                if (Resolve(node.Elements[PdfPages.Keys.Kids]) is PdfArray kids)
+                {
+                    foreach (var kid in kids.Elements)
+                    {
+                        if (Resolve(kid) is PdfDictionary child)
+                            pending.Push(child);
+                    }
+                }
+                else if (node.Reference != null)
+                {
+                    result[node.ObjectID] = new HashSet<string>(InheritablePageAttributes.Where(node.Elements.ContainsKey), StringComparer.Ordinal);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Records the values that opening put onto each page of the file without the page having them: those
+        /// copied from the page tree, and the US Letter media box a page without any gets. A value that cannot be
+        /// written is not recorded, so it is written as before.
+        /// </summary>
+        internal void RecordInheritedPageValues(PdfDocument document, Dictionary<PdfObjectID, HashSet<string>> ownAttributes)
+        {
+            foreach (var pair in ownAttributes)
+            {
+                if (document.IrefTable[pair.Key]?.Value is not PdfDictionary page)
+                    continue;
+                foreach (var key in InheritablePageAttributes)
+                {
+                    if (pair.Value.Contains(key) || page.Elements[key] is not { } item || TryHashItem(document, item) is not { } hash)
+                        continue;
+                    if (!_inheritedPageValues.TryGetValue(pair.Key, out var values))
+                        _inheritedPageValues[pair.Key] = values = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                    values[key] = hash;
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
+
+        /// <summary>
+        /// Gets the length of the original file, which an update starts with.
+        /// </summary>
+        internal int OriginalLength => _original.Length;
 
         /// <summary>
         /// Records whether the document information was changed since the file was opened. Call before
@@ -168,7 +227,7 @@ namespace PdfSharp.Pdf.IO
             {
                 iref.Position = writer.Position;
                 handler?.EnterObject(iref.ObjectID);
-                iref.Value.WriteObject(writer);
+                WriteWithoutInheritedValues(document, writer, iref);
             }
             handler?.LeaveObject();
 
@@ -184,6 +243,39 @@ namespace PdfSharp.Pdf.IO
                 WriteCrossReferenceStream(document, writer, entries, highest + 1);
             else
                 WriteCrossReferenceTable(document, writer, entries, highest);
+        }
+
+        /// <summary>
+        /// Writes an object. A page leaves out the values it inherits and that were copied onto it when the file was
+        /// opened, unless they changed since: they still apply by inheritance, and writing them would change the
+        /// page's keys, which signature validators count as a change to the page.
+        /// </summary>
+        void WriteWithoutInheritedValues(PdfDocument document, PdfWriter writer, PdfReference iref)
+        {
+            var value = iref.Value;
+            if (!_inheritedPageValues.TryGetValue(iref.ObjectID, out var inherited) || value is not PdfDictionary page)
+            {
+                value.WriteObject(writer);
+                return;
+            }
+            var omitted = new List<KeyValuePair<string, PdfItem>>();
+            foreach (var pair in inherited)
+            {
+                if (page.Elements[pair.Key] is { } item && TryHashItem(document, item) is { } hash && Same(pair.Value, hash))
+                {
+                    omitted.Add(new KeyValuePair<string, PdfItem>(pair.Key, item));
+                    page.Elements.Remove(pair.Key);
+                }
+            }
+            try
+            {
+                page.WriteObject(writer);
+            }
+            finally
+            {
+                foreach (var pair in omitted)
+                    page.Elements[pair.Key] = pair.Value;
+            }
         }
 
         void WriteCrossReferenceTable(PdfDocument document, PdfWriter writer, List<Entry> entries, int highest)
@@ -306,6 +398,28 @@ namespace PdfSharp.Pdf.IO
                 yield return run;
         }
 
+        // ISO 32000-1 Table 30: the page attributes a page inherits from the page tree.
+        static readonly string[] InheritablePageAttributes = ["/Resources", "/MediaBox", "/CropBox", "/Rotate"];
+
+        static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
+
+        // A hash of an item as it is written, in compact layout; null when it cannot be written.
+        static byte[]? TryHashItem(PdfDocument document, PdfItem item)
+        {
+            try
+            {
+                using var buffer = new MemoryStream();
+                var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
+                item.WriteObject(writer);
+                using var sha = SHA256.Create();
+                return sha.ComputeHash(buffer.GetBuffer(), 0, (int)buffer.Length);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return null;
+            }
+        }
+
         // The object as WriteObject writes it, in compact layout so that layout comments cannot differ.
         static byte[] Hash(PdfDocument document, PdfObject value)
         {
@@ -349,6 +463,7 @@ namespace PdfSharp.Pdf.IO
         readonly int _size;
         readonly int _headerVersion;
         readonly Dictionary<PdfObjectID, byte[]?> _hashes = new();
+        readonly Dictionary<PdfObjectID, Dictionary<string, byte[]>> _inheritedPageValues = new();
         byte[]? _directInfoHash;
         string? _originalModificationDate;
         int _versionAtOpen;

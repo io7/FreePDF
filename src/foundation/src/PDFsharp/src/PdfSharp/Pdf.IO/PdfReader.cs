@@ -483,6 +483,7 @@ namespace PdfSharp.Pdf.IO
                 var pages = _document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Pages);
                 if (pages == null || (pages.GetType() != typeof(PdfDictionary) && pages is not PdfPages))
                     throw new PdfReaderException("The document catalog has no page tree (/Pages).");
+                Dictionary<PdfObjectID, HashSet<string>>? ownPageAttributes = null;
 
 #if DEBUG_ // TODO_OLD: Delete or rewrite.
                 // Some tests...
@@ -528,6 +529,9 @@ namespace PdfSharp.Pdf.IO
                 }
                 else if (openMode == PdfDocumentOpenMode.Append)
                 {
+                    // Preparing the page tree copies inherited values onto the pages; record what they have first.
+                    ownPageAttributes = PdfIncrementalUpdate.OwnPageAttributes(pages);
+
                     // Keep object numbers, identifiers and unreachable objects: unchanged objects stay where they
                     // are in the file. A flat page tree can take new pages as in Modify mode; a nested one is kept.
                     if (_document.Pages.HasOnlyPageKids())
@@ -561,6 +565,7 @@ namespace PdfSharp.Pdf.IO
                     _document.IncrementalUpdate.Encrypted = effectiveSecurityHandler != null;
                     _document.IncrementalUpdate.Password = password;
                     _document.IncrementalUpdate.Permissions = PdfModificationPermissions.Read(_document);
+                    _document.IncrementalUpdate.RecordInheritedPageValues(_document, ownPageAttributes!);
                 }
 
             }
