@@ -1,5 +1,25 @@
 # FreePDF changelog
 
+## Unreleased
+
+- A list box that allows several selected options, whose value is an array
+  (ISO 32000-1 Table 231), made `SelectedValue`, `SelectedIndex` and
+  `Flatten()` throw. All selected options are read now: `SelectedValue` and
+  `SelectedIndex` report the first, and the drawn list box highlights each.
+- Stream filters and parameters are decoded in every form ISO 32000-1 7.3.8
+  allows: a null `/DecodeParms` entry means no parameters, a filter name or its
+  parameters may be indirect objects, and a single filter may have its
+  parameters in a one-element array (and the other way round). A `/Crypt` filter
+  passes the data on, as it was decrypted when the file was read; decoding threw
+  "Filter not implemented: Crypt", for example for FreePDF's own document
+  metadata with `EncryptMetadata` false.
+- With `EncryptMetadata` false, only the document's own metadata stream stays
+  unencrypted, as ISO 32000-1 Table 20 specifies. FreePDF wrote every metadata
+  stream that held XML unencrypted, which pyHanko could not read; reading still
+  accepts unencrypted metadata anywhere. Saving a document without metadata no
+  longer adds a `/Metadata` dictionary that holds only the crypt filter and no
+  stream.
+
 ## 7.6.0
 
 - `DigitalSignatureOptions.FieldName` signs an existing, empty signature field,
