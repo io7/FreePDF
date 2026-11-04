@@ -101,15 +101,16 @@ public class EncryptedMetadataDetectionTests
         Assert.True(misread == 0, $"{misread} of {count} encrypted metadata streams were not decrypted");
     }
 
-    // Metadata that FreePDF leaves unencrypted, compressed or not, is still recognised as such, also with
-    // non-ASCII text (UTF-8) at its start.
+    // EncryptMetadata false exempts only the document's metadata (ISO 32000-1 Table 20). FreePDF wrote every metadata
+    // stream that held XML unencrypted, which pyHanko could not read; since 7.6.1 the others are encrypted, and they
+    // read back the same, compressed or not, also with non-ASCII text (UTF-8) at their start.
     [Theory]
     [InlineData("V4-RC4", false, false)]
     [InlineData("AES-256", false, false)]
     [InlineData("AES-256", true, false)]
     [InlineData("V4-RC4", false, true)]
     [InlineData("V4-RC4", true, true)]
-    public void Unencrypted_metadata_stays_unencrypted(string kind, bool compressed, bool nonAscii)
+    public void Metadata_other_than_the_documents_is_encrypted(string kind, bool compressed, bool nonAscii)
     {
         var content = Encoding.UTF8.GetBytes(nonAscii ? "<!-- Créé par Ærø -->" + Xmp : Xmp);
         byte[] file;
@@ -122,8 +123,63 @@ public class EncryptedMetadataDetectionTests
             file = Save(document);
         }
 
-        Assert.Equal(TestPdf.Latin1.GetString(written), EncryptedEmptyDataTests.RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata"));
+        Assert.NotEqual(TestPdf.Latin1.GetString(written), EncryptedEmptyDataTests.RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata"));
         using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
         Assert.Equal(content, reopened.Catalog.Elements.GetDictionary("/OtherMetadata")!.Stream!.UnfilteredValue);
+    }
+
+    // The document's own metadata stays unencrypted, also with non-ASCII text.
+    [Theory]
+    [InlineData("V4-RC4")]
+    [InlineData("AES-256")]
+    public void The_documents_metadata_stays_unencrypted(string kind)
+    {
+        const string text = "<!-- Créé par Ærø -->";
+        byte[] file;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            document.Catalog.GetOrCreateMetadata().SetMetadata(Xmp.Replace("<x:xmpmeta", text + "<x:xmpmeta"));
+            Encrypt(document, kind);
+            file = Save(document);
+        }
+
+        var utf8 = TestPdf.Latin1.GetString(Encoding.UTF8.GetBytes(text));
+        Assert.Contains(utf8, TestPdf.Latin1.GetString(file));
+        using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
+        Assert.Contains(utf8, TestPdf.Latin1.GetString(reopened.Catalog.Elements.GetDictionary("/Metadata")!.Stream!.UnfilteredValue));
+    }
+
+    // Append mode: the document's metadata that an update writes keeps the Identity crypt filter and stays
+    // unencrypted, a new metadata stream elsewhere is encrypted.
+    [Theory]
+    [InlineData("V4-RC4")]
+    [InlineData("AES-256")]
+    public void An_update_encrypts_only_metadata_other_than_the_documents(string kind)
+    {
+        byte[] original;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            document.Catalog.GetOrCreateMetadata().SetMetadata(Xmp);
+            Encrypt(document, kind);
+            original = Save(document);
+        }
+
+        byte[] result;
+        using (var document = PdfReader.Open(new MemoryStream(original), "owner", PdfDocumentOpenMode.Append))
+        {
+            document.Catalog.GetOrCreateMetadata().SetMetadata(Xmp.Replace("<rdf:RDF", "<updated/><rdf:RDF"));
+            AddStream(document, "/OtherMetadata", "/Metadata", TestPdf.Latin1.GetBytes(Xmp), false);
+            result = Save(document);
+        }
+
+        Assert.Equal(original, result.Take(original.Length).ToArray());
+        var update = TestPdf.Latin1.GetString(result, original.Length, result.Length - original.Length);
+        Assert.Contains("<updated/>", update);
+        Assert.NotEqual(Xmp, EncryptedEmptyDataTests.RawStream(update, "/OtherMetadata"));
+        using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
+        Assert.Contains("<updated/>", TestPdf.Latin1.GetString(reopened.Catalog.Elements.GetDictionary("/Metadata")!.Stream!.UnfilteredValue));
+        Assert.Equal(Xmp, Read(reopened, "/OtherMetadata"));
     }
 }

@@ -512,7 +512,7 @@ namespace PdfSharp.Pdf.Security
             // Empty data is encrypted too, as in EncryptString.
             if (VersionSupportsCryptFilter())
             {
-                var cryptFilter = GetCryptFilter(dictionary);
+                var cryptFilter = GetCryptFilter(dictionary, writing: true);
                 if (cryptFilter is not null)
                 {
                     if (cryptFilter.EncryptForEnteredObject(ref bytes))
@@ -938,7 +938,14 @@ namespace PdfSharp.Pdf.Security
         /// <summary>
         /// Gets the crypt filter that shall be used to decrypt or encrypt the dictionary.
         /// </summary>
-        public CryptFilterBase? GetCryptFilter(PdfDictionary dictionary)
+        public CryptFilterBase? GetCryptFilter(PdfDictionary dictionary) => GetCryptFilter(dictionary, false);
+
+        /// <summary>
+        /// Gets the crypt filter for the dictionary. With EncryptMetadata false, only the document's metadata stream
+        /// is written unencrypted (ISO 32000-1 Table 20); when reading, any metadata stream that holds plain XML is
+        /// read as it is, because some writers leave them all unencrypted.
+        /// </summary>
+        internal CryptFilterBase? GetCryptFilter(PdfDictionary dictionary, bool writing)
         {
             // The cross-reference stream shall not be encrypted. See Reference PDF 2.0: 7.5.8.2  Cross-reference stream dictionary / Page 80.
             var type = dictionary.Elements.GetName(PdfCrossReferenceStream.Keys.Type);
@@ -991,7 +998,7 @@ namespace PdfSharp.Pdf.Security
             // So if we didn’t find a crypt filter, we check if a metadata dictionary is not encrypted and
             // return the identity crypt filter in that case to avoid decrypting it.
             type = dictionary.Elements.GetName(PdfMetadata.Keys.Type);
-            if (type == "/Metadata" && !GetEncryption().EncryptMetadata && IsPlainMetadata(dictionary))
+            if (type == "/Metadata" && !GetEncryption().EncryptMetadata && (writing ? IsDocumentMetadata(dictionary) : IsPlainMetadata(dictionary)))
                 return IdentityCryptFilter.Instance;
 
             if (PdfEmbeddedFileStream.IsEmbeddedFile(dictionary))
@@ -999,6 +1006,15 @@ namespace PdfSharp.Pdf.Security
 
             // Otherwise return the default crypt filter for streams.
             return _defaultCryptFilterStreams;
+        }
+
+        // The catalog's /Metadata: the document-level metadata stream that EncryptMetadata false exempts.
+        static bool IsDocumentMetadata(PdfDictionary dictionary)
+        {
+            var item = dictionary.Owner?.Catalog.Elements[PdfCatalog.Keys.Metadata];
+            if (item is PdfReference reference)
+                return dictionary.Reference is { } own && own.ObjectID == reference.ObjectID;
+            return ReferenceEquals(item, dictionary);
         }
 
         /// <summary>
