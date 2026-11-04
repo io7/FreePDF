@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.5.1
 
 - Empty streams and strings in an AES-encrypted document (AES-128 or AES-256)
   are encrypted like any other data: an initialization vector and a padding

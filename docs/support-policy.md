@@ -56,7 +56,8 @@ release. Since 7.5.0, encrypted documents keep their encryption: regression test
 and AES-128/256 files made by FreePDF, a form that pyHanko encrypted with AES-256
 and signed was filled in and countersigned by FreePDF with both signatures valid
 in pyHanko and pdfsig, and the 13 encrypted corpus files were saved unchanged
-(same bytes) and with one encrypted change.
+(same bytes) and with one encrypted change. Since 7.5.1, empty streams and strings in AES-encrypted
+documents are encrypted too (32 bytes), so pyHanko can read them.
 
 Since 7.5.0, an Append-mode save refuses changes to signed signature fields and to fields a
 signature locks (FieldMDP, `/Lock`), and changes a certification signature
