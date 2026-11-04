@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Encrypted files with an incremental update whose trailer names the encryption
+  dictionary again, as Acrobat and pyHanko write them (a signed encrypted PDF,
+  for example), can be opened. `Import` and `Modify` failed with
+  `InvalidOperationException` ("This dictionary cannot be used anymore", "TODO:
+  REPORT A BUG" or "Indirect reference without value").
 - Selecting an option of a combo box or a single-selection list box no longer
   adds the selected index (`/I`); ISO 32000-1 says it should not be used for such
   fields. Adding it changed the field's keys, and pyHanko judged a signature on
