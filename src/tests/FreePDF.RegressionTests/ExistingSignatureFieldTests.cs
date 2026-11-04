@@ -21,6 +21,9 @@ namespace FreePDF.RegressionTests;
 
 public class ExistingSignatureFieldTests
 {
+    // The default signature appearance draws text: the test font resolver must be installed before any font is used.
+    public ExistingSignatureFieldTests() => TestFonts.Initialize();
+
     // Objects: 1 catalog, 2 pages, 3 page, 4 AcroForm, 5 text field "name", 6 font, 7 page content, 8 empty signature
     // field "approval" (field and widget in one), 9 empty signature field "witness" with widget 10 that has a "sign
     // here" appearance 12, 11 invisible empty signature field "hidden"; further objects from 13.
