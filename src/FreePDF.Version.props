@@ -1,8 +1,8 @@
 <Project>
   <PropertyGroup>
     <FreePDFVersionMajor>7</FreePDFVersionMajor>
-    <FreePDFVersionMinor>4</FreePDFVersionMinor>
-    <FreePDFVersionPatch>1</FreePDFVersionPatch>
+    <FreePDFVersionMinor>5</FreePDFVersionMinor>
+    <FreePDFVersionPatch>0</FreePDFVersionPatch>
     <FreePDFVersionLabel></FreePDFVersionLabel>
     <SemVer>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch)</SemVer>
     <SemVer Condition="'$(FreePDFVersionLabel)' != ''">$(SemVer)-$(FreePDFVersionLabel)</SemVer>

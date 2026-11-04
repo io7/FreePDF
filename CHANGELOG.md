@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.5.0
 
 - Saving a document opened with `Append` refuses changes that its signatures do
   not permit, with `InvalidOperationException` before anything is written:
