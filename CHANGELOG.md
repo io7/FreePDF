@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.6.1
 
 - A list box that allows several selected options, whose value is an array
   (ISO 32000-1 Table 231), made `SelectedValue`, `SelectedIndex` and
