@@ -172,6 +172,19 @@ public class FormFillingTests
     }
 
     [Fact]
+    public void Setting_the_selected_value_again_keeps_the_option_that_shares_it()
+    {
+        using var document = OpenChoice($"<< /FT /Ch /T (size) /Opt [[(M) (Medium)] [(L) (Large)] [(L) (Large, long)]] /V (L) /I [2] {ChoiceWidget} >>");
+        var size = (PdfFormListBoxField)Fields(document)["size"]!;
+        Assert.Equal(2, size.SelectedIndex);
+
+        size.SelectedValue = size.SelectedValue;
+
+        Assert.Equal(2, size.SelectedIndex);
+        Assert.Equal(2, size.Elements.GetArray("/I")!.Elements.GetInteger(0));
+    }
+
+    [Fact]
     public void Selected_indices_the_field_has_are_kept_up_to_date()
     {
         using var document = OpenChoice($"<< /FT /Ch /T (colour) /Opt [(Red) (Green) (Blue)] /V (Red) /I [0] {ChoiceWidget} >>");

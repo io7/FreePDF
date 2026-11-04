@@ -81,7 +81,11 @@ namespace PdfSharp.Pdf.Forms
                     SelectedIndex = -1;
                     return;
                 }
-                var index = ExportValues.ToList().IndexOf(value);
+                // Of options that share the export value, the one already selected stays selected.
+                var exports = ExportValues.ToList();
+                var index = SelectedIndex;
+                if (index < 0 || exports[index] != value)
+                    index = exports.IndexOf(value);
                 if (index >= 0)
                 {
                     SelectedIndex = index;
