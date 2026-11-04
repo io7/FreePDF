@@ -212,6 +212,11 @@ namespace PdfSharp.Pdf.Security
         string _ownerPassword = "";
 
         /// <summary>
+        /// Gets a value indicating whether a user or owner password was set. Reading a file sets neither.
+        /// </summary>
+        internal bool PasswordsChanged => _userPassword.Length > 0 || _ownerPassword.Length > 0;
+
+        /// <summary>
         /// Gets or sets the user access permission represented as an unsigned 32-bit integer in the P key.
         /// </summary>
         internal PdfUserAccessPermission Permissions

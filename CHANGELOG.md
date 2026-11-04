@@ -17,6 +17,18 @@
   when it is the file the document was opened from.
 - An `Append`-mode update no longer adds `/PageMode /UseOutlines` to the catalog
   of a document with bookmarks; it changed the catalog, which validators report.
+- Encrypted documents can be opened with `Append` (with the owner password, or
+  the user password and `AllowModifyWithoutOwnerPassword`, as in `Modify`). The
+  update keeps the file's encryption: its objects are encrypted with the file's
+  key, the trailer keeps `/Encrypt` and the first `/ID`, and a signature's
+  `/Contents` stays unencrypted. Changing or removing the encryption (also its
+  permissions, also in a trailer that holds the dictionary directly) is refused
+  before the save starts, as is a changed save of a file with a PDF MAC
+  (ISO/TS 32004). A file without `/ID` keeps none, and metadata written in the
+  update of a file with `EncryptMetadata` false gets the Identity crypt filter.
+- An update raises the catalog's `/Version` only when changes made after opening
+  need it; an AES-256 file whose header says 1.7 got `/Version 2.0` on every
+  update.
 
 ## 7.4.1
 

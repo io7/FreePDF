@@ -52,7 +52,11 @@ countersigned files with poppler's pdfsig and pyHanko (whose difference analysis
 rated the changes as signing and form filling), countersigned a file that pyHanko
 had signed, and saved each of 2,930 veraPDF and producer files unchanged (same
 bytes) and with one change (only the changed objects written) before the 7.4.0
-release. Encrypted documents are refused.
+release. Encrypted documents keep their encryption: regression tests cover RC4
+and AES-128/256 files made by FreePDF, a form that pyHanko encrypted with AES-256
+and signed was filled in and countersigned by FreePDF with both signatures valid
+in pyHanko and pdfsig, and the 13 encrypted corpus files were saved unchanged
+(same bytes) and with one encrypted change.
 
 An Append-mode save refuses changes to signed signature fields and to fields a
 signature locks (FieldMDP, `/Lock`), and changes a certification signature
@@ -92,8 +96,8 @@ signature status. No FIPS certification is claimed. MD5 exists only for legacy
 PDF-format operations and checksums, never as the recommended signature digest.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
-encrypted documents, PDF/UA for documents drawn without the layout engine, arbitrary PDF/A conversion and complex
-script shaping are not promised in 7.4. Placeholder inherited types are not
+documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
+layout engine, arbitrary PDF/A conversion and complex script shaping are not promised in 7.4. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security

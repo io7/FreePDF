@@ -40,12 +40,26 @@ namespace PdfSharp.Pdf.IO
             if (document.Trailer.Elements[PdfTrailer.Keys.Info] is PdfDictionary directInfo)
                 _directInfoHash = TryHash(document, directInfo);
             _originalModificationDate = InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString();
+            // The encryption dictionary, whether the trailer refers to it or holds it directly.
+            if (EncryptionDictionary(document) is { } encryption)
+                _encryptionHash = TryHash(document, encryption);
+            _versionAtOpen = document.Version;
         }
 
         /// <summary>
         /// Gets or sets the changes the document's signatures permit; null if they restrict nothing.
         /// </summary>
         internal PdfModificationPermissions? Permissions { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the file is encrypted. Its update is then encrypted the same way.
+        /// </summary>
+        internal bool Encrypted { get; set; }
+
+        /// <summary>
+        /// Gets or sets the password the file was opened with, to read the original again for the permission check.
+        /// </summary>
+        internal string? Password { get; set; }
 
         /// <summary>
         /// Gets the inheritable attributes (ISO 32000-1 Table 30) each page of the tree has itself. Call before the
@@ -102,6 +116,32 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Gets a value indicating whether the encryption dictionary changed since the file was opened, for example
+        /// through new permissions or another encryption. Writing it would make the original part unreadable.
+        /// </summary>
+        internal bool EncryptionChanged(PdfDocument document)
+        {
+            if (!Encrypted)
+                return false;
+            if (EncryptionDictionary(document) is not { } encryption || TryHash(document, encryption) is not { } now)
+                return true;
+            return _encryptionHash == null || !Same(_encryptionHash, now);
+        }
+
+        // An ISO/TS 32004 message authentication code: /AuthCode in the trailer or /KDFSalt in the encryption.
+        bool HasAuthenticationCode(PdfDocument document)
+            => Encrypted && (document.Trailer.Elements.ContainsKey("/AuthCode")
+                             || EncryptionDictionary(document)?.Elements.ContainsKey("/KDFSalt") == true);
+
+        static PdfDictionary? EncryptionDictionary(PdfDocument document)
+        {
+            var item = document.Trailer.Elements[PdfTrailer.Keys.Encrypt];
+            if (item is PdfReference reference)
+                return reference.Value as PdfDictionary;
+            return item as PdfDictionary;
+        }
+
+        /// <summary>
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
@@ -145,9 +185,11 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         internal void Write(PdfDocument document, PdfWriter writer)
         {
-            // The header cannot change in an update. The catalog's /Version raises the version instead.
+            // The header cannot change in an update. The catalog's /Version raises the version instead, when the
+            // changes since the file was opened need a higher one (reading AES-256 encryption, for example, already
+            // makes the document 2.0 without the file needing a new /Version).
             int version = document.Version;
-            if (version > _headerVersion)
+            if (version > _headerVersion && version > _versionAtOpen)
             {
                 var name = Invariant($"/{version / 10}.{version % 10}");
                 if (String.CompareOrdinal(document.Catalog.Elements.GetName(PdfCatalog.Keys.Version), name) < 0)
@@ -197,18 +239,48 @@ namespace PdfSharp.Pdf.IO
                 written.Sort(PdfReference.Comparer);
             }
 
+            // The encryption dictionary of an encrypted file stays as it is: the update is encrypted with it.
+            var handler = writer.EffectiveSecurityHandler;
+            if (handler != null && (written.Any(iref => ReferenceEquals(iref.Value, handler)) || EncryptionChanged(document)))
+                throw new NotSupportedException("The encryption of a document opened with PdfDocumentOpenMode.Append cannot be changed.");
+
+            // An ISO/TS 32004 message authentication code covers the whole file and is made from the file key; an
+            // update cannot extend it, and validators would then report the file as tampered with.
+            if (HasAuthenticationCode(document))
+            {
+                throw new NotSupportedException("This encrypted document carries an integrity code (PDF MAC, ISO/TS 32004) that an " +
+                    "incremental update cannot extend. Open it with PdfDocumentOpenMode.Modify to save it as a new file.");
+            }
+
             // A change the signatures do not permit is refused before anything is written.
-            Permissions?.Check(document, _original, written);
+            Permissions?.Check(document, _original, written, Password);
+
+            // Unencrypted metadata (EncryptMetadata false) needs the Identity crypt filter, as a full save gives it,
+            // or readers decrypt the plain stream.
+            if (handler != null && !handler.GetEncryption().EncryptMetadata)
+            {
+                foreach (var iref in written)
+                {
+                    if (iref.Value is PdfDictionary { Stream: not null } metadata && metadata.Elements.GetName("/Type") == "/Metadata")
+                        handler.SetIdentityCryptFilter(metadata);
+                }
+            }
             stream.Write(_original, 0, _original.Length);
 
             if (_original.Length > 0 && _original[_original.Length - 1] is not ((byte)'\n' or (byte)'\r'))
                 writer.WriteRaw('\n');
 
+            // Each object is encrypted with the key for its number (ISO 32000-1, 7.6.2).
             foreach (var iref in written)
             {
                 iref.Position = writer.Position;
+                handler?.EnterObject(iref.ObjectID);
                 WriteWithoutInheritedValues(document, writer, iref);
             }
+            handler?.LeaveObject();
+
+            // Cross-reference streams and the trailer are not encrypted (ISO 32000-1, 7.6.1).
+            writer.EffectiveSecurityHandler = null;
 
             int highest = Math.Max(_size - 1, document.IrefTable.MaxObjectNumber);
             foreach (var iref in written)
@@ -321,22 +393,26 @@ namespace PdfSharp.Pdf.IO
                 item.WriteObject(writer);
             }
 
-            // The first identifier stays; the second one is new for this revision (ISO 32000-1, 14.4).
-            var second = NewIdentifier();
-            var first = (trailer.Elements.GetArray(PdfTrailer.Keys.ID)?.Elements.Count == 2
-                ? trailer.Elements.GetArray(PdfTrailer.Keys.ID)!.Elements[0] as PdfString
-                : null) ?? NewIdentifier();
+            // The first identifier stays; the second one is new for this revision (ISO 32000-1, 14.4). An encrypted
+            // file without /ID keeps none: RC4 and AES-128 keys are made from the first identifier, which is then
+            // empty, and a new one would make every password fail.
+            var identifiers = trailer.Elements.GetArray(PdfTrailer.Keys.ID);
+            if (identifiers == null && Encrypted)
+                return;
+            PdfString? first = null;
+            if (identifiers?.Elements.Count == 2)
+                first = identifiers.Elements[0] as PdfString;
             writer.WriteRaw(" /ID [");
-            first.WriteObject(writer);
-            second.WriteObject(writer);
+            (first ?? NewIdentifier()).WriteObject(writer);
+            NewIdentifier().WriteObject(writer);
             writer.WriteRaw("]");
         }
 
         // Entries the update writes itself, the previous section's own pointers, and the dictionary entries of a
-        // cross-reference stream that describe that stream (ISO 32000-1, Tables 5 and 17). Encryption is refused.
+        // cross-reference stream that describe that stream (ISO 32000-1, Tables 5 and 17). /Encrypt is carried forward.
         static readonly HashSet<string> NotCarriedForward = new(StringComparer.Ordinal)
         {
-            "/Size", "/Prev", "/XRefStm", "/ID", "/Encrypt",
+            "/Size", "/Prev", "/XRefStm", "/ID",
             "/Type", "/W", "/Index", "/Length", "/Filter", "/DecodeParms", "/F", "/FFilter", "/FDecodeParms", "/DL",
         };
 
@@ -442,6 +518,8 @@ namespace PdfSharp.Pdf.IO
         readonly Dictionary<PdfObjectID, Dictionary<string, byte[]>> _inheritedPageValues = new();
         byte[]? _directInfoHash;
         string? _originalModificationDate;
+        byte[]? _encryptionHash;
+        int _versionAtOpen;
         bool _documentInformationChanged;
     }
 }
