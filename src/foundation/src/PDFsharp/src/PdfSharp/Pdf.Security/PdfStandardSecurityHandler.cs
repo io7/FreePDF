@@ -270,13 +270,16 @@ namespace PdfSharp.Pdf.Security
             if (pdfObject is not PdfDictionary pdfDictionary)
                 return false;
 
-            // Incrementally updated PDFs contain multiple trailers. Check the SecurityHandler of each one.
+            // Incrementally updated PDFs contain multiple trailers. Check the /Encrypt entry of each one by object
+            // number: reading it as a security handler converts the dictionary, and a second trailer naming the same
+            // dictionary would then convert a dictionary whose content the first conversion already took.
             var currentTrailer = Document.Trailer;
             while (currentTrailer != null)
             {
-                // Compare PdfReference, as currentTrailer.SecurityHandler contains the dictionary converted to PdfStandardSecurityHandler,
-                // while document.IrefTable.AllReferences still references the original PdfDictionary.
-                if (pdfDictionary.Reference == currentTrailer.SecurityHandler.Reference)
+                var encrypt = currentTrailer.Elements[PdfTrailer.Keys.Encrypt];
+                if (encrypt is PdfReference reference && pdfDictionary.Reference != null && reference.ObjectID == pdfDictionary.ObjectID)
+                    return true;
+                if (ReferenceEquals(encrypt, pdfDictionary))
                     return true;
 
                 currentTrailer = currentTrailer.PreviousTrailer;

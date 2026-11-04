@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Encrypted files with an incremental update whose trailer names the encryption
+  dictionary again, as Acrobat and pyHanko write them (a signed encrypted PDF,
+  for example), can be opened. Every open mode failed with
+  `InvalidOperationException` ("This dictionary cannot be used anymore" or
+  "TODO: REPORT A BUG").
 - An `Append`-mode update no longer writes the values a page inherits from the
   page tree (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) into the pages it
   updates, for example when a signature or a comment is added. Opening a

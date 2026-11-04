@@ -373,9 +373,14 @@ namespace PdfSharp.Pdf.IO
                         var xrefExisting = _document.IrefTable[xrefEncrypt.ObjectID];
                     }
 #endif
+                    // In an incrementally updated file the newest trailer can name the encryption dictionary before
+                    // the older section that holds it was read, so its reference may be a placeholder. Read the
+                    // dictionary into the table's reference, which the other trailers and FinalizeReferences use.
+                    xrefEncrypt = _document.IrefTable[xrefEncrypt.ObjectID] ?? xrefEncrypt;
                     var encrypt = parser.ReadIndirectObject(xrefEncrypt, null, true);
                     encrypt.Reference = xrefEncrypt;
                     xrefEncrypt.Value = encrypt;
+                    _document.Trailer.Elements[PdfTrailer.Keys.Encrypt] = xrefEncrypt;
 
                     _document.SecurityHandler.PrepareForReading();
                 }
