@@ -43,6 +43,58 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Gets the inheritable attributes (ISO 32000-1 Table 30) each page of the tree has itself. Call before the
+        /// page tree is prepared, which copies the values a page inherits onto it.
+        /// </summary>
+        internal static Dictionary<PdfObjectID, HashSet<string>> OwnPageAttributes(PdfDictionary pageTreeRoot)
+        {
+            var result = new Dictionary<PdfObjectID, HashSet<string>>();
+            // A loop in the tree passes through a reference, so indirect nodes are enough to stop it.
+            var visited = new HashSet<PdfObjectID>();
+            var pending = new Stack<PdfDictionary>();
+            pending.Push(pageTreeRoot);
+            while (pending.Count > 0)
+            {
+                var node = pending.Pop();
+                if (node.Reference != null && !visited.Add(node.ObjectID))
+                    continue;
+                if (Resolve(node.Elements[PdfPages.Keys.Kids]) is PdfArray kids)
+                {
+                    foreach (var kid in kids.Elements)
+                    {
+                        if (Resolve(kid) is PdfDictionary child)
+                            pending.Push(child);
+                    }
+                }
+                else if (node.Reference != null)
+                {
+                    result[node.ObjectID] = new HashSet<string>(InheritablePageAttributes.Where(node.Elements.ContainsKey), StringComparer.Ordinal);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Records the inherited values that preparing the page tree copied onto each page of the file.
+        /// </summary>
+        internal void RecordInheritedPageValues(PdfDocument document, Dictionary<PdfObjectID, HashSet<string>> ownAttributes)
+        {
+            foreach (var pair in ownAttributes)
+            {
+                if (document.IrefTable[pair.Key]?.Value is not PdfDictionary page)
+                    continue;
+                foreach (var key in InheritablePageAttributes)
+                {
+                    if (pair.Value.Contains(key) || page.Elements[key] is not { } item)
+                        continue;
+                    if (!_inheritedPageValues.TryGetValue(pair.Key, out var values))
+                        _inheritedPageValues[pair.Key] = values = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                    values[key] = Serialize(document, item);
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
@@ -138,7 +190,7 @@ namespace PdfSharp.Pdf.IO
             foreach (var iref in written)
             {
                 iref.Position = writer.Position;
-                iref.Value.WriteObject(writer);
+                WriteWithoutInheritedValues(document, writer, iref);
             }
 
             int highest = Math.Max(_size - 1, document.IrefTable.MaxObjectNumber);
@@ -150,6 +202,39 @@ namespace PdfSharp.Pdf.IO
                 WriteCrossReferenceStream(document, writer, entries, highest + 1);
             else
                 WriteCrossReferenceTable(document, writer, entries, highest);
+        }
+
+        /// <summary>
+        /// Writes an object. A page leaves out the values it inherits and that were copied onto it when the file was
+        /// opened, unless they changed since: they still apply by inheritance, and writing them would change the
+        /// page's keys, which signature validators count as a change to the page.
+        /// </summary>
+        void WriteWithoutInheritedValues(PdfDocument document, PdfWriter writer, PdfReference iref)
+        {
+            var value = iref.Value;
+            if (!_inheritedPageValues.TryGetValue(iref.ObjectID, out var inherited) || value is not PdfDictionary page)
+            {
+                value.WriteObject(writer);
+                return;
+            }
+            var omitted = new List<KeyValuePair<string, PdfItem>>();
+            foreach (var pair in inherited)
+            {
+                if (page.Elements[pair.Key] is { } item && Same(pair.Value, Serialize(document, item)))
+                {
+                    omitted.Add(new KeyValuePair<string, PdfItem>(pair.Key, item));
+                    page.Elements.Remove(pair.Key);
+                }
+            }
+            try
+            {
+                page.WriteObject(writer);
+            }
+            finally
+            {
+                foreach (var pair in omitted)
+                    page.Elements[pair.Key] = pair.Value;
+            }
         }
 
         void WriteCrossReferenceTable(PdfDocument document, PdfWriter writer, List<Entry> entries, int highest)
@@ -272,6 +357,20 @@ namespace PdfSharp.Pdf.IO
                 yield return run;
         }
 
+        // ISO 32000-1 Table 30: the page attributes a page inherits from the page tree.
+        static readonly string[] InheritablePageAttributes = ["/Resources", "/MediaBox", "/CropBox", "/Rotate"];
+
+        static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
+
+        // An item as it is written, in compact layout.
+        static byte[] Serialize(PdfDocument document, PdfItem item)
+        {
+            using var buffer = new MemoryStream();
+            var writer = new PdfWriter(buffer, document, null) { Layout = PdfWriterLayout.Compact };
+            item.WriteObject(writer);
+            return buffer.ToArray();
+        }
+
         // The object as WriteObject writes it, in compact layout so that layout comments cannot differ.
         static byte[] Hash(PdfDocument document, PdfObject value)
         {
@@ -315,6 +414,7 @@ namespace PdfSharp.Pdf.IO
         readonly int _size;
         readonly int _headerVersion;
         readonly Dictionary<PdfObjectID, byte[]?> _hashes = new();
+        readonly Dictionary<PdfObjectID, Dictionary<string, byte[]>> _inheritedPageValues = new();
         byte[]? _directInfoHash;
         string? _originalModificationDate;
         bool _documentInformationChanged;

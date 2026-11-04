@@ -907,10 +907,17 @@ namespace PdfSharp.Pdf
 
                 if (resources == null)
                 {
-                    //resources = values.Resources.Clone();
-                    //resources.Document = Owner;
-                    Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources.IsIndirect
-                        ? inheritedValues.Resources.RequiredReference : inheritedValues.Resources.Clone());
+                    if (inheritedValues.Resources.IsIndirect)
+                    {
+                        Elements.Add(InheritablePageKeys.Resources, inheritedValues.Resources.RequiredReference);
+                    }
+                    else
+                    {
+                        // The copy needs the document, or drawing on the page cannot add resources to it.
+                        var copy = inheritedValues.Resources.Clone();
+                        copy.Document = Owner;
+                        Elements.Add(InheritablePageKeys.Resources, copy);
+                    }
                 }
                 else
                 {

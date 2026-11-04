@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## Unreleased
+
+- An `Append`-mode update no longer writes the values a page inherits from the
+  page tree (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) into the pages it
+  updates, for example when a signature or a comment is added. Opening a
+  document copies these values onto its pages; writing them changed the page's
+  keys, and pyHanko then judged the earlier signatures invalid ("Dict keys
+  differ"). Values the application changes are still written. Saving 15 of
+  2,950 corpus files with a change on the first page wrote such keys in 7.4.0.
+- Drawing on a page whose inherited `/Resources` is a direct dictionary threw
+  `NullReferenceException` in `Modify` and `Append` mode; the copy on the page
+  now belongs to the document.
+
 ## 7.4.0
 
 - `PdfDocumentOpenMode.Append` opens a document so that saving it writes an
