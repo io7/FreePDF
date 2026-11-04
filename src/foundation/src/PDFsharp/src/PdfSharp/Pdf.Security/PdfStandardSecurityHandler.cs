@@ -895,7 +895,9 @@ namespace PdfSharp.Pdf.Security
             // crypt filter's parameters as a lone dictionary or at the end of the array.
             var keptFilters = new List<PdfItem>();
             var keptParameters = new List<PdfItem>();
-            var aligned = parameters.Count == filters.Count;
+            // Earlier versions appended the crypt parameters, so arrays of the same length can still be misaligned.
+            var aligned = parameters.Count == filters.Count
+                && !Enumerable.Range(0, filters.Count).Any(index => IsCryptFilterParms(parameters[index]) && !IsCryptFilter(filters[index]));
             for (var index = 0; index < filters.Count; index++)
             {
                 if (IsCryptFilter(filters[index]))

@@ -178,6 +178,22 @@ public class FilterParameterTests
         document.SecurityHandler.ResetCryptFilter(stream);
         Assert.Equal("/FlateDecode", stream.Elements["/Filter"]!.ToString());
         Assert.False(stream.Elements.ContainsKey("/DecodeParms"));
+
+        // Also written by 7.6.0: the crypt parameters appended after the other filter's, in arrays of equal length.
+        stream.Elements["/Filter"] = new PdfArray(document, new PdfName("/Crypt"), new PdfName("/FlateDecode"));
+        var appended = new PdfArray(document);
+        stream.Elements["/DecodeParms"] = appended;
+        var predictor2 = new PdfDictionary(document);
+        predictor2.Elements.SetInteger("/Predictor", 2);
+        appended.Elements.Add(predictor2);
+        var crypt2 = new PdfDictionary(document);
+        crypt2.Elements.SetName("/Type", "/CryptFilterDecodeParms");
+        crypt2.Elements.SetName("/Name", "/Identity");
+        appended.Elements.Add(crypt2);
+        document.SecurityHandler.SetIdentityCryptFilter(stream);
+        var realigned = stream.Elements.GetArray("/DecodeParms")!;
+        Assert.Equal("/Identity", realigned.Elements.GetDictionary(0)!.Elements.GetName("/Name"));
+        Assert.Equal(2, realigned.Elements.GetDictionary(1)!.Elements.GetInteger("/Predictor"));
     }
 
     // A document without metadata got a /Metadata dictionary that held only the crypt filter and no stream, which
