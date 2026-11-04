@@ -3,6 +3,7 @@
 
 using PdfSharp.Internal;
 using PdfSharp.Pdf.Advanced;
+using PdfSharp.Pdf.Filters;
 using PdfSharp.Pdf.IO;
 using PdfSharp.Pdf.Security.Encryption;
 using PdfSharp.Pdf.Signatures;
@@ -1008,27 +1009,73 @@ namespace PdfSharp.Pdf.Security
             if (dictionary.Stream is null)
                 return false;
 
-            string text;
-            try
-            {
-                text = dictionary.Stream.ToString().TrimStart();
-            }
-            catch (Exception)
-            {
-                // Encrypted data does not decode with the stream's filters, for example a compressed stream.
-                return false;
-            }
-            if (text.Length == 0)
+            // Blankness is judged on the stream's own bytes: encrypted data can decode to nothing.
+            var bytes = dictionary.Stream.Value;
+            if (bytes.All(value => Char.IsWhiteSpace((char)value)))
                 return true;
 
-            // XML starts with '<'. Encrypted data does too, once in 256 streams, but XML goes on with printable ASCII
-            // ("<?xpacket begin=" in XMP), which encrypted data almost never does.
-            if (text[0] != '<')
-                return false;
-            for (var index = 1; index < Math.Min(text.Length, 16); index++)
+            var filter = dictionary.Elements.GetValue(PdfStream.Keys.Filter);
+            if (filter != null)
             {
-                if (text[index] is not ((>= ' ' and <= '~') or '\t' or '\n' or '\r'))
+                // Encrypted data rarely has the two-byte header of compressed data.
+                var first = filter is PdfArray { Elements.Count: > 0 } filters ? filters.Elements[0] : filter;
+                if (first is PdfName { Value: "/FlateDecode" } && !HasZlibHeader(bytes))
                     return false;
+
+                try
+                {
+                    bytes = Filtering.Decode(bytes, filter, dictionary.Elements.GetValue(PdfStream.Keys.DecodeParms));
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Encrypted data does not decode with the stream's filters.
+                    return false;
+                }
+            }
+            return LooksLikeXml(bytes);
+        }
+
+        static bool HasZlibHeader(byte[] bytes) =>
+            bytes.Length >= 2 && (bytes[0] & 0x0F) == 8 && bytes[0] >> 4 <= 7 && ((bytes[0] << 8) | bytes[1]) % 31 == 0;
+
+        /// <summary>
+        /// XML starts with '&lt;'. Encrypted data does too, once in 256 streams, but XML goes on with text ("&lt;?xpacket
+        /// begin=" in XMP), which encrypted data almost never does: the first 16 characters must be printable ASCII,
+        /// tabs, line breaks or well-formed UTF-8 sequences.
+        /// </summary>
+        static bool LooksLikeXml(byte[] bytes)
+        {
+            var index = 0;
+            while (index < bytes.Length && Char.IsWhiteSpace((char)bytes[index]))
+                index++;
+            if (index == bytes.Length || bytes[index] != '<')
+                return false;
+
+            index++;
+            for (var characters = 1; characters < 16 && index < bytes.Length; characters++)
+            {
+                var value = bytes[index];
+                if (value is (>= 0x20 and <= 0x7E) or (byte)'\t' or (byte)'\n' or (byte)'\r')
+                {
+                    index++;
+                    continue;
+                }
+
+                var length = value switch
+                {
+                    >= 0xC2 and <= 0xDF => 2,
+                    >= 0xE0 and <= 0xEF => 3,
+                    >= 0xF0 and <= 0xF4 => 4,
+                    _ => 0
+                };
+                if (length == 0 || index + length > bytes.Length)
+                    return false;
+                for (var next = index + 1; next < index + length; next++)
+                {
+                    if (bytes[next] is < 0x80 or > 0xBF)
+                        return false;
+                }
+                index += length;
             }
             return true;
         }

@@ -2,6 +2,7 @@
 // FreePDF guesses whether a /Type /Metadata stream is unencrypted from its content. The guess decoded the stream
 // with its filters, so an encrypted compressed stream threw and the file did not open; and an encrypted stream whose
 // first byte happened to be '<' (one in 256) was taken for XML and not decrypted. Original fixtures; MIT, see LICENSE.
+using System.Text;
 using System.Text.RegularExpressions;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Filters;
@@ -85,38 +86,44 @@ public class EncryptedMetadataDetectionTests
         Assert.Equal(Xmp, Read(document, "/OtherMetadata0"));
     }
 
-    // With 2,000 streams, about 8 have encrypted data that starts with '<'. The chance that none does is 0.04%.
-    [Fact]
-    public void Encrypted_metadata_that_starts_with_a_bracket_is_decrypted()
+    // Uncompressed: about 8 of 2,000 streams have encrypted data that starts with '<' (the chance that none does is
+    // 0.04%). Compressed: about 2 of 2,000 decode to nothing without an error, which counted as a blank stream.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Many_encrypted_metadata_streams_all_decrypt(bool compressed)
     {
         const int count = 2000;
-        var file = WithEncryptedMetadata("AES-256", count, false);
-        var startingWithBracket = Regex.Matches(TestPdf.Latin1.GetString(file), "stream\r?\n<").Count;
+        var file = WithEncryptedMetadata("AES-256", count, compressed);
 
         using var document = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
         var misread = Enumerable.Range(0, count).Count(index => Read(document, "/OtherMetadata" + index) != Xmp);
-        Assert.True(misread == 0, $"{misread} of {startingWithBracket} streams whose encrypted data starts with '<' were not decrypted");
+        Assert.True(misread == 0, $"{misread} of {count} encrypted metadata streams were not decrypted");
     }
 
-    // Metadata that FreePDF leaves unencrypted, compressed or not, is still recognised as such.
+    // Metadata that FreePDF leaves unencrypted, compressed or not, is still recognised as such, also with
+    // non-ASCII text (UTF-8) at its start.
     [Theory]
-    [InlineData("V4-RC4", false)]
-    [InlineData("AES-256", false)]
-    [InlineData("AES-256", true)]
-    public void Unencrypted_metadata_stays_unencrypted(string kind, bool compressed)
+    [InlineData("V4-RC4", false, false)]
+    [InlineData("AES-256", false, false)]
+    [InlineData("AES-256", true, false)]
+    [InlineData("V4-RC4", false, true)]
+    [InlineData("V4-RC4", true, true)]
+    public void Unencrypted_metadata_stays_unencrypted(string kind, bool compressed, bool nonAscii)
     {
+        var content = Encoding.UTF8.GetBytes(nonAscii ? "<!-- Créé par Ærø -->" + Xmp : Xmp);
         byte[] file;
         byte[] written;
         using (var document = new PdfDocument())
         {
             document.AddPage();
-            written = AddStream(document, "/OtherMetadata", "/Metadata", TestPdf.Latin1.GetBytes(Xmp), compressed).Stream!.Value;
+            written = AddStream(document, "/OtherMetadata", "/Metadata", content, compressed).Stream!.Value;
             Encrypt(document, kind);
             file = Save(document);
         }
 
         Assert.Equal(TestPdf.Latin1.GetString(written), EncryptedEmptyDataTests.RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata"));
         using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
-        Assert.Equal(Xmp, Read(reopened, "/OtherMetadata"));
+        Assert.Equal(content, reopened.Catalog.Elements.GetDictionary("/OtherMetadata")!.Stream!.UnfilteredValue);
     }
 }
