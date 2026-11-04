@@ -14,7 +14,7 @@ public class DirectEncryptionDictionaryTests
     // A one-page PDF with a filled rectangle, encrypted by FreePDF, then rewritten so that the trailer carries the
     // encryption dictionary itself. The indirect object stays in the file, unreferenced; xref offsets do not change
     // because only the trailer, after the cross-reference table, is edited.
-    static byte[] DirectlyEncrypted(bool aes256, string userPassword)
+    internal static byte[] DirectlyEncrypted(bool aes256, string userPassword)
     {
         using var document = new PdfDocument();
         // The splice below edits the file as text; Debug builds default to the verbose layout with comments.

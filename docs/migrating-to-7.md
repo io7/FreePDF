@@ -233,8 +233,12 @@ await approved.SaveAsync("approved.pdf");
   with the file's key (RC4 and AES-128/256 of the standard security handler), and
   the original's passwords keep working. Open it with the owner password, or with
   the user password and `PdfReaderOptions.AllowModifyWithoutOwnerPassword`, as in
-  `Modify` mode. The encryption cannot be changed or removed in `Append` mode, and
-  an unencrypted document cannot be given a password.
+  `Modify` mode; with that option, as in `Modify` mode, the file's permission flags
+  (printing, changing, commenting) are not enforced. The encryption, including its
+  permissions, cannot be changed or removed in `Append` mode, and an unencrypted
+  document cannot be given a password. A changed save of a file that carries an
+  integrity code over its encryption (PDF MAC, ISO/TS 32004; pyHanko adds one to
+  AES-256 by default) is refused, because an update cannot extend the code.
 - Files whose cross-reference table names the wrong objects cannot be opened in
   `Append` mode; open those with `Modify` to save a new file.
 - Pages can be added and removed when all pages hang directly under the page

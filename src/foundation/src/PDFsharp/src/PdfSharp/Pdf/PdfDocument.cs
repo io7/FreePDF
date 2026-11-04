@@ -358,7 +358,8 @@ namespace PdfSharp.Pdf
             var effectiveSecurityHandler = SecuritySettings.EffectiveSecurityHandler;
             if (IncrementalUpdate is { Encrypted: false } && effectiveSecurityHandler != null)
                 throw new NotSupportedException("A document opened with PdfDocumentOpenMode.Append cannot be encrypted, because an update cannot encrypt the original part of the file.");
-            if (IncrementalUpdate is { Encrypted: true } && (effectiveSecurityHandler == null || SecurityHandler.PasswordsChanged))
+            if (IncrementalUpdate is { Encrypted: true }
+                && (effectiveSecurityHandler == null || SecurityHandler.PasswordsChanged || IncrementalUpdate.EncryptionChanged(this)))
                 throw new NotSupportedException("The encryption of a document opened with PdfDocumentOpenMode.Append cannot be changed or removed; " +
                     "the update is encrypted like the original part of the file. Open the document with PdfDocumentOpenMode.Modify to save it as a new file.");
 

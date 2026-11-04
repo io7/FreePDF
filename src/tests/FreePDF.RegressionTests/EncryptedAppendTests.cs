@@ -159,6 +159,108 @@ public class EncryptedAppendTests
         Assert.DoesNotContain("/Version", update);
     }
 
+    // Review findings for PR #39.
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Changing_the_permissions_is_refused_before_saving(bool directEncryptionDictionary)
+    {
+        // The key of RC4 and AES-128 depends on /P, so a written change made the file unreadable; a dictionary held
+        // directly in the trailer was not checked at all.
+        var original = directEncryptionDictionary ? DirectEncryptionDictionaryTests.DirectlyEncrypted(false, "user") : Encrypted("AES-128");
+        using var document = PdfReader.Open(new MemoryStream(original), "owner", PdfDocumentOpenMode.Append);
+        document.SecuritySettings.PermitPrint = false;
+        document.Info.Title = "Changed";
+        using var output = new MemoryStream();
+
+        Assert.Throws<NotSupportedException>(() => document.Save(output));
+        Assert.Equal(0, output.Length);
+    }
+
+    [Fact]
+    public void A_change_to_a_file_with_a_direct_encryption_dictionary_is_encrypted()
+    {
+        var original = DirectEncryptionDictionaryTests.DirectlyEncrypted(true, "user");
+
+        var result = Save(original, document => document.Info.Title = "Secret new title");
+
+        Assert.DoesNotContain("Secret new title", Update(original, result));
+        using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
+        Assert.Equal("Secret new title", reopened.Info.Title);
+    }
+
+    [Fact]
+    public void A_file_with_an_integrity_code_is_refused_when_changed()
+    {
+        // ISO/TS 32004: the code covers the whole file; an update by another tool cannot extend it.
+        var encrypted = Encrypted("AES-256");
+        var text = TestPdf.Latin1.GetString(encrypted);
+        var trailerAt = text.LastIndexOf("trailer", StringComparison.Ordinal);
+        var original = TestPdf.Latin1.GetBytes(text.Substring(0, trailerAt)
+            + text.Substring(trailerAt).Replace("/Size", "/AuthCode << /MACLocation /Standalone >> /Size"));
+
+        Assert.Equal(original, Save(original, _ => { }));
+        using var document = PdfReader.Open(new MemoryStream(original), "owner", PdfDocumentOpenMode.Append);
+        document.Info.Title = "Changed";
+        Assert.Throws<NotSupportedException>(() => document.Save(new MemoryStream()));
+    }
+
+    [Fact]
+    public void Unencrypted_metadata_written_in_an_update_gets_the_identity_crypt_filter()
+    {
+        byte[] original;
+        using (var source = PdfReader.Open(new MemoryStream(Plain()), PdfDocumentOpenMode.Modify))
+        {
+            source.SecurityHandler.SetEncryptionToV5(encryptMetadata: false);
+            source.SecuritySettings.UserPassword = "user";
+            source.SecuritySettings.OwnerPassword = "owner";
+            using var output = new MemoryStream();
+            source.Save(output);
+            original = output.ToArray();
+        }
+
+        var result = Save(original, document =>
+            document.Catalog.GetOrCreateMetadata().SetMetadata("<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>" +
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><updated/></x:xmpmeta><?xpacket end=\"w\"?>"));
+
+        var update = Update(original, result);
+        var metadata = Regex.Match(update, @"(?s)\d+ 0 obj\s*(<<[^\n]*?/Type\s*/Metadata.*?)stream").Groups[1].Value;
+        Assert.Contains("/Crypt", metadata);
+        Assert.Contains("/Identity", metadata);
+        Assert.Contains("<updated/>", update);
+    }
+
+    [Fact]
+    public void An_encrypted_file_without_an_identifier_keeps_none()
+    {
+        // The RC4 key is made from the first identifier, empty here; an update that wrote a new /ID made every
+        // password fail.
+        byte[] encrypted;
+        using (var source = PdfReader.Open(new MemoryStream(Plain()), PdfDocumentOpenMode.Modify))
+        {
+            source.SecurityHandler.SetEncryptionToV2With128Bits();
+            source.SecuritySettings.UserPassword = "user";
+            source.SecuritySettings.OwnerPassword = "owner";
+            source.Internals.FirstDocumentID = "";
+            using var output = new MemoryStream();
+            source.Save(output);
+            encrypted = output.ToArray();
+        }
+        var text = TestPdf.Latin1.GetString(encrypted);
+        var id = Regex.Match(text.Substring(text.LastIndexOf("trailer", StringComparison.Ordinal)), @"/ID\s*\[[^\]]*\]");
+        var idAt = text.LastIndexOf("trailer", StringComparison.Ordinal) + id.Index;
+        var original = TestPdf.Latin1.GetBytes(text.Substring(0, idAt) + new string(' ', id.Length) + text.Substring(idAt + id.Length));
+        using (var check = PdfReader.Open(new MemoryStream(original), "user", PdfDocumentOpenMode.Import))
+            Assert.Equal("Original title", check.Info.Title);
+
+        var result = Save(original, document => document.Info.Title = "New title");
+
+        Assert.DoesNotContain("/ID", Update(original, result));
+        using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
+        Assert.Equal("New title", reopened.Info.Title);
+    }
+
     [Fact]
     public void Opening_with_only_the_user_password_is_refused_as_in_Modify_mode()
     {
