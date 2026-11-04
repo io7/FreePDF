@@ -39,6 +39,17 @@ namespace PdfSharp.Pdf.Signatures
                     "Signature page index cannot be negative.");
             }
 
+            if (options.FieldName != null)
+            {
+                if (options.Rectangle != default || options.PageIndex != 0)
+                {
+                    throw new ArgumentException($"The signature goes into the widget of the field '{options.FieldName}', " +
+                        "so Rectangle and PageIndex must be left unset.", nameof(options));
+                }
+                // Mistakes surface here rather than when the document is saved.
+                CheckField(FindUnsignedSignatureField());
+            }
+
             // TODO_OLD in document: Set document version depending on digest type from options.  // TODO: what?
         }
 
@@ -168,12 +179,18 @@ namespace PdfSharp.Pdf.Signatures
         /// <exception cref="ArgumentOutOfRangeException"></exception>
         internal async Task AddSignatureComponentsAsync() // #US321 TODO Use appropriate classes.
         {
-            if (Options.PageIndex >= Document.PageCount)
+            if (Options.FieldName == null && Options.PageIndex >= Document.PageCount)
                 throw new ArgumentOutOfRangeException($"Signature page doesn't exist, specified page was {Options.PageIndex + 1} but document has only {Document.PageCount} page(s).");
 
             var signatureSize = await Signer.GetSignatureSizeAsync().ConfigureAwait(false);
             _contentsPlaceholder = new(2 * signatureSize + 2);
             _byteRangePlaceholder = new(ByteRangePlaceholderLength);
+
+            if (Options.FieldName != null)
+            {
+                SignExistingField(GetSignatureDictionary(_contentsPlaceholder, _byteRangePlaceholder));
+                return;
+            }
 
             var signatureDictionary = GetSignatureDictionary(_contentsPlaceholder, _byteRangePlaceholder);
             var signatureField = GetSignatureField(signatureDictionary);
@@ -184,10 +201,15 @@ namespace PdfSharp.Pdf.Signatures
                 page.Elements.Add(PdfPage.Keys.Annots, new PdfArray(Document, signatureField));
             else
                 annotations.Elements.Add(signatureField);
-            
-            var catalog = Document.Catalog;
-            var acroForm = catalog.GetOrCreateAcroForm();
 
+            var acroForm = Document.Catalog.GetOrCreateAcroForm();
+            SetSignatureFlags(acroForm);
+            acroForm.Fields.Elements.Add(signatureField);
+        }
+
+        // SignaturesExist and AppendOnly (ISO 32000-1 Table 219).
+        static void SetSignatureFlags(PdfForm acroForm)
+        {
             if (!acroForm.Elements.ContainsKey(PdfForm.Keys.SigFlags))
                 acroForm.Elements.Add(PdfForm.Keys.SigFlags, new PdfInteger(3, true));
             else
@@ -196,8 +218,98 @@ namespace PdfSharp.Pdf.Signatures
                 if (sigFlagVersion < 3)
                     acroForm.Elements.SetIntegerFlag(PdfForm.Keys.SigFlags, 3);
             }
-            
-            acroForm.Fields.Elements.Add(signatureField);
+        }
+
+        /// <summary>
+        /// Signs the existing field named by <see cref="DigitalSignatureOptions.FieldName"/>: its value becomes the
+        /// signature, its widgets show it, and its lock is recorded in the signature. The page and the form's field
+        /// list stay as they are.
+        /// </summary>
+        void SignExistingField(PdfSignature signatureDictionary)
+        {
+            var field = FindUnsignedSignatureField();
+            CheckField(field);
+            if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.SV) is { } seedValues && SignatureSeedValues.ReasonMustBeOmitted(seedValues))
+                signatureDictionary.Elements.Remove(PdfSignature.Keys.Reason);
+
+            field.Elements.SetObject(PdfFormField.Keys.V, signatureDictionary);
+            var appearance = Options.AppearanceHandler ?? DefaultAppearance();
+            foreach (var widget in field.GetWidgets().ToList())
+                PdfFormSignatureField.RenderSignedAppearance(widget, appearance);
+
+            if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.Lock) is { } fieldLock)
+                AddFieldLockReference(signatureDictionary, fieldLock);
+
+            SetSignatureFlags(Document.Catalog.GetOrCreateAcroForm());
+        }
+
+        DefaultSignatureAppearanceHandler DefaultAppearance() => new()
+        {
+            Location = Options.Location,
+            Reason = Options.Reason,
+            Signer = Signer.CertificateName
+        };
+
+        PdfFormSignatureField FindUnsignedSignatureField()
+        {
+            var name = Options.FieldName!;
+            var form = Document.Catalog.GetAcroForm();
+            if (form == null || !form.Fields.TryGetField(name, out var field))
+                throw new ArgumentException($"The document has no form field named '{name}'.", nameof(DigitalSignatureOptions.FieldName));
+            if (field is not PdfFormSignatureField signatureField)
+                throw new ArgumentException($"The form field '{name}' is not a signature field.", nameof(DigitalSignatureOptions.FieldName));
+            if (signatureField.GetKids(onlyFullyQualifiedFields: true).Any())
+            {
+                throw new ArgumentException($"The form field '{name}' has fields below it; name the signature field to sign.",
+                    nameof(DigitalSignatureOptions.FieldName));
+            }
+            if (signatureField.Elements.GetValue(PdfFormField.Keys.V) is not (null or PdfNull or PdfNullObject))
+                throw new InvalidOperationException($"The signature field '{name}' is already signed.");
+            return signatureField;
+        }
+
+        // The field's required seed values must be met, and its lock must say which fields it locks.
+        void CheckField(PdfFormSignatureField field)
+        {
+            if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.SV) is { } seedValues)
+                SignatureSeedValues.Check(seedValues, Options);
+            if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.Lock) is { } fieldLock
+                && fieldLock.Elements.GetName("/Action") is not ("/All" or "/Include" or "/Exclude"))
+            {
+                throw new InvalidOperationException($"The lock of the signature field '{Options.FieldName}' has no valid /Action, " +
+                    "so the fields it locks are unknown.");
+            }
+        }
+
+        /// <summary>
+        /// Records the lock of the signed field in the signature as a FieldMDP signature reference (ISO 32000-1
+        /// 12.8.2.4), as Acrobat and pyHanko do: validators read the locked fields from there.
+        /// </summary>
+        void AddFieldLockReference(PdfDictionary signatureDictionary, PdfDictionary fieldLock)
+        {
+            var action = fieldLock.Elements.GetName("/Action");
+            var parameters = new PdfDictionary(Document);
+            parameters.Elements.SetName("/Type", "/TransformParams");
+            parameters.Elements.SetName("/Action", action);
+            if (action != "/All")
+            {
+                var fields = new PdfArray(Document);
+                var lockedFields = fieldLock.Elements.GetArray("/Fields");
+                for (var index = 0; index < (lockedFields?.Elements.Count ?? 0); index++)
+                    fields.Elements.Add(new PdfString(lockedFields!.Elements.GetString(index)));
+                parameters.Elements["/Fields"] = fields;
+            }
+            // PDF 2.0 lets a lock carry a document permission; pyHanko and Acrobat repeat it here.
+            if (fieldLock.Elements.ContainsKey("/P"))
+                parameters.Elements.SetInteger("/P", fieldLock.Elements.GetInteger("/P"));
+            parameters.Elements.SetName("/V", "/1.2");
+
+            var reference = new PdfDictionary(Document);
+            reference.Elements.SetName("/Type", "/SigRef");
+            reference.Elements.SetName("/TransformMethod", "/FieldMDP");
+            reference.Elements["/TransformParams"] = parameters;
+            reference.Elements.SetObject("/Data", Document.Catalog);
+            signatureDictionary.Elements["/Reference"] = new PdfArray(Document, reference);
         }
 
         PdfFormSignatureField GetSignatureField(PdfSignature signatureDic) // #US321 TODO Use appropriate classes.

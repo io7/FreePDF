@@ -76,6 +76,18 @@ permissions in: added comments, new visible signature fields after a
 certification, any change to pages after an ordinary signature, and new signature
 fields after a signature that locks all fields.
 
+Since 7.6.0, `DigitalSignatureOptions.FieldName` signs an existing, empty signature
+field. Regression tests cover a field that is its own widget, one with a separate
+widget and an invisible one; a field lock recorded as FieldMDP and then enforced;
+certification levels; fields locked by an earlier signature; and seed values.
+Forms that pyHanko made with an empty field (plain, with a field lock, with a
+required reason, certified with P=2) and FreePDF signed are VALID in pyHanko, the
+certification also in poppler's pdfsig; after pyHanko changed the field that the
+lock names, pyHanko judged FreePDF's signature INVALID, as it must. pyHanko's
+default policy reports earlier signatures as changed when the signed field's
+widget is a separate object, or the field has several widgets or shares an
+appearance; fields that are their own widget pass.
+
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 `/AF` and declared in the XMP extension schema. FreePDF only checks that the XML

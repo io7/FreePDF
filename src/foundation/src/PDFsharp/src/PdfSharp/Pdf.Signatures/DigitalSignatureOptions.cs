@@ -49,5 +49,14 @@ namespace PdfSharp.Pdf.Signatures
         /// The page zero-based index of the page showing the signature.
         /// </summary>
         public int PageIndex { get; init; }
+
+        /// <summary>
+        /// Gets or sets the fully qualified name of an existing, unsigned signature field to sign, such as "Approval"
+        /// or "approvals.manager". The signature is shown in that field's widget, so <see cref="Rectangle"/> and
+        /// <see cref="PageIndex"/> must be left unset. The field keeps its name and flags. A field lock (/Lock) is
+        /// recorded in the signature, so validators lock its fields, and the seed values (/SV) the field requires
+        /// must be met. When null, a new signature field is added.
+        /// </summary>
+        public string? FieldName { get; init; }
     }
 }

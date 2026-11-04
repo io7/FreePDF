@@ -369,6 +369,7 @@
     <Compile Include="..\PdfSharp\Pdf.Signatures\PdfSignature.cs" Link="Pdf.Signatures\PdfSignature.cs" />
     <Compile Include="..\PdfSharp\Pdf.Signatures\DigitalSignatureHandler.cs" Link="Pdf.Signatures\DigitalSignatureHandler.cs" />
     <Compile Include="..\PdfSharp\Pdf.Signatures\RangedStream.cs" Link="Pdf.Signatures\RangedStream.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Signatures\SignatureSeedValues.cs" Link="Pdf.Signatures\SignatureSeedValues.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfAttributesBase.cs" Link="Pdf.Structure\PdfAttributesBase.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfLayoutAttributes.cs" Link="Pdf.Structure\PdfLayoutAttributes.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfMarkedContentReference.cs" Link="Pdf.Structure\PdfMarkedContentReference.cs" />
