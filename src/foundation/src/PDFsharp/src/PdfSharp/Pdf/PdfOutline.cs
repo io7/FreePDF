@@ -276,10 +276,11 @@ namespace PdfSharp.Pdf
                 TextColor = ColorFromComponents(r, g, b);
             }
 
-            // /Dest and /A should be mutual exclusive.
-            // But it is valid that they are not. This was updated in PDF 2.0.
+            // /Dest is not permitted if /A is present (ISO 32000-1 Table 153), but files can have both; then the
+            // GoTo action's destination is the one read.
             var dest = Elements.GetValue(Keys.Dest);
             var a = Elements.GetValue(Keys.A);
+            _fileAction = ActionText();
 
             //PdfArray? destArray;
             if (dest != null)
@@ -287,7 +288,8 @@ namespace PdfSharp.Pdf
 #if true
                 if (dest is PdfArray destArray)
                 {
-                    ParsePageDestination(destArray);
+                    if (ParsePageDestination(destArray))
+                        RememberFileDestination(fromAction: false);
                 }
                 else if (dest is PdfString str)
                 {
@@ -326,10 +328,8 @@ namespace PdfSharp.Pdf
                     dest = action.Elements.GetValue(PdfGoToAction.Keys.D); // #US373
                     if (dest is PdfArray array)
                     {
-                        //// Replace Action with /Dest entry.
-                        //Elements.Remove(Keys.A);
-                        //Elements.Add(Keys.Dest, array);
-                        ParsePageDestination(array);
+                        if (ParsePageDestination(array))
+                            RememberFileDestination(fromAction: true);
                         goto Done;
                     }
                     if (dest is PdfString namedDestination)
@@ -357,7 +357,8 @@ namespace PdfSharp.Pdf
                         }
                         if (destArray != null)
                         {
-                            ParsePageDestination(destArray);
+                            if (ParsePageDestination(destArray))
+                                RememberFileDestination(fromAction: true);
                             goto Done;
                         }
                     }
@@ -399,20 +400,45 @@ namespace PdfSharp.Pdf
             }
         }
 
-        void ParsePageDestination(PdfArray destination)  // Reference: 8.2  Destination syntax / Page 582
+        /// <summary>
+        /// Records the destination just read and where it came from, so that saving can tell an unchanged
+        /// destination from a new one.
+        /// </summary>
+        void RememberFileDestination(bool fromAction)
+        {
+            _fileDestination = Destination();
+            _fileDestinationIsAction = fromAction;
+        }
+
+        /// <summary>
+        /// Gets the destination as one value. Equals, not ==, compares it: Right and Bottom are NaN when unset.
+        /// </summary>
+        (PdfPage?, PdfPageDestinationType, double?, double?, double, double, double?) Destination()
+            => (DestinationPage, PageDestinationType, Left, Top, Right, Bottom, Zoom);
+
+        // The destination as read from the file, and whether it came from a GoTo action (/A) rather than /Dest.
+        (PdfPage?, PdfPageDestinationType, double?, double?, double, double, double?)? _fileDestination;
+        bool _fileDestinationIsAction;
+
+        // The /A entry as read from the file: an action set by the application differs from it.
+        string? _fileAction;
+
+        string? ActionText() => Elements[Keys.A]?.ToString();
+
+        bool ParsePageDestination(PdfArray destination)  // Reference: 8.2  Destination syntax / Page 582
         {
             // A destination FreePDF cannot use (no page, a page number for a remote document, an unknown type) is
             // ignored; missing or non-numeric parameters read as null, which viewers treat as "unchanged".
             if (destination.Elements.Count < 2 || destination.Elements[1] is not PdfName type)
-                return;
+                return false;
             if (!Enum.TryParse(type.Value.Substring(1), true, out PdfPageDestinationType destinationType)
                 || !Enum.IsDefined(typeof(PdfPageDestinationType), destinationType))
             {
-                return;
+                return false;
             }
             var page = DestinationPageOf(destination.Elements[0]);
             if (page == null)
-                return;
+                return false;
 
             DestinationPage = page;
             PageDestinationType = destinationType;
@@ -445,6 +471,7 @@ namespace PdfSharp.Pdf
                     Top = Number(destination, 5) ?? 0;
                     break;
             }
+            return true;
         }
 
         /// <summary>
@@ -515,9 +542,27 @@ namespace PdfSharp.Pdf
                     int index = _parent._outlines.IndexOf(this);
                     Debug.Assert(index != -1);
 
-                    // Has destination?
+                    // Has destination? /Dest is not permitted next to /A (ISO 32000-1 Table 153). An action the
+                    // application set wins, and a GoTo action read from the file stays while its destination is
+                    // unchanged. Otherwise the destination is written as /Dest; a new or changed one replaces the
+                    // action read from the file.
                     if (DestinationPage != null!)
-                        Elements[Keys.Dest] = CreateDestArray();
+                    {
+                        var action = ActionText();
+                        bool asRead = _fileDestination.HasValue && _fileDestination.Value.Equals(Destination());
+                        bool actionSetByApplication = action != null && action != _fileAction;
+                        bool unchangedGoToAction = asRead && _fileDestinationIsAction && action != null;
+                        if (actionSetByApplication)
+                        {
+                            Elements.Remove(Keys.Dest);
+                        }
+                        else if (!unchangedGoToAction)
+                        {
+                            if (!asRead)
+                                Elements.Remove(Keys.A);
+                            Elements[Keys.Dest] = CreateDestArray();
+                        }
+                    }
 
                     // Not the first element?
                     if (index > 0)
