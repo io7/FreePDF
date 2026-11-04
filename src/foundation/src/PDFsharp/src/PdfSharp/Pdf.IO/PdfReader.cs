@@ -353,11 +353,6 @@ namespace PdfSharp.Pdf.IO
                 // It may be an indirect reference or, as MuPDF writes it, a dictionary directly in the trailer.
                 // The trailer is never encrypted, so a direct dictionary is complete as parsed.
                 var encryptItem = _document.Trailer!.Elements[PdfTrailer.Keys.Encrypt];
-                if (openMode == PdfDocumentOpenMode.Append && encryptItem != null)
-                {
-                    throw new NotSupportedException("Encrypted documents cannot be opened with PdfDocumentOpenMode.Append yet. " +
-                        "Open the document with PdfDocumentOpenMode.Modify to save it as a new file; existing signatures do not stay valid then.");
-                }
                 bool crossReferenceStream = _document.Trailer is PdfCrossReferenceStream;
                 int size = _document.Trailer.Elements.GetInteger(PdfTrailer.Keys.Size);
                 if (encryptItem is PdfDictionary)
@@ -373,9 +368,14 @@ namespace PdfSharp.Pdf.IO
                         var xrefExisting = _document.IrefTable[xrefEncrypt.ObjectID];
                     }
 #endif
+                    // In an incrementally updated file the newest trailer can name the encryption dictionary before
+                    // the older section that holds it was read, so its reference may be a placeholder. Read the
+                    // dictionary into the table's reference, which the other trailers and FinalizeReferences use.
+                    xrefEncrypt = _document.IrefTable[xrefEncrypt.ObjectID] ?? xrefEncrypt;
                     var encrypt = parser.ReadIndirectObject(xrefEncrypt, null, true);
                     encrypt.Reference = xrefEncrypt;
                     xrefEncrypt.Value = encrypt;
+                    _document.Trailer.Elements[PdfTrailer.Keys.Encrypt] = xrefEncrypt;
 
                     _document.SecurityHandler.PrepareForReading();
                 }
@@ -386,7 +386,8 @@ namespace PdfSharp.Pdf.IO
                 var effectiveSecurityHandler = _document.EffectiveSecurityHandler;
                 if (effectiveSecurityHandler != null)
                 {
-                    effectiveSecurityHandler.DoNotResetEncryption = _options.DoNotResetEncryption;
+                    // An update encrypts its objects with the file's encryption, which therefore stays as it is.
+                    effectiveSecurityHandler.DoNotResetEncryption = _options.DoNotResetEncryption || openMode == PdfDocumentOpenMode.Append;
 
                 TryAgain: // ... after the password provider provides a valid password.
                     // ReSharper disable RedundantIfElseBlock to keep code more readable.
@@ -410,7 +411,7 @@ namespace PdfSharp.Pdf.IO
                                 throw new PdfReaderException(PsMsgs.InvalidPassword);
                         }
                     }
-                    else if (validity == PasswordValidity.UserPassword && openMode == PdfDocumentOpenMode.Modify)
+                    else if (validity == PasswordValidity.UserPassword && openMode is PdfDocumentOpenMode.Modify or PdfDocumentOpenMode.Append)
                     {
                         if (passwordProvider != null)
                         {
@@ -458,7 +459,7 @@ namespace PdfSharp.Pdf.IO
                 // Reference.Values available by now: All objects.
 
                 // 6. Reset encryption so that it must be redefined to save the document encrypted.
-                if (!_options.DoNotResetEncryption)
+                if (!_options.DoNotResetEncryption && openMode != PdfDocumentOpenMode.Append)
                     effectiveSecurityHandler?.SetEncryptionToNoneAndResetPasswords();
 
                 // 7. Replace all document’s placeholder references by references knowing their objects.
@@ -557,6 +558,8 @@ namespace PdfSharp.Pdf.IO
                     _document.IncrementalUpdate = new PdfIncrementalUpdate(original!, parser.StartXRef, crossReferenceStream, size,
                         GetPdfFileVersion(header));
                     _document.IncrementalUpdate.RecordOriginalObjects(_document, fileObjects);
+                    _document.IncrementalUpdate.Encrypted = effectiveSecurityHandler != null;
+                    _document.IncrementalUpdate.Password = password;
                     _document.IncrementalUpdate.Permissions = PdfModificationPermissions.Read(_document);
                 }
 

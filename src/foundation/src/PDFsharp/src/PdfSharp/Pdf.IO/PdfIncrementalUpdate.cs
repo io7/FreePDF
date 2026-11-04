@@ -48,6 +48,16 @@ namespace PdfSharp.Pdf.IO
         internal PdfModificationPermissions? Permissions { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether the file is encrypted. Its update is then encrypted the same way.
+        /// </summary>
+        internal bool Encrypted { get; set; }
+
+        /// <summary>
+        /// Gets or sets the password the file was opened with, to read the original again for the permission check.
+        /// </summary>
+        internal string? Password { get; set; }
+
+        /// <summary>
         /// Gets a value indicating whether the object comes from the file and was reachable when it was opened.
         /// </summary>
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
@@ -138,18 +148,29 @@ namespace PdfSharp.Pdf.IO
                 written.Sort(PdfReference.Comparer);
             }
 
+            // The encryption dictionary of an encrypted file stays as it is: the update is encrypted with it.
+            var handler = writer.EffectiveSecurityHandler;
+            if (handler != null && written.Any(iref => ReferenceEquals(iref.Value, handler)))
+                throw new NotSupportedException("The encryption of a document opened with PdfDocumentOpenMode.Append cannot be changed.");
+
             // A change the signatures do not permit is refused before anything is written.
-            Permissions?.Check(document, _original, written);
+            Permissions?.Check(document, _original, written, Password);
             stream.Write(_original, 0, _original.Length);
 
             if (_original.Length > 0 && _original[_original.Length - 1] is not ((byte)'\n' or (byte)'\r'))
                 writer.WriteRaw('\n');
 
+            // Each object is encrypted with the key for its number (ISO 32000-1, 7.6.2).
             foreach (var iref in written)
             {
                 iref.Position = writer.Position;
+                handler?.EnterObject(iref.ObjectID);
                 iref.Value.WriteObject(writer);
             }
+            handler?.LeaveObject();
+
+            // Cross-reference streams and the trailer are not encrypted (ISO 32000-1, 7.6.1).
+            writer.EffectiveSecurityHandler = null;
 
             int highest = Math.Max(_size - 1, document.IrefTable.MaxObjectNumber);
             foreach (var iref in written)
@@ -241,10 +262,10 @@ namespace PdfSharp.Pdf.IO
         }
 
         // Entries the update writes itself, the previous section's own pointers, and the dictionary entries of a
-        // cross-reference stream that describe that stream (ISO 32000-1, Tables 5 and 17). Encryption is refused.
+        // cross-reference stream that describe that stream (ISO 32000-1, Tables 5 and 17). /Encrypt is carried forward.
         static readonly HashSet<string> NotCarriedForward = new(StringComparer.Ordinal)
         {
-            "/Size", "/Prev", "/XRefStm", "/ID", "/Encrypt",
+            "/Size", "/Prev", "/XRefStm", "/ID",
             "/Type", "/W", "/Index", "/Length", "/Filter", "/DecodeParms", "/F", "/FFilter", "/FDecodeParms", "/DL",
         };
 

@@ -321,19 +321,6 @@ public class IncrementalSaveTests
     }
 
     [Fact]
-    public void Encrypted_files_are_refused()
-    {
-        using var source = PdfReader.Open(new MemoryStream(Classic()), PdfDocumentOpenMode.Modify);
-        source.SecuritySettings.UserPassword = "user";
-        source.SecuritySettings.OwnerPassword = "owner";
-        using var encrypted = new MemoryStream();
-        source.Save(encrypted);
-
-        Assert.Throws<NotSupportedException>(() =>
-            PdfReader.Open(new MemoryStream(encrypted.ToArray()), "owner", PdfDocumentOpenMode.Append));
-    }
-
-    [Fact]
     public void Encryption_cannot_be_added_in_an_update()
     {
         using var document = PdfReader.Open(new MemoryStream(Classic()), PdfDocumentOpenMode.Append);

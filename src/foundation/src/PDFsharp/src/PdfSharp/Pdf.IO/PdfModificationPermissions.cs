@@ -95,12 +95,13 @@ namespace PdfSharp.Pdf.IO
         /// <param name="document">The document being saved.</param>
         /// <param name="original">The bytes the document was opened from.</param>
         /// <param name="written">The objects the update writes.</param>
-        internal void Check(PdfDocument document, byte[] original, IReadOnlyCollection<PdfReference> written)
+        /// <param name="password">The password the document was opened with, if it is encrypted.</param>
+        internal void Check(PdfDocument document, byte[] original, IReadOnlyCollection<PdfReference> written, string? password)
         {
             if (_permission == 1)
                 throw Refusal("saving any change");
 
-            using var before = PdfReader.Open(new MemoryStream(original, false), PdfDocumentOpenMode.Import);
+            using var before = PdfReader.Open(new MemoryStream(original, false), password, PdfDocumentOpenMode.Import);
             var old = new Snapshot(before);
             var now = new Snapshot(document);
             foreach (var iref in written)
