@@ -18,7 +18,8 @@ namespace PdfSharp.Pdf.Forms
 
         /// <summary>
         /// Gets or sets the index of the selected option, or -1 if none is selected. Setting it writes the export
-        /// value (/V) and the selected index (/I).
+        /// value (/V), and the selected index (/I) when the field allows multiple selection, when another option has
+        /// the same export value, or when the field already has one (ISO 32000-1 Table 231).
         /// </summary>
         public int SelectedIndex
         {
@@ -27,7 +28,14 @@ namespace PdfSharp.Pdf.Forms
                 var value = SelectedValue;
                 if (value == null)
                     return -1;
-                return ExportValues.ToList().IndexOf(value);
+                var exports = ExportValues;
+                // /I tells apart options that share an export value.
+                if (GetElementsValue<PdfArray>("/I") is { Elements.Count: > 0 } indices
+                    && indices.Elements.TryGetInteger(0, out var index) && index >= 0 && index < exports.Count && exports[index] == value)
+                {
+                    return index;
+                }
+                return exports.ToList().IndexOf(value);
             }
             set
             {
@@ -44,10 +52,20 @@ namespace PdfSharp.Pdf.Forms
                 SetValueWithAppearance(Content(options, value, options[value].Display), () =>
                 {
                     Elements[Keys.V] = new PdfString(options[value].Export);
-                    Elements["/I"] = new PdfArray(Owner, new PdfInteger(value));
+                    if (NeedsSelectedIndices(options, value))
+                        Elements["/I"] = new PdfArray(Owner, new PdfInteger(value));
+                    else
+                        Elements.Remove("/I");
                 });
             }
         }
+
+        // ISO 32000-1 Table 231: /I is for multiple selection and for options that share an export value, and
+        // "should not be used" otherwise; validators treat an added /I on a signed form as an unexplained change.
+        bool NeedsSelectedIndices(List<(string Export, string Display)> options, int index)
+            => TestFlag(PdfFormFieldFlags.MultiSelect)
+               || GetElementsValue<PdfArray>("/I") != null
+               || options.Count(option => option.Export == options[index].Export) > 1;
 
         /// <summary>
         /// Gets or sets the export value of the selected option, or null if none is selected. Setting a value that is

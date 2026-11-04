@@ -119,8 +119,66 @@ public class FormFillingTests
         Assert.Equal(2, ((PdfFormComboBoxField)Fields(reopened)["country"]!).SelectedIndex);
         var rereadColour = (PdfFormListBoxField)Fields(reopened)["colour"]!;
         Assert.Equal("Green", rereadColour.SelectedValue);
-        Assert.Equal(1, rereadColour.Elements.GetArray("/I")!.Elements.GetInteger(0));
         Assert.Throws<ArgumentException>(() => rereadColour.SelectedValue = "Purple");
+    }
+
+    // ISO 32000-1 Table 231: /I is for fields with multiple selection or options that share an export value, and
+    // "should not be used" otherwise. Writing it changed the field's keys, which pyHanko rejects after a signature.
+    [Fact]
+    public void A_single_choice_field_gets_no_selected_indices()
+    {
+        using var document = Open();
+        ((PdfFormComboBoxField)Fields(document)["country"]!).SelectedValue = "DK";
+        ((PdfFormListBoxField)Fields(document)["colour"]!).SelectedIndex = 1;
+
+        using var reopened = SaveAndReopen(document);
+        Assert.False(Fields(reopened)["country"]!.Elements.ContainsKey("/I"));
+        Assert.False(Fields(reopened)["colour"]!.Elements.ContainsKey("/I"));
+    }
+
+    static PdfDocument OpenChoice(string field)
+        => PdfReader.Open(new MemoryStream(TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>",
+            "<< /Fields [5 0 R] /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>",
+            field,
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        })), PdfDocumentOpenMode.Modify);
+
+    const string ChoiceWidget = "/DA (/Helv 10 Tf 0 g) /Type /Annot /Subtype /Widget /Rect [20 180 160 240] /P 3 0 R /F 4";
+
+    [Fact]
+    public void A_multiple_selection_list_keeps_selected_indices()
+    {
+        using var document = OpenChoice($"<< /FT /Ch /Ff 2097152 /T (colour) /Opt [(Red) (Green) (Blue)] {ChoiceWidget} >>");
+        ((PdfFormListBoxField)Fields(document)["colour"]!).SelectedIndex = 2;
+
+        using var reopened = SaveAndReopen(document);
+        Assert.Equal(2, Fields(reopened)["colour"]!.Elements.GetArray("/I")!.Elements.GetInteger(0));
+    }
+
+    [Fact]
+    public void Options_with_the_same_export_value_are_told_apart_by_their_index()
+    {
+        using var document = OpenChoice($"<< /FT /Ch /T (size) /Opt [[(M) (Medium)] [(L) (Large)] [(L) (Large, long)]] {ChoiceWidget} >>");
+        ((PdfFormListBoxField)Fields(document)["size"]!).SelectedIndex = 2;
+
+        using var reopened = SaveAndReopen(document);
+        var size = (PdfFormListBoxField)Fields(reopened)["size"]!;
+        Assert.Equal(2, size.Elements.GetArray("/I")!.Elements.GetInteger(0));
+        Assert.Equal(2, size.SelectedIndex);
+        Assert.Equal("L", size.SelectedValue);
+    }
+
+    [Fact]
+    public void Selected_indices_the_field_has_are_kept_up_to_date()
+    {
+        using var document = OpenChoice($"<< /FT /Ch /T (colour) /Opt [(Red) (Green) (Blue)] /V (Red) /I [0] {ChoiceWidget} >>");
+        ((PdfFormListBoxField)Fields(document)["colour"]!).SelectedIndex = 1;
+
+        using var reopened = SaveAndReopen(document);
+        Assert.Equal(1, Fields(reopened)["colour"]!.Elements.GetArray("/I")!.Elements.GetInteger(0));
     }
 
     [Fact]

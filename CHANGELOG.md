@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Selecting an option of a combo box or a single-selection list box no longer
+  adds the selected index (`/I`); ISO 32000-1 says it should not be used for such
+  fields. Adding it changed the field's keys, and pyHanko judged a signature on
+  the form invalid after a choice field was filled. `/I` is still written for
+  multiple-selection lists, when options share an export value (the index then
+  identifies the option, and `SelectedIndex` reads it), and when the field
+  already has one.
+- A new signature field's widget gets the annotation flags Print and Locked
+  (`/F 132`). They were written as field flags (`/Ff 132`), so the signature's
+  appearance was not printed.
+
 ## 7.4.0
 
 - `PdfDocumentOpenMode.Append` opens a document so that saving it writes an
