@@ -17,25 +17,17 @@ namespace PdfSharp.Pdf.Forms
         public IReadOnlyList<string> ExportValues => ReadOptions().Select(option => option.Export).ToList();
 
         /// <summary>
-        /// Gets or sets the index of the selected option, or -1 if none is selected. Setting it writes the export
-        /// value (/V), and the selected index (/I) when the field allows multiple selection, when another option has
-        /// the same export value, or when the field already has one (ISO 32000-1 Table 231).
+        /// Gets or sets the index of the selected option, or -1 if none is selected; of several selected options in a
+        /// list box that allows multiple selection, the first. Setting it selects that option alone: it writes the
+        /// export value (/V), and the selected index (/I) when the field allows multiple selection, when another
+        /// option has the same export value, or when the field already has one (ISO 32000-1 Table 231).
         /// </summary>
         public int SelectedIndex
         {
             get
             {
-                var value = SelectedValue;
-                if (value == null)
-                    return -1;
-                var exports = ExportValues;
-                // /I tells apart options that share an export value.
-                if (GetElementsValue<PdfArray>("/I") is { Elements.Count: > 0 } indices
-                    && indices.Elements.TryGetInteger(0, out var index) && index >= 0 && index < exports.Count && exports[index] == value)
-                {
-                    return index;
-                }
-                return exports.ToList().IndexOf(value);
+                var selected = SelectedIndices(ReadOptions());
+                return selected.Count > 0 ? selected[0] : -1;
             }
             set
             {
@@ -49,7 +41,7 @@ namespace PdfSharp.Pdf.Forms
                     Elements.Remove("/I");
                     return;
                 }
-                SetValueWithAppearance(Content(options, value, options[value].Display), () =>
+                SetValueWithAppearance(Content(options, [value], options[value].Display), () =>
                 {
                     Elements[Keys.V] = new PdfString(options[value].Export);
                     if (NeedsSelectedIndices(options, value))
@@ -68,12 +60,23 @@ namespace PdfSharp.Pdf.Forms
                || options.Count(option => option.Export == options[index].Export) > 1;
 
         /// <summary>
-        /// Gets or sets the export value of the selected option, or null if none is selected. Setting a value that is
-        /// not an option is allowed only for an editable combo box.
+        /// Gets or sets the export value of the selected option, or null if none is selected; of several selected
+        /// options in a list box that allows multiple selection, the first. Setting a value selects that option alone;
+        /// a value that is not an option is allowed only for an editable combo box.
         /// </summary>
         public string? SelectedValue
         {
-            get => GetElementsValue<PdfString>(Keys.V)?.Value;
+            get
+            {
+                // The first selected option in /Opt order, as SelectedIndex reports it; a value that is not an
+                // option (an editable combo box) as it is.
+                var options = ReadOptions();
+                var selected = SelectedIndices(options);
+                if (selected.Count > 0)
+                    return options[selected[0]].Export;
+                var values = SelectedValues();
+                return values.Count > 0 ? values[0] : null;
+            }
             set
             {
                 if (value == null)
@@ -94,7 +97,7 @@ namespace PdfSharp.Pdf.Forms
                 if (!TestFlag(PdfFormFieldFlags.Edit))
                     throw new ArgumentException($"The choice field '{FullName}' has no option '{value}'.", nameof(value));
                 ThrowIfReadOnly();
-                SetValueWithAppearance(Content(ReadOptions(), -1, value), () =>
+                SetValueWithAppearance(Content(ReadOptions(), [], value), () =>
                 {
                     Elements[Keys.V] = new PdfString(value);
                     Elements.Remove("/I");
@@ -105,20 +108,86 @@ namespace PdfSharp.Pdf.Forms
         internal override FieldContent? CurrentContent()
         {
             var options = ReadOptions();
-            int selectedIndex = SelectedIndex;
-            if (selectedIndex >= 0)
-                return Content(options, selectedIndex, options[selectedIndex].Display);
-            return Content(options, -1, SelectedValue ?? "");
+            var selected = SelectedIndices(options);
+            if (selected.Count > 0)
+                return Content(options, selected, options[selected[0]].Display);
+            return Content(options, [], SelectedValue ?? "");
         }
 
         /// <summary>
-        /// What the field shows: a list box shows its options with the selection, a combo box the selected text.
+        /// What the field shows: a list box shows its options with the selected ones, a combo box the selected text.
         /// </summary>
-        FieldContent Content(List<(string Export, string Display)> options, int selectedIndex, string shownText)
+        FieldContent Content(List<(string Export, string Display)> options, IReadOnlyList<int> selected, string shownText)
         {
             if (this is PdfFormListBoxField)
-                return new FieldContent { Options = options.Select(option => option.Display).ToList(), SelectedIndex = selectedIndex };
+                return new FieldContent { Options = options.Select(option => option.Display).ToList(), SelectedIndices = selected };
             return new FieldContent { Text = shownText };
+        }
+
+        /// <summary>
+        /// The export values in /V: one text string, or an array of them when several options of a list box are
+        /// selected (ISO 32000-1 Table 231).
+        /// </summary>
+        List<string> SelectedValues()
+        {
+            var values = new List<string>();
+            var value = GetElementsValue<PdfItem>(Keys.V);
+            if (value is PdfSharp.Pdf.Advanced.PdfReference reference)
+                value = reference.Value;
+            if (value is PdfArray array)
+            {
+                foreach (var item in array.Elements)
+                {
+                    var entry = item;
+                    PdfSharp.Pdf.Advanced.PdfReference.Dereference(ref entry);
+                    if (Text(entry) is { } element)
+                        values.Add(element);
+                }
+            }
+            else if (Text(value) is { } text)
+                values.Add(text);
+            return values;
+
+            // A string may also be an indirect object.
+            static string? Text(PdfItem? item) => item switch
+            {
+                PdfString text => text.Value,
+                PdfStringObject text => text.Value,
+                _ => null
+            };
+        }
+
+        /// <summary>
+        /// The indices of the selected options, in ascending order. /I tells apart options that share an export
+        /// value, so its indices count where they agree with /V; values it does not cover are looked up by export value.
+        /// </summary>
+        List<int> SelectedIndices(List<(string Export, string Display)> options)
+        {
+            var values = SelectedValues();
+            var selected = new List<int>();
+            if (values.Count == 0)
+                return selected;
+            if (GetElementsValue<PdfArray>("/I") is { } indices)
+            {
+                for (var position = 0; position < indices.Elements.Count; position++)
+                {
+                    if (indices.Elements.TryGetInteger(position, out var index) && index >= 0 && index < options.Count
+                        && values.Contains(options[index].Export) && !selected.Contains(index))
+                    {
+                        selected.Add(index);
+                    }
+                }
+            }
+            foreach (var value in values)
+            {
+                if (selected.Any(index => options[index].Export == value))
+                    continue;
+                var index = options.FindIndex(option => option.Export == value);
+                if (index >= 0)
+                    selected.Add(index);
+            }
+            selected.Sort();
+            return selected;
         }
 
         List<(string Export, string Display)> ReadOptions()

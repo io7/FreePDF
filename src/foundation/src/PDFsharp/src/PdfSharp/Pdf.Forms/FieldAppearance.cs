@@ -150,8 +150,8 @@ namespace PdfSharp.Pdf.Forms
                 double lineTop = top - index * leading;
                 if (lineTop - leading < 0)
                     break;
-                // The selected option is highlighted as Acrobat does.
-                if (index == content.SelectedIndex)
+                // Selected options are highlighted as Acrobat does.
+                if (content.SelectedIndices.Contains(index))
                     stream.Append(Invariant($"0.6 0.75 0.86 rg {inset - 1} {lineTop - leading} {width - 2 * inset + 2} {leading} re f\n"));
                 stream.Append(Invariant($"BT\n{fontName} {size} Tf {color}\n{inset} {lineTop - size} Td\n"));
                 stream.Append(Literal(options[index])).Append(" Tj\nET\n");
@@ -323,7 +323,7 @@ namespace PdfSharp.Pdf.Forms
     }
 
     /// <summary>
-    /// What a text or choice field shows: one text, or a list of options with a selection.
+    /// What a text or choice field shows: one text, or a list of options with the selected ones.
     /// </summary>
     sealed class FieldContent
     {
@@ -331,7 +331,7 @@ namespace PdfSharp.Pdf.Forms
 
         public IReadOnlyList<string>? Options { get; init; }
 
-        public int SelectedIndex { get; init; } = -1;
+        public IReadOnlyList<int> SelectedIndices { get; init; } = [];
 
         public string AllText
         {

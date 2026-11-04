@@ -512,7 +512,7 @@ namespace PdfSharp.Pdf.Security
             // Empty data is encrypted too, as in EncryptString.
             if (VersionSupportsCryptFilter())
             {
-                var cryptFilter = GetCryptFilter(dictionary);
+                var cryptFilter = GetCryptFilter(dictionary, writing: true);
                 if (cryptFilter is not null)
                 {
                     if (cryptFilter.EncryptForEnteredObject(ref bytes))
@@ -886,8 +886,32 @@ namespace PdfSharp.Pdf.Security
         /// </summary>
         public void ResetCryptFilter(PdfDictionary dictionary)
         {
-            dictionary.Elements.ArrayOrSingleItem.Remove<PdfName>(PdfStream.Keys.Filter, CryptFilterConstants.FilterValue);
-            dictionary.Elements.ArrayOrSingleItem.Remove(PdfStream.Keys.DecodeParms, CryptFilterConstants.DecodeParmsPredicate);
+            var filters = FilterItems(dictionary.Elements[PdfStream.Keys.Filter]);
+            var parameters = FilterItems(dictionary.Elements[PdfStream.Keys.DecodeParms]);
+            if (!filters.Any(IsCryptFilter) && !parameters.Any(IsCryptFilterParms))
+                return;
+
+            // /Crypt and its parameters go; the other filters keep theirs, also when an earlier version wrote the
+            // crypt filter's parameters as a lone dictionary or at the end of the array.
+            var keptFilters = new List<PdfItem>();
+            var keptParameters = new List<PdfItem>();
+            // Earlier versions appended the crypt parameters, so arrays of the same length can still be misaligned.
+            var aligned = parameters.Count == filters.Count
+                && !Enumerable.Range(0, filters.Count).Any(index => IsCryptFilterParms(parameters[index]) && !IsCryptFilter(filters[index]));
+            for (var index = 0; index < filters.Count; index++)
+            {
+                if (IsCryptFilter(filters[index]))
+                    continue;
+                keptFilters.Add(filters[index]);
+                if (aligned)
+                    keptParameters.Add(parameters[index]);
+            }
+            if (!aligned)
+            {
+                var others = parameters.Where(item => !IsCryptFilterParms(item)).ToList();
+                keptParameters = others.Count == keptFilters.Count ? others : keptFilters.Select(_ => (PdfItem)PdfNull.Value).ToList();
+            }
+            WriteFilters(dictionary, keptFilters, keptParameters);
         }
 
         void ResetCryptFilterEntriesInAllElements()
@@ -926,19 +950,106 @@ namespace PdfSharp.Pdf.Security
                     throw TH.ArgumentException_UnknownCryptFilter();
             }
 
-            dictionary.Elements.ArrayOrSingleItem.Add(PdfStream.Keys.Filter, new PdfName(CryptFilterConstants.FilterValue), true);
-
             var decodeParams = new PdfDictionary(dictionary.Document);
             decodeParams.Elements.SetName(CryptFilterConstants.DecodeParmsTypeKey, CryptFilterConstants.DecodeParmsTypeValue);
             decodeParams.Elements.SetName(CryptFilterConstants.DecodeParmsNameKey, cryptFilterName);
 
-            dictionary.Elements.ArrayOrSingleItem.Add(PdfStream.Keys.DecodeParms, decodeParams);
+            // The crypt filter comes first (ISO 32000-1 7.4.10), and /DecodeParms holds one entry per filter
+            // (Table 5): the other filters keep their parameters, with null where they have none. The parameters
+            // were appended instead, so a compressed stream got a lone dictionary next to two filters.
+            var filters = FilterItems(dictionary.Elements[PdfStream.Keys.Filter]);
+            var parameters = FilterItems(dictionary.Elements[PdfStream.Keys.DecodeParms]);
+            var allFilters = new List<PdfItem> { new PdfName(CryptFilterConstants.FilterValue) };
+            var allParameters = new List<PdfItem> { decodeParams };
+            for (var index = 0; index < filters.Count; index++)
+            {
+                allFilters.Add(filters[index]);
+                allParameters.Add(parameters.Count == filters.Count ? parameters[index] : PdfNull.Value);
+            }
+            WriteFilters(dictionary, allFilters, allParameters);
+        }
+
+        // The entries of /Filter or /DecodeParms: none, one, or the items of an array, read through references.
+        static List<PdfItem> FilterItems(PdfItem? item)
+        {
+            if (item is PdfReference reference)
+                item = reference.Value;
+            return item switch
+            {
+                null or PdfNull or PdfNullObject => [],
+                PdfArray array => array.Elements.ToList(),
+                _ => [item]
+            };
+        }
+
+        static bool IsCryptFilter(PdfItem filter) => FilterName(filter) is PdfName { Value: CryptFilterConstants.FilterValue };
+
+        static bool IsCryptFilterParms(PdfItem parameters)
+        {
+            if (parameters is PdfReference reference)
+                parameters = reference.Value;
+            return parameters is PdfDictionary dictionary && CryptFilterConstants.DecodeParmsPredicate(dictionary);
+        }
+
+        // A filter name held as an indirect object is written as a name, which every reader takes.
+        static PdfItem FilterName(PdfItem item)
+        {
+            if (item is PdfReference reference)
+                item = reference.Value;
+            return item is PdfNameObject name ? new PdfName(name.Value) : item;
+        }
+
+        /// <summary>
+        /// Writes /Filter and /DecodeParms: a single filter as a name with its parameters, several as arrays of the
+        /// same length, and no /DecodeParms when no filter has parameters. Direct parameter dictionaries belong to the
+        /// container they came from and are copied; indirect ones stay references.
+        /// </summary>
+        static void WriteFilters(PdfDictionary dictionary, List<PdfItem> filters, List<PdfItem> parameters)
+        {
+            var hasParameters = parameters.Any(item => item is not (PdfNull or PdfNullObject));
+            dictionary.Elements.Remove(PdfStream.Keys.Filter);
+            dictionary.Elements.Remove(PdfStream.Keys.DecodeParms);
+            if (filters.Count == 0)
+                return;
+            if (filters.Count == 1)
+            {
+                dictionary.Elements[PdfStream.Keys.Filter] = FilterName(filters[0]);
+                if (hasParameters)
+                    dictionary.Elements[PdfStream.Keys.DecodeParms] = Detached(parameters[0]);
+                return;
+            }
+            var filterArray = new PdfArray(dictionary.Document);
+            dictionary.Elements[PdfStream.Keys.Filter] = filterArray;
+            foreach (var filter in filters)
+                filterArray.Elements.Add(FilterName(filter));
+            if (!hasParameters)
+                return;
+            var parameterArray = new PdfArray(dictionary.Document);
+            dictionary.Elements[PdfStream.Keys.DecodeParms] = parameterArray;
+            foreach (var item in parameters)
+                parameterArray.Elements.Add(Detached(item));
+
+            PdfItem Detached(PdfItem item)
+            {
+                if (item is not PdfObject { IsIndirect: false } direct || direct.ParentInfo == null)
+                    return item;
+                var copy = direct.Clone();
+                copy.Document = dictionary.Owner;
+                return copy;
+            }
         }
 
         /// <summary>
         /// Gets the crypt filter that shall be used to decrypt or encrypt the dictionary.
         /// </summary>
-        public CryptFilterBase? GetCryptFilter(PdfDictionary dictionary)
+        public CryptFilterBase? GetCryptFilter(PdfDictionary dictionary) => GetCryptFilter(dictionary, false);
+
+        /// <summary>
+        /// Gets the crypt filter for the dictionary. With EncryptMetadata false, only the document's metadata stream
+        /// is written unencrypted (ISO 32000-1 Table 20); when reading, any metadata stream that holds plain XML is
+        /// read as it is, because some writers leave them all unencrypted.
+        /// </summary>
+        internal CryptFilterBase? GetCryptFilter(PdfDictionary dictionary, bool writing)
         {
             // The cross-reference stream shall not be encrypted. See Reference PDF 2.0: 7.5.8.2  Cross-reference stream dictionary / Page 80.
             var type = dictionary.Elements.GetName(PdfCrossReferenceStream.Keys.Type);
@@ -991,7 +1102,7 @@ namespace PdfSharp.Pdf.Security
             // So if we didn’t find a crypt filter, we check if a metadata dictionary is not encrypted and
             // return the identity crypt filter in that case to avoid decrypting it.
             type = dictionary.Elements.GetName(PdfMetadata.Keys.Type);
-            if (type == "/Metadata" && !GetEncryption().EncryptMetadata && IsPlainMetadata(dictionary))
+            if (type == "/Metadata" && !GetEncryption().EncryptMetadata && (writing ? IsDocumentMetadata(dictionary) : IsPlainMetadata(dictionary)))
                 return IdentityCryptFilter.Instance;
 
             if (PdfEmbeddedFileStream.IsEmbeddedFile(dictionary))
@@ -999,6 +1110,15 @@ namespace PdfSharp.Pdf.Security
 
             // Otherwise return the default crypt filter for streams.
             return _defaultCryptFilterStreams;
+        }
+
+        // The catalog's /Metadata: the document-level metadata stream that EncryptMetadata false exempts.
+        static bool IsDocumentMetadata(PdfDictionary dictionary)
+        {
+            var item = dictionary.Owner?.Catalog.Elements[PdfCatalog.Keys.Metadata];
+            if (item is PdfReference reference)
+                return dictionary.Reference is { } own && own.ObjectID == reference.ObjectID;
+            return ReferenceEquals(item, dictionary);
         }
 
         /// <summary>

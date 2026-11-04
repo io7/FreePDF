@@ -171,15 +171,16 @@ public class EncryptedEmptyDataTests
 
     // Review findings for PR #41.
 
-    // With EncryptMetadata false, FreePDF leaves metadata streams that hold XML unencrypted. Deciding that read the
-    // first character of the stream's text, so an empty or blank metadata stream threw IndexOutOfRangeException
-    // once empty streams reached it. Such a stream is left as it is too.
+    // With EncryptMetadata false, deciding whether a metadata stream is unencrypted read the first character of its
+    // text, so an empty or blank metadata stream threw IndexOutOfRangeException once empty streams reached it.
+    // Since 7.6.1, metadata other than the document's is encrypted when it is written, as ISO 32000-1 Table 20
+    // says, and reads back the same.
     [Theory]
-    [InlineData("V4-RC4", "")]
-    [InlineData("AES-128", "")]
-    [InlineData("AES-256", "")]
-    [InlineData("AES-256", " \n")]
-    public void Empty_metadata_is_saved_when_metadata_is_not_encrypted(string kind, string content)
+    [InlineData("V4-RC4", "", 0)]
+    [InlineData("AES-128", "", 32)]
+    [InlineData("AES-256", "", 32)]
+    [InlineData("AES-256", " \n", 32)]
+    public void Empty_metadata_is_saved_when_metadata_is_not_encrypted(string kind, string content, int encryptedLength)
     {
         byte[] file;
         using (var document = new PdfDocument())
@@ -196,7 +197,7 @@ public class EncryptedEmptyDataTests
             file = Save(document);
         }
 
-        Assert.Equal(content, RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata"));
+        Assert.Equal(encryptedLength, RawStream(TestPdf.Latin1.GetString(file), "/OtherMetadata").Length);
         using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
         Assert.Equal(content, TestPdf.Latin1.GetString(reopened.Catalog.Elements.GetDictionary("/OtherMetadata")!.Stream!.Value));
     }

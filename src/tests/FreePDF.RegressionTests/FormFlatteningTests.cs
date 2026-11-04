@@ -54,6 +54,46 @@ public class FormFlatteningTests
         Assert.Contains(drawn, content => content.Contains("q 0 g 2 2 10 10 re f Q"));
     }
 
+    // A list box that allows several selected options holds them as an array of export values (ISO 32000-1 Table
+    // 231). Flattening threw; the drawn list now highlights every selected option.
+    [Fact]
+    public void A_list_box_with_several_selected_options_is_flattened_with_all_of_them_highlighted()
+    {
+        using var document = Open();
+        var colour = (PdfFormListBoxField)Fields(document)["colour"]!;
+        colour.Elements.SetInteger("/Ff", 1 << 21);
+        colour.Elements["/V"] = new PdfArray(document, new PdfString("Red"), new PdfString("Blue"));
+        document.Catalog.GetAcroForm()!.NeedAppearances = true;
+
+        Assert.Equal("Red", colour.SelectedValue);
+        Assert.Equal(0, colour.SelectedIndex);
+        document.Flatten();
+        using var reopened = SaveAndReopen(document);
+
+        var list = Assert.Single(DrawnForms(reopened), content => content.Contains("(Green) Tj"));
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(list, "0.6 0.75 0.86 rg").Count);
+    }
+
+    // Review of #47: a value held as an indirect string was ignored, and with /V in another order than /Opt the
+    // value and the index named different options.
+    [Fact]
+    public void List_box_values_held_as_indirect_strings_or_in_another_order_are_read()
+    {
+        using var document = Open();
+        var colour = (PdfFormListBoxField)Fields(document)["colour"]!;
+        colour.Elements.SetInteger("/Ff", 1 << 21);
+        // The constructor makes the string an indirect object of the document.
+        var green = new PdfStringObject(document, "Green");
+        colour.Elements["/V"] = green.Reference;
+        Assert.Equal("Green", colour.SelectedValue);
+        Assert.Equal(1, colour.SelectedIndex);
+
+        var red = new PdfStringObject(document, "Red");
+        colour.Elements["/V"] = new PdfArray(document, new PdfString("Blue"), red.Reference!);
+        Assert.Equal("Red", colour.SelectedValue);
+        Assert.Equal(0, colour.SelectedIndex);
+    }
+
     [Fact]
     public void Each_widget_is_placed_on_its_rectangle()
     {
