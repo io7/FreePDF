@@ -59,7 +59,9 @@ in pyHanko and pdfsig, and the 13 encrypted corpus files were saved unchanged
 (same bytes) and with one encrypted change. Since 7.5.1, empty streams and strings in AES-encrypted
 documents are encrypted too (32 bytes), so pyHanko can read them. Since 7.5.2, documents with
 `EncryptMetadata` false whose metadata streams are encrypted (as pyHanko writes them) open and read
-correctly: regression tests cover RC4 and AES, and 400 pyHanko files were read.
+correctly: regression tests cover RC4 and AES, and 400 pyHanko files were read. Since 7.6.1,
+FreePDF writes only the document's own metadata unencrypted when `EncryptMetadata` is false, as
+ISO 32000-1 specifies, and pyHanko reads the page metadata of such files.
 
 Since 7.5.0, an Append-mode save refuses changes to signed signature fields and to fields a
 signature locks (FieldMDP, `/Lock`), and changes a certification signature
