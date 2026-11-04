@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.5.2
 
 - Encrypted documents with `EncryptMetadata` false whose metadata streams are
   encrypted open and read correctly. ISO 32000-1 exempts only the document's
