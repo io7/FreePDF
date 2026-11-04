@@ -269,12 +269,27 @@ namespace PdfSharp.Pdf
 
             if (IncrementalUpdate != null)
             {
-                // Saved in memory first, which already holds the original: a refused or failed save must not
-                // truncate the file, which may be the one the document was opened from.
-                using var buffer = new MemoryStream();
-                await SaveAsync(buffer).ConfigureAwait(false);
-                using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-                buffer.WriteTo(file);
+                // The file is opened first, without truncating it, so that a path that cannot be written fails before
+                // the document is saved and the save can be repeated. The document is saved in memory, which already
+                // holds the original, and the file is written only when that succeeded: a refused or failed save
+                // leaves the file as it was, also when it is the file the document was opened from.
+                bool existed = File.Exists(path);
+                var file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+                try
+                {
+                    using var buffer = new MemoryStream(IncrementalUpdate.OriginalLength + 64 * 1024);
+                    await SaveAsync(buffer).ConfigureAwait(false);
+                    file.SetLength(0);
+                    buffer.WriteTo(file);
+                }
+                catch
+                {
+                    file.Dispose();
+                    if (!existed)
+                        File.Delete(path);
+                    throw;
+                }
+                file.Dispose();
                 return;
             }
 

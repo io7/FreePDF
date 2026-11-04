@@ -107,6 +107,11 @@ namespace PdfSharp.Pdf.IO
         internal bool IsFileObject(PdfObjectID objectID) => _hashes.ContainsKey(objectID);
 
         /// <summary>
+        /// Gets the length of the original file, which an update starts with.
+        /// </summary>
+        internal int OriginalLength => _original.Length;
+
+        /// <summary>
         /// Records whether the document information was changed since the file was opened. Call before
         /// PrepareForSave, which puts the producer into it.
         /// </summary>

@@ -274,7 +274,7 @@ namespace PdfSharp.Pdf.Advanced
             // Create outline objects.
             if (HasOutline && Outline is { Outlines.Count: > 0 } outline)
             {
-                if (!Elements.HasValue(Keys.PageMode)) // #US373 GetValue() not needed, just checking existence.
+                if (DefaultsPageMode)
                     PageMode = PdfPageMode.UseOutlines;
                 outline.PrepareForSave();
             }
@@ -288,13 +288,14 @@ namespace PdfSharp.Pdf.Advanced
         {
             var state = Document.State;
             //if (_outline != null && _outline.Outlines.Count > 0)
-            if (HasOutline && Outline is { Outlines.Count: > 0 })
-            {
-                if (!Elements.HasValue(Keys.PageMode)) // #US373 GetValue() not needed, just checking existence.
-                    PageMode = PdfPageMode.UseOutlines;
-            }
+            if (HasOutline && Outline is { Outlines.Count: > 0 } && DefaultsPageMode)
+                PageMode = PdfPageMode.UseOutlines;
             base.WriteObject(writer);
         }
+
+        // A document with an outline and no /PageMode opens with the outline shown. An Append-mode update does not
+        // change the file's view settings: the added key changes the catalog, which signature validators report.
+        bool DefaultsPageMode => !Elements.HasValue(Keys.PageMode) && Document.OpenMode != PdfDocumentOpenMode.Append;
 
         /// <summary>
         /// Predefined keys of this dictionary.
