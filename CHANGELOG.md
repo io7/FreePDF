@@ -1,5 +1,15 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Saving no longer adds a `/Dest` to bookmarks that lead to their page through
+  a GoTo action (`/A`); ISO 32000-1 permits only one of the two. A bookmark keeps
+  its action while its destination is as read from the file. Setting a new
+  `DestinationPage`, view or position writes a `/Dest` and removes the action
+  read from the file, whatever kind of action it was. An action the application
+  puts into `/A` is kept and the bookmark gets no `/Dest`; a bookmark whose
+  action the application removed gets a `/Dest` to its page.
+
 ## 7.4.0
 
 - `PdfDocumentOpenMode.Append` opens a document so that saving it writes an
