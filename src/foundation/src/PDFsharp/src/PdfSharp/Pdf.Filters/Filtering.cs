@@ -284,27 +284,54 @@ namespace PdfSharp.Pdf.Filters
 //            if (decodeParms is not null)
 //                PdfReference.Dereference(ref decodeParms);
 
-            if (filterItem is PdfName && decodeParms is null or PdfDictionary)
+            var filterValue = Resolve(filterItem);
+            var parmsValue = Resolve(decodeParms);
+            // A single filter may come with its parameters in a one-element array.
+            if (filterValue is PdfName && parmsValue is PdfArray { Elements.Count: 1 } singleParms)
+                parmsValue = Resolve(singleParms.Elements[0]);
+
+            if (filterValue is PdfName filterName && parmsValue is null or PdfDictionary)
             {
-                var filter = GetFilter(filterItem.ToString()!);
+                // A crypt filter's data was decrypted when the file was read (ISO 32000-1 7.4.10).
+                if (filterName.Value == "/" + PdfFilterNames.Crypt)
+                    return data;
+                var filter = GetFilter(filterName.Value);
                 if (filter != null!)
-                    result = filter.Decode(data, new FilterParms(decodeParms as PdfDictionary));
+                    result = filter.Decode(data, new FilterParms(parmsValue as PdfDictionary));
             }
-            else if (filterItem is PdfArray itemArray && decodeParms is null or PdfArray)
+            else if (filterValue is PdfArray itemArray
+                     && (parmsValue is null or PdfArray || (parmsValue is PdfDictionary && itemArray.Elements.Count == 1)))
             {
-                var decodeArray = decodeParms as PdfArray;
+                var decodeArray = parmsValue as PdfArray;
                 // Array length of filter and decode parms should match. If they don’t, return data unmodified.
                 if (decodeArray != null && decodeArray.Elements.Count != itemArray.Elements.Count)
                     return data;
                 for (var i = 0; i < itemArray.Elements.Count; i++)
                 {
                     var item = itemArray.Elements[i];
-                    var parms = decodeArray?.Elements[i];
+                    // The parameters of a one-filter array may also be given as a dictionary.
+                    var parms = decodeArray != null ? decodeArray.Elements[i] : parmsValue;
                     data = Decode(data, item, parms);
                 }
                 result = data;
             }
             return result ?? NRT.ThrowOnNull<byte[]>();
+        }
+
+        /// <summary>
+        /// A filter or its parameters as they apply: an indirect object is read, null means no parameters
+        /// (ISO 32000-1 Table 5), and a name held as an indirect object is a name.
+        /// </summary>
+        static PdfItem? Resolve(PdfItem? item)
+        {
+            if (item is PdfReference reference)
+                item = reference.Value;
+            return item switch
+            {
+                PdfNull or PdfNullObject => null,
+                PdfNameObject name => new PdfName(name.Value),
+                _ => item
+            };
         }
 
         /// <summary>

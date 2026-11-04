@@ -194,11 +194,10 @@ namespace PdfSharp.Pdf.Security.Encryption
             {
                 SecurityHandler.Elements.SetBoolean(PdfStandardSecurityHandler.Keys.EncryptMetadata, EncryptMetadata);
 
-                var metadata = SecurityHandler.Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata, VCF.Create);
-                if (metadata is null)
-                    throw TH.InvalidOperationException_CouldNotFindMetadataDictionary();
-
-                SecurityHandler.SetIdentityCryptFilter(metadata);
+                // The document's metadata stream, if it has one, stays unencrypted. A document without metadata got
+                // a /Metadata dictionary that was no stream, which ISO 32000-1 Table 28 does not allow.
+                if (SecurityHandler.Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
+                    SecurityHandler.SetIdentityCryptFilter(metadata);
             }
 
             // Use user password twice if no owner password provided.
