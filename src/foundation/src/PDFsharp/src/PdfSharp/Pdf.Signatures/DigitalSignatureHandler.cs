@@ -210,7 +210,9 @@ namespace PdfSharp.Pdf.Signatures
             // Annotation keys.
             signatureField.Elements.Add(PdfFormField.Keys.FT, new PdfName(PdfFormFieldType.Signature));
             signatureField.Elements.Add(PdfFormField.Keys.T, new PdfString(GetUniqueSignatureFieldName()));
-            signatureField.Elements.Add(PdfFormField.Keys.Ff, new PdfInteger(132));
+            // Annotation flags Print (4) and Locked (128); this was written as field flags (/Ff), which made the
+            // appearance unprinted and gave the field meaningless flags.
+            signatureField.Elements.Add(PdfAnnotation.Keys.F, new PdfInteger(132));
             // signatureField.Elements.Add(PdfFormField.Keys.DR, new PdfDictionary());  TODO COMPILE
             signatureField.Elements.Add(PdfAnnotation.Keys.Type, new PdfName("/Annot"));
             signatureField.Elements.Add(PdfAnnotation.Keys.Subtype, new PdfName("/Widget"));
