@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.6.0
 
 - `DigitalSignatureOptions.FieldName` signs an existing, empty signature field,
   such as a form's "sign here" field, instead of adding a new field. The
