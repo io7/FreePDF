@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Encrypted documents with `EncryptMetadata` false whose metadata streams are
+  encrypted open and read correctly. ISO 32000-1 exempts only the document's
+  own metadata, so pyHanko, for example, encrypts a page's metadata. FreePDF
+  decides whether a metadata stream is unencrypted from its content: it
+  decompressed the encrypted data of a compressed stream, which threw
+  `InvalidDataException`, so the document did not open (199 of 200 such pyHanko
+  files); and it took an uncompressed stream whose encrypted data starts with
+  `<` (one in 256) for XML and did not decrypt it. A stream that does not decode
+  now counts as encrypted, and XML must go on with printable characters after
+  the `<`, as it does.
+
 ## 7.5.1
 
 - Empty streams and strings in an AES-encrypted document (AES-128 or AES-256)

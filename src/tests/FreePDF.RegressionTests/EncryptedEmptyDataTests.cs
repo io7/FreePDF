@@ -62,7 +62,7 @@ public class EncryptedEmptyDataTests
     }
 
     // The raw data, as written in the file, of the stream that the last "<key> N 0 R" refers to.
-    static string RawStream(string text, string key)
+    internal static string RawStream(string text, string key)
     {
         var number = Regex.Matches(text, Regex.Escape(key) + @"\s*(\d+) 0 R").Cast<Match>().Last().Groups[1].Value;
         var objectAt = Regex.Matches(text, @"(?<!\d)" + number + @" 0 obj\b").Cast<Match>().Last().Index;

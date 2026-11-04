@@ -990,19 +990,47 @@ namespace PdfSharp.Pdf.Security
             // So if we didn’t find a crypt filter, we check if a metadata dictionary is not encrypted and
             // return the identity crypt filter in that case to avoid decrypting it.
             type = dictionary.Elements.GetName(PdfMetadata.Keys.Type);
-            if (type == "/Metadata" && !GetEncryption().EncryptMetadata)
-            {
-                // Empty or blank metadata is left as it is too.
-                var possiblyReadableXml = dictionary.Stream?.ToString().TrimStart();
-                if (possiblyReadableXml != null && (possiblyReadableXml.Length == 0 || possiblyReadableXml[0] == '<'))
-                    return IdentityCryptFilter.Instance;
-            }
+            if (type == "/Metadata" && !GetEncryption().EncryptMetadata && IsPlainMetadata(dictionary))
+                return IdentityCryptFilter.Instance;
 
             if (PdfEmbeddedFileStream.IsEmbeddedFile(dictionary))
                 return _defaultCryptFilterEmbeddedFileStreams;
 
             // Otherwise return the default crypt filter for streams.
             return _defaultCryptFilterStreams;
+        }
+
+        /// <summary>
+        /// Tells whether a metadata stream holds unencrypted XML, or is empty or blank, which is left as it is too.
+        /// </summary>
+        static bool IsPlainMetadata(PdfDictionary dictionary)
+        {
+            if (dictionary.Stream is null)
+                return false;
+
+            string text;
+            try
+            {
+                text = dictionary.Stream.ToString().TrimStart();
+            }
+            catch (Exception)
+            {
+                // Encrypted data does not decode with the stream's filters, for example a compressed stream.
+                return false;
+            }
+            if (text.Length == 0)
+                return true;
+
+            // XML starts with '<'. Encrypted data does too, once in 256 streams, but XML goes on with printable ASCII
+            // ("<?xpacket begin=" in XMP), which encrypted data almost never does.
+            if (text[0] != '<')
+                return false;
+            for (var index = 1; index < Math.Min(text.Length, 16); index++)
+            {
+                if (text[index] is not ((>= ' ' and <= '~') or '\t' or '\n' or '\r'))
+                    return false;
+            }
+            return true;
         }
         #endregion CryptFilters
 
