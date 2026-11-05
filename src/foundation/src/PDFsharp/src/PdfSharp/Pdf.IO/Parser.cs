@@ -1357,14 +1357,18 @@ namespace PdfSharp.Pdf.IO
             _document.Trailer = null!;
 
             var text = _lexer.ScanRawString(0, (int)length);
-            var found = FindObjects(text, out _, out var objectSpans);
+            var found = FindObjects(text, out _, out var objectSpans, out var weakPositions);
             if (found.Count == 0)
                 throw new PdfReaderException("The file holds no objects.");
 
             // Direct objects first, so that the trailer and the object streams can refer to them. The last version of
             // each object number in the file is the one an incremental update made current.
+            // A weak copy (a header behind an 'endstream' found by searching, which may lie inside stream data) is used
+            // only when the file has no other copy of that object number.
             var newest = new Dictionary<int, SizeType>();
-            foreach (var item in found)
+            foreach (var item in found.Where(item => !weakPositions.Contains(item.Position)))
+                newest[item.Number] = item.Position;
+            foreach (var item in found.Where(item => weakPositions.Contains(item.Position) && !newest.ContainsKey(item.Number)).Reverse())
                 newest[item.Number] = item.Position;
             var objects = found.Where(item => newest[item.Number] == item.Position).ToList();
             var rebuilt = new RebuiltObjects();
@@ -1389,6 +1393,8 @@ namespace PdfSharp.Pdf.IO
 
             // A reference the trailer names must lead to an object found in the file; a /Root that does not falls back
             // to the last catalog.
+            if (trailer.Elements[PdfTrailer.Keys.Info] is { } info and not (PdfReference or PdfDictionary))
+                trailer.Elements.Remove(PdfTrailer.Keys.Info);
             foreach (var key in new[] { PdfTrailer.Keys.Root, PdfTrailer.Keys.Info, PdfTrailer.Keys.Encrypt })
             {
                 if (trailer.Elements[key] is PdfReference reference)
@@ -1450,9 +1456,10 @@ namespace PdfSharp.Pdf.IO
         // Every search is bounded by the next object header, so the work grows with the file size only. The spans of
         // objects that end with 'endobj' or a stream are returned too.
         static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text,
-            out List<(int Start, int End)> streamRanges, out List<(int Start, int End)> objectSpans)
+            out List<(int Start, int End)> streamRanges, out List<(int Start, int End)> objectSpans, out HashSet<SizeType> weakPositions)
         {
             var result = new List<(int, int, SizeType, string)>();
+            weakPositions = [];
             streamRanges = [];
             objectSpans = [];
 
@@ -1504,15 +1511,17 @@ namespace PdfSharp.Pdf.IO
                         streamRanges.Add((stream, endStream));
                         resume = endStream + 9;
                         objectSpans.Add((match.Index, resume));
-                        // 'endobj' may be missing, with the next header right behind 'endstream'. Only when /Length
-                        // located that 'endstream': the first one found by searching may lie inside the stream data.
+                        // 'endobj' may be missing, with the next header right behind 'endstream'. When /Length did not
+                        // locate that 'endstream', it may lie inside the stream data; such a header is checked below.
                         int after = SkipWhiteSpace(text, resume);
                         if (String.CompareOrdinal(text, after, "endobj", 0, 6) == 0)
                             after = SkipWhiteSpace(text, after + 6);
-                        if (byLength && AnchoredHeaderPattern.Match(text, after) is { Success: true } following)
+                        if (AnchoredHeaderPattern.Match(text, after) is { Success: true } following)
                         {
                             sameLineHeader = after;
                             next = following;
+                            if (!byLength)
+                                weakPositions.Add(after);
                         }
                     }
                     else
@@ -1533,6 +1542,13 @@ namespace PdfSharp.Pdf.IO
                         objectSpans.Add((match.Index, resume));
                     else if (sameLineHeader >= 0)
                         next = AnchoredHeaderPattern.Match(text, sameLineHeader);
+                }
+                // A header behind an 'endstream' found by searching is weak when its body holds 'endstream' too: then it
+                // lay inside stream data, followed by the rest of the stream. Otherwise it is an ordinary object.
+                if (weakPositions.Contains(match.Index)
+                    && text.IndexOf("endstream", body, dictionaryEnd - body, StringComparison.Ordinal) < 0)
+                {
+                    weakPositions.Remove(match.Index);
                 }
                 var dictionary = text.Substring(body, Math.Min(dictionaryEnd - body, 64 * 1024));
                 var kind = ObjectTypePattern.Match(dictionary) is { Success: true } typeMatch ? "/" + typeMatch.Groups[1].Value : "";
@@ -1594,8 +1610,11 @@ namespace PdfSharp.Pdf.IO
 
         // The position behind a literal string that starts at 'start', honouring nested parentheses and escapes; a
         // string that does not close ends at 'limit'.
-        static int SkipLiteralString(string text, int start, int limit)
+        static int SkipLiteralString(string text, int start, int limit) => SkipLiteralString(text, start, limit, out _);
+
+        static int SkipLiteralString(string text, int start, int limit, out bool closed)
         {
+            closed = false;
             int depth = 0;
             for (int index = start; index < limit; index++)
             {
@@ -1612,7 +1631,10 @@ namespace PdfSharp.Pdf.IO
                 {
                     depth--;
                     if (depth == 0)
+                    {
+                        closed = true;
                         return index + 1;
+                    }
                 }
             }
             return limit;
@@ -1766,6 +1788,9 @@ namespace PdfSharp.Pdf.IO
             // otherwise from the newest that has one.
             if (!chosen)
             {
+                // Only dictionaries with /Size, as trailers and cross-reference streams have; others may be text in a
+                // comment or a stray dictionary.
+                readable.RemoveAll(dictionary => dictionary.Elements[PdfTrailer.Keys.Size] == null);
                 if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Info] != null) is { } withInfo)
                     CopyEntry(withInfo, PdfTrailer.Keys.Info);
                 if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Encrypt] != null) is { } withEncrypt)
@@ -1789,35 +1814,46 @@ namespace PdfSharp.Pdf.IO
         }
 
         // The position behind the '>>' that closes the dictionary starting at 'start', or -1 if it does not close
-        // before the next 'trailer' keyword. Strings and comments are skipped; one that reaches past that keyword may go
-        // on for 4 KiB more, as it may hold the text 'trailer <<', and the bound becomes the next keyword behind it.
+        // before the next 'trailer' keyword. Strings and comments are skipped. One that crosses that keyword (it may
+        // hold the text 'trailer <<') may go on within a fixed 4 KiB budget, and the bound becomes the next keyword
+        // behind it; one that runs over 'startxref' or '%%EOF' belongs to junk, not to a trailer. The fixed budget
+        // keeps the work per keyword bounded, also on hostile runs of strings and comments.
         static int DictionaryEnd(string text, int start, List<int> keywords)
         {
-            const int stringSlack = 4096;
+            const int slack = 4096;
             int end = NextKeyword(start);
+            int limit = (int)Math.Min((long)end + slack, text.Length);
             int depth = 0;
             for (int index = start; index < end; index++)
             {
                 char ch = text[index];
                 if (ch == '(')
                 {
-                    int limit = (int)Math.Min((long)end + stringSlack, text.Length);
-                    int behind = SkipLiteralString(text, index, limit);
-                    if (behind >= limit && limit < text.Length)
+                    int behind = SkipLiteralString(text, index, limit, out bool closed);
+                    if (!closed && limit < text.Length)
                         return -1;
                     if (behind > end)
-                        end = NextKeyword(behind);
+                    {
+                        if (CrossesFileEnd(end, behind))
+                            return -1;
+                        end = Math.Min(NextKeyword(behind), limit);
+                    }
                     index = behind - 1;
                 }
                 else if (ch == '%')
                 {
-                    int limit = (int)Math.Min((long)end + stringSlack, text.Length);
-                    while (index < limit && text[index] is not ('\n' or '\r'))
-                        index++;
-                    if (index >= limit && limit < text.Length)
+                    int lineEnd = index;
+                    while (lineEnd < limit && text[lineEnd] is not ('\n' or '\r'))
+                        lineEnd++;
+                    if (lineEnd >= limit && limit < text.Length)
                         return -1;
-                    if (index > end)
-                        end = NextKeyword(index);
+                    if (lineEnd > end)
+                    {
+                        if (CrossesFileEnd(end, lineEnd))
+                            return -1;
+                        end = Math.Min(NextKeyword(lineEnd), limit);
+                    }
+                    index = lineEnd;
                 }
                 else if (ch == '<' && index + 1 < text.Length && text[index + 1] == '<')
                 {
@@ -1842,6 +1878,10 @@ namespace PdfSharp.Pdf.IO
                     found = ~found;
                 return found < keywords.Count ? keywords[found] : text.Length;
             }
+
+            bool CrossesFileEnd(int from, int to)
+                => text.IndexOf("startxref", from, to - from, StringComparison.Ordinal) >= 0
+                   || text.IndexOf("%%EOF", from, to - from, StringComparison.Ordinal) >= 0;
         }
 
         // 'trailer' as a keyword: after a delimiter or white space and before '<<'.

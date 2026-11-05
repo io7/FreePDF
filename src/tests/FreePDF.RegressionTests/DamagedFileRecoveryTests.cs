@@ -512,4 +512,93 @@ public class DamagedFileRecoveryTests
         using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), "owner", PdfDocumentOpenMode.Import);
         Assert.Equal("Size-only update", document.Info.Title);
     }
+
+    static byte[] TrailerFile(string beforeTrailer, string afterEof, string extra = "")
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(6, "<< /Title (real title) >>");
+        builder.Raw(beforeTrailer);
+        builder.Xref("/Size 7 /Root 1 0 R /Info 6 0 R" + extra);
+        return TestPdf.Latin1.GetBytes(Regex.Replace(builder.Text, @"startxref\s+\d+", "startxref\n9") + afterEof);
+    }
+
+    [Theory]
+    [InlineData("trailer << ) (\n")]
+    [InlineData("% trailer <<\n")]
+    public void Junk_trailer_strings_and_comments_take_linear_time(string unit)
+    {
+        // 16,000 such lines took 7 seconds when each string or comment could extend the bound again.
+        var bytes = TrailerFile("", "trailer << (\n" + string.Concat(Enumerable.Repeat(unit, 24000)));
+
+        var watch = Stopwatch.StartNew();
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        Assert.Equal("real title", document.Info.Title);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Rebuild took {watch.Elapsed}.");
+    }
+
+    [Fact]
+    public void A_broken_older_trailer_whose_string_runs_over_the_real_one_does_not_hide_it()
+    {
+        var bytes = TrailerFile("trailer\n<< /Size 3 /Info (abc\n", "\n) >>\n");
+
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import);
+        Assert.Equal("real title", document.Info.Title);
+    }
+
+    [Fact]
+    public void A_trailer_info_that_is_not_a_dictionary_is_dropped()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Xref("/Size 5 /Root 1 0 R /Info (not a dictionary)");
+
+        using var document = PdfReader.Open(new MemoryStream(WrongStartXRef(builder.Text)), PdfDocumentOpenMode.Import);
+        Assert.Equal("", document.Info.Title);
+    }
+
+    [Fact]
+    public void A_dictionary_without_size_in_a_comment_is_no_fallback_trailer()
+    {
+        // No dictionary names a /Root; a comment's dictionary must not make the file encrypted.
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Raw("% trailer << /Encrypt 4 0 R >>\n");
+        builder.Xref("/Size 5");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("/Length 18 ")]
+    public void A_header_behind_an_endstream_found_by_searching_counts_when_no_other_copy_exists(string length)
+    {
+        // The content stream's length is missing or wrong, and the page follows right behind its 'endstream'.
+        var text = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + $"4 0 obj\n<< {length}>>\nstream\n{Content}\nendstream 3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Contents 4 0 R >>\nendobj\n"
+                   + "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n9\n%%EOF\n";
+
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), PdfDocumentOpenMode.Import);
+        Assert.Equal(240, document.Pages[0].MediaBox.Width, 3);
+        Assert.StartsWith(Content, PageContent(document));
+    }
+
+    [Fact]
+    public void A_newer_copy_behind_an_endstream_found_by_searching_wins_over_an_older_broken_one()
+    {
+        // Object 6 first appears without a body; its real copy follows a stream whose /Length is wrong.
+        var text = "%PDF-1.7\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Contents 4 0 R >>\n\n6 0 obj \n"
+                   + "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + $"4 0 obj\n<< /Length 15 >> stream\n{Content}\nendstream\nendobj\n"
+                   + "6 0 obj << /Title (t) >> 1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+                   + "trailer\n<< /Size 10 /Root 1 0 R /Info 6 0 R >>\nstartxref\n9\n%%EOF\n";
+
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), PdfDocumentOpenMode.Import);
+        Assert.Equal("t", document.Info.Title);
+        Assert.Equal(1, document.PageCount);
+    }
 }
