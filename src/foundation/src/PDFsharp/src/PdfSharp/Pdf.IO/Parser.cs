@@ -335,7 +335,14 @@ namespace PdfSharp.Pdf.IO
                 symbol = ScanNextToken();
             }
             if (fromObjectStream is false && symbol != Symbol.EndObj)
-                ParserDiagnostics.ThrowParserException(PsMsgs.UnexpectedToken(_lexer.Token));
+            {
+                // An object whose 'endobj' is missing, followed by the next object or the file structure, is complete;
+                // viewers read it, and FreePDF refused the whole file. Anything else still means damage.
+                if (symbol is Symbol.Integer or Symbol.XRef or Symbol.Trailer or Symbol.StartXRef or Symbol.Eof)
+                    PdfSharpLogHost.PdfReadingLogger.LogWarning("Object '{ObjectID}' has no 'endobj'.", objectID);
+                else
+                    ParserDiagnostics.ThrowParserException(PsMsgs.UnexpectedToken(_lexer.Token));
+            }
             return pdfObject ?? NRT.ThrowOnNull<PdfObject>();
         }
 
@@ -1328,6 +1335,29 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Finds the last 'startxref' before the end, searching backwards in blocks; -1 if there is none. The file was
+        /// read into one string, which took about five times its size in memory and refused files over 2 GiB.
+        /// </summary>
+        SizeType FindLastStartXRef(SizeType end)
+        {
+            const string keyword = "startxref";
+            const int blockSize = 64 * 1024;
+            while (end > 0)
+            {
+                SizeType start = Math.Max(0, end - blockSize);
+                var text = _lexer.ScanRawString(start, (int)(end - start));
+                int index = text.LastIndexOf(keyword, StringComparison.Ordinal);
+                if (index >= 0)
+                    return start + index;
+                if (start == 0)
+                    break;
+                // The next block overlaps this one, so a keyword across the border is found.
+                end = start + keyword.Length - 1;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Reads the cross-reference table(s) and their trailer dictionary or
         /// cross-reference streams.
         /// </summary>
@@ -1349,21 +1379,10 @@ namespace PdfSharp.Pdf.IO
             if (idx == -1)
             {
                 PdfSharpLogHost.Logger.LogError("Cannot find 'startxref' within the last 1024 bytes of the PDF file.");
-                // If 'startxref' was still not found yet, read the file completely.
-                if (length > int.MaxValue)
-                {
-                    //TODO_OLD: Implement chunking to read long files.
-                    throw new NotImplementedException(
-                        "Reading >2GiB files with a 'startxref' in the middle not implemented.");
-                }
-                string trail = _lexer.ScanRawString(0, (int)length);
-
-                idx = trail.LastIndexOf("startxref", StringComparison.Ordinal);
-
-                if (idx == -1)
+                var position = FindLastStartXRef(length);
+                if (position < 0)
                     throw new PdfReaderException("The StartXRef table could not be found, the file cannot be opened.");
-
-                _lexer.Position = idx;
+                _lexer.Position = position;
             }
 
             ReadSymbol(Symbol.StartXRef);

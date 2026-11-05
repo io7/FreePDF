@@ -62,9 +62,12 @@ namespace PdfSharp.Pdf.Filters
                     }
                     else
                     {
+                        // The code names the entry being defined right now: the previous string followed by its own
+                        // first byte. Only the previous string was written, so one byte was lost each time.
                         str = _stringTable[oldCode];
-                        outputStream.Write(str, 0, str.Length);
                         AddEntry(str, str[0]);
+                        str = _stringTable[_tableIndex - 1];
+                        outputStream.Write(str, 0, str.Length);
                         oldCode = code;
                     }
                 }

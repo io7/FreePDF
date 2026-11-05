@@ -296,9 +296,11 @@ namespace PdfSharp.Pdf.IO
             // If we found a decimal point we later divide the result by the appropriate power of 10 and covert is to Double.
             // For edge cases, which are numbers with 19 digits, the token is parsed again with 'Int64.TryParse()' and
             // if this fails with 'Double.TryParse'.
-            // If 'testForObjectReference' is 'true' and the value has up to 7 digits, no decimal point and no sign,
-            // we look ahead whether it is an object reference having the form '{object-number} {generation-number} R'.
-            const int maxDigitsForObjectNumber = 7;      // max: 8_388_608 / 0x_7F_FF_FF
+            // If 'testForObjectReference' is 'true' and the value fits an int, has no decimal point and no sign, we look
+            // ahead whether it is an object reference having the form '{object-number} {generation-number} R'. Object
+            // numbers above the PDF maximum of 8_388_607 are references too (to nothing, so they read as null); with up
+            // to 7 digits only, one such reference made the whole file fail to open.
+            const int maxDigitsForObjectNumber = 10;     // max: Int32.MaxValue, 10 digits
             const int maxDigitsForGenerationNumber = 5;  // max: 65_535    / 0x_FF_FF
             const int maxDigitsForLong = 18;             // Up to 18 digits values can safely fit into 64-bit integer.
             const int maxDecimalDigits = 10;             // Maximum number of decimal digits we process.
@@ -404,7 +406,7 @@ namespace PdfSharp.Pdf.IO
 #endif
             // Can the scanned number be the first part of an object reference?
             if (testForObjectReference && period is false
-                && totalDigits <= maxDigitsForObjectNumber  // Values in range [8_388_609..9_999_999] are checked in PdfObjectID.
+                && totalDigits <= maxDigitsForObjectNumber && value <= Int32.MaxValue  // PdfObjectID logs values above 8_388_607.
                 && IsWhiteSpace(_currChar))
             {
 #if DEBUG_
