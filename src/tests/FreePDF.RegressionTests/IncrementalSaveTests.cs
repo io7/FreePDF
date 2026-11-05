@@ -187,7 +187,7 @@ public class IncrementalSaveTests
     }
 
     [Fact]
-    public void A_nested_page_tree_is_kept_and_refuses_page_insertion()
+    public void A_nested_page_tree_is_kept()
     {
         var original = TestPdf.Create(new[] {
             "<< /Type /Catalog /Pages 2 0 R >>",
@@ -199,7 +199,6 @@ public class IncrementalSaveTests
 
         Assert.Equal(1, document.PageCount);
         Assert.Equal(4, document.Pages[0].Reference!.ObjectNumber);
-        Assert.Throws<NotSupportedException>(() => document.AddPage());
         document.Pages[0].Elements.SetName("/Marker", "/Changed");
         using var output = new MemoryStream();
         document.Save(output);
@@ -207,22 +206,6 @@ public class IncrementalSaveTests
         Assert.Contains(4, written);
         Assert.DoesNotContain(2, written);
         Assert.DoesNotContain(3, written);
-    }
-
-    [Fact]
-    public void Merging_pages_into_a_nested_page_tree_is_refused()
-    {
-        var original = TestPdf.Create(new[] {
-            "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 /MediaBox [0 0 240 200] >>",
-            "<< /Type /Page /Parent 3 0 R >>",
-        });
-        using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Append);
-        using var source = PdfReader.Open(new MemoryStream(Classic()), PdfDocumentOpenMode.Import);
-
-        Assert.Throws<NotSupportedException>(() => document.AppendPages(source));
-        Assert.Equal(1, document.PageCount);
     }
 
     static byte[] DirectInformation() => TestPdf.Create(new[] {

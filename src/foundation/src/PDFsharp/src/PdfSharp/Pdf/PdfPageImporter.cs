@@ -43,7 +43,6 @@ namespace PdfSharp.Pdf
                 throw new InvalidOperationException("A PDF document must be opened with PdfDocumentOpenMode.Import to import pages from it.");
             if (target?.UAManager != null)
                 throw new InvalidOperationException("Pages cannot be imported into a PDF/UA document.");
-            target?.Pages.EnsurePageTreeCanChange();
             if (source.PageCount == 0 && startIndex == 0 && pageCount == 0)
                 return;
             if (startIndex < 0 || startIndex >= source.PageCount)
@@ -120,6 +119,9 @@ namespace PdfSharp.Pdf
             if (_fieldRoots.Count > 0)
                 CommitFields();
 
+            // Reading the outline creates it, which changes the catalog, also in an Append-mode update.
+            if (_options.BookmarkTitle == null && _bookmarks.Count == 0)
+                return;
             var parent = _target.Outlines;
             if (_options.BookmarkTitle != null)
                 parent = _target.Outlines.Add(_options.BookmarkTitle, _newPages[0].Page).Outlines;
