@@ -78,10 +78,23 @@ namespace PdfSharp.Pdf
             inheritedValues.MediaBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.MediaBox) ?? inheritedValues.MediaBox;
             inheritedValues.CropBox = Elements.GetRectangle(PdfPage.InheritablePageKeys.CropBox) ?? inheritedValues.CropBox;
 
-            // TODO Should be written simpler.
-            var rotate = Elements.GetValue(PdfPage.InheritablePageKeys.Rotate);
-            if (rotate is PdfInteger integer)
-                inheritedValues.Rotate = integer;
+            // The rotation may be an indirect integer object, which was ignored, or a real number, which ISO 32000-1
+            // does not allow but viewers take.
+            switch (Elements.GetValue(PdfPage.InheritablePageKeys.Rotate))
+            {
+                case PdfInteger integer:
+                    inheritedValues.Rotate = integer;
+                    break;
+                case PdfIntegerObject integerObject:
+                    inheritedValues.Rotate = new PdfInteger(integerObject.Value);
+                    break;
+                case PdfReal real:
+                    inheritedValues.Rotate = new PdfInteger((int)Math.Round(real.Value));
+                    break;
+                case PdfRealObject realObject:
+                    inheritedValues.Rotate = new PdfInteger((int)Math.Round(realObject.Value));
+                    break;
+            }
 
             //inheritedValues.CropBox = Elements.GetValue<PdfRectangle>(InheritablePageKeys.CropBox);
             //inheritedValues.Rotate = Elements.GetValue<PdfInteger>(InheritablePageKeys.Rotate);

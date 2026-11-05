@@ -64,6 +64,11 @@ namespace PdfSharp.Pdf
             Initialize(true);
         }
 
+        /// <summary>
+        /// Gets the media box a page read without a usable one gets: US Letter, as Poppler and MuPDF show it.
+        /// </summary>
+        internal static PdfRectangle MediaBoxWhenMissing => new(0, 0, 612, 792);
+
         internal void Initialize(bool setupSizeFromMediaBox)
         {
             if (setupSizeFromMediaBox)
@@ -75,7 +80,7 @@ namespace PdfSharp.Pdf
                     // without a usable one at US Letter size; read it the same way and write that box on save
                     // (an Append-mode update leaves it out, as it leaves out inherited values, unless it changes).
                     PdfSharpLogHost.PdfReadingLogger.LogWarning("Page has no valid MediaBox; using US Letter (612 x 792 points).");
-                    rectangle = new PdfRectangle(0, 0, 612, 792);
+                    rectangle = MediaBoxWhenMissing;
                     Elements.SetRectangle(InheritablePageKeys.MediaBox, rectangle);
                 }
 
@@ -886,6 +891,11 @@ namespace PdfSharp.Pdf
         /// </summary>
         internal bool TransparencyUsed { get; set; }
 
+        // Whether the page has a value of its own for an inheritable key. It is read raw, because reading an indirect
+        // box as a rectangle threw; null, also as an indirect object, is no value (ISO 32000-1 7.3.9).
+        bool HasOwnValue(string key)
+            => Elements[key] is not (null or PdfNull or PdfReference { Value: PdfNullObject });
+
         /// <summary>
         /// Applies inherited values from the parent nodes to this page.
         /// </summary>
@@ -937,13 +947,13 @@ namespace PdfSharp.Pdf
                 }
             }
 
-            if (inheritedValues.MediaBox != null && Elements.GetValue(InheritablePageKeys.MediaBox) == null)
+            if (inheritedValues.MediaBox != null && !HasOwnValue(InheritablePageKeys.MediaBox))
                 Elements[InheritablePageKeys.MediaBox] = inheritedValues.MediaBox;
 
-            if (inheritedValues.CropBox != null && Elements.GetValue(InheritablePageKeys.CropBox) == null)
+            if (inheritedValues.CropBox != null && !HasOwnValue(InheritablePageKeys.CropBox))
                 Elements[InheritablePageKeys.CropBox] = inheritedValues.CropBox;
 
-            if (inheritedValues.Rotate != null && Elements.GetValue(InheritablePageKeys.Rotate) == null)
+            if (inheritedValues.Rotate != null && !HasOwnValue(InheritablePageKeys.Rotate))
                 Elements[InheritablePageKeys.Rotate] = inheritedValues.Rotate;
 #else
             // Old code - DELETE

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- In `Append` mode, pages can be inserted, removed and moved, and merged with
+  `AppendPages`, also when the page tree is nested; this threw
+  `NotSupportedException`. The update changes the tree where it is: it writes
+  only the page tree nodes between the root and the pages that come or go, and a
+  node left without pages is taken out of the tree. A page moved within its node
+  stays in it. A page moved under another node keeps its media box, crop box and
+  rotation.
+- `AppendPages` no longer adds an empty outline to the catalog when there are no
+  bookmarks to merge, which in `Append` mode was a change to the catalog.
+- A `/Rotate` that a page inherits as an indirect object, or as a real number, is
+  read; such pages were read without their rotation.
+- A page whose own media box or crop box is an indirect object, under a node with
+  one, can be opened; reading it threw "PdfRectangle is not implemented as an
+  array". A box or rotation that refers to a null object counts as missing, so
+  the page inherits the node's.
+- In `Append` mode, a new page no longer takes the crop box, rotation or
+  resources of the page tree node it goes into, also when the root of a flat
+  tree has them; it came out rotated or cropped, for example.
+- In `Modify` mode, a new page no longer takes the media box, crop box, rotation
+  or resources that the page tree's root of the opened file had. The root no
+  longer keeps them, as every page already holds the values it inherits.
+- A page taken out with `Remove` or `RemoveAt` can be inserted again; `Insert`
+  threw "Object already in table".
 - `PdfMetadata.SetMetadata(string)` accepts every XMP packet header the XMP
   specification allows: the begin attribute in single quotes, and holding the
   byte order mark U+FEFF, as XMP read from a file into a string has it. Both threw
