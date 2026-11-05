@@ -1107,25 +1107,38 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
-        /// Finds the 'endstream' that closes a stream whose /Length does not end right before it: the last one in the
-        /// search range, which ends where the next object begins. Returns its offset from the start of the stream data,
-        /// or -1. The length is the declared one when only white space separates it from 'endstream', as some
-        /// producers pad streams; otherwise it is the bytes before the end-of-line marker that precedes 'endstream',
-        /// which is not part of the data (ISO 32000-1 7.3.8.1). A declared length below 0 means none.
+        /// Finds the 'endstream' that closes a stream whose /Length does not end right before it. The search range ends
+        /// where the next object in the cross-reference table begins, so it can also hold objects the table does not
+        /// list, such as versions an update replaced. Returns the offset of 'endstream' from the start of the stream
+        /// data, or -1. When only white space separates the declared length from the next 'endstream', as when a
+        /// producer pads streams, the declared length is kept. Otherwise the 'endstream' nearest the declared end is
+        /// taken, preferring one that 'endobj' follows, and the length is the bytes before the end-of-line marker that
+        /// precedes it, which is not part of the data (ISO 32000-1 7.3.8.1). Without a declared length (below 0) it is
+        /// the last 'endstream' in the range.
         /// </summary>
         public int FindEndStream(SizeType start, int searchLength, int declaredLength, out int length)
         {
             var rawString = RandomReadRawString(start, searchLength);
-            int index = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
             length = -1;
+            int index;
+            if (declaredLength < 0)
+            {
+                index = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
+            }
+            else
+            {
+                int padded = declaredLength <= rawString.Length
+                    ? rawString.IndexOf("endstream", declaredLength, StringComparison.Ordinal)
+                    : -1;
+                if (padded >= 0 && IsWhiteSpaceOnly(rawString, declaredLength, padded))
+                {
+                    length = declaredLength;
+                    return padded;
+                }
+                index = NearestEndStream(rawString, declaredLength);
+            }
             if (index < 0)
                 return -1;
-
-            if (declaredLength >= 0 && declaredLength <= index && IsWhiteSpaceOnly(rawString, declaredLength, index))
-            {
-                length = declaredLength;
-                return index;
-            }
 
             int end = index;
             if (end > 0 && rawString[end - 1] == Chars.LF)
@@ -1141,14 +1154,42 @@ namespace PdfSharp.Pdf.IO
             length = end;
             return index;
 
+            // NUL is white space in PDF syntax but a common last byte of binary data, so it does not count as padding.
             static bool IsWhiteSpaceOnly(string text, int from, int to)
             {
                 for (int position = from; position < to; position++)
                 {
-                    if (text[position] is not (Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP))
+                    if (text[position] is not (Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP))
                         return false;
                 }
                 return true;
+            }
+
+            static int NearestEndStream(string text, int declared)
+            {
+                int best = -1;
+                bool bestClosesObject = false;
+                long bestDistance = Int64.MaxValue;
+                for (int at = text.IndexOf("endstream", StringComparison.Ordinal); at >= 0;
+                     at = text.IndexOf("endstream", at + 9, StringComparison.Ordinal))
+                {
+                    bool closesObject = IsFollowedByEndObj(text, at + 9);
+                    long distance = Math.Abs((long)at - declared);
+                    if (closesObject && !bestClosesObject || closesObject == bestClosesObject && distance < bestDistance)
+                    {
+                        best = at;
+                        bestClosesObject = closesObject;
+                        bestDistance = distance;
+                    }
+                }
+                return best;
+            }
+
+            static bool IsFollowedByEndObj(string text, int position)
+            {
+                while (position < text.Length && text[position] is Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP)
+                    position++;
+                return String.CompareOrdinal(text, position, "endobj", 0, 6) == 0;
             }
         }
 
