@@ -111,6 +111,20 @@ public class ReaderToleranceMoreTests
         Assert.Equal(1, document.PageCount);
     }
 
+    sealed class ShortReadStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override int Read(byte[] buffer, int offset, int count) => base.Read(buffer, offset, Math.Min(count, 7));
+        public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(buffer.Length, 7)]);
+    }
+
+    // Upstream PR #365: a stream that returns fewer bytes than asked for made the header check fail.
+    [Fact]
+    public void A_stream_with_short_reads_opens()
+    {
+        using var document = PdfReader.Open(new ShortReadStream(TestPdf.Create(ReaderFixtureData.SimplePage)), PdfDocumentOpenMode.Import);
+        Assert.Equal(1, document.PageCount);
+    }
+
     // Upstream PR #365: a content name in a legacy code page did not match the same name as a resource key.
     [Theory]
     [InlineData("ja-JP", "/#83#65", "/テ")]
