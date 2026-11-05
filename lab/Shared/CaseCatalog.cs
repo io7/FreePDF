@@ -23,7 +23,7 @@ public static class CaseCatalog
         new() { Id = "attachments", Title = "Embedded file and XMP metadata" },
         new() { Id = "forms", Title = "Checkbox field and annotation appearance" },
         new() { Id = "pdfa", Title = "PDF/A generation path (conformance unverified)" },
-        new() { Id = "reader-trailer", Title = "Cyclic trailer rejection", KnownReferenceDefect = "Preview 1 loops over a cyclic Prev chain; upstream issue 266. The candidate page records a successful rejection check, not a rendering of the malformed input." },
+        new() { Id = "reader-trailer", Title = "Cyclic trailer chain", KnownReferenceDefect = "Preview 1 loops over a cyclic Prev chain; upstream issue 266. The candidate page records that the candidate opens the input by rebuilding its cross-reference information, without looping; it is not a rendering of the malformed input." },
         new() { Id = "reader-pages", Title = "Cyclic page-tree rejection", KnownReferenceDefect = "Preview 1 cannot safely traverse a cyclic page tree; upstream issue 361. The candidate page records a successful rejection check." },
         new() { Id = "inherited-page", Title = "Inherited page dimensions", KnownReferenceDefect = "Preview 1 initializes pages before inheriting their dimensions; upstream issue 375." },
         new() { Id = "stream-length", Title = "Incorrect stream length recovery", KnownReferenceDefect = "Preview 1 can consume a following object when Length is too large; upstream issue 394." },

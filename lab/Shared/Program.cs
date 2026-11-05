@@ -44,7 +44,7 @@ static class Program
                 Runtime = Environment.Version.ToString(), Pages = reopened.PageCount, Title = reopened.Info.Title,
                 Attachments = attachments.FileCount, AttachmentText = attachment == null ? null : Encoding.UTF8.GetString(attachment.Data),
                 Fields = fields?.Elements.Count ?? 0, Metadata = reopened.Catalog.Elements.ContainsKey("/Metadata"),
-                ReaderRejection = args[0].StartsWith("reader-", StringComparison.Ordinal) ? "PdfReaderException" : null,
+                ReaderRejection = ReaderOutcome(args[0]),
                 FixtureFontSha256 = args[0] == "nested-glyphs" ? ResourceHash("CompositeFont.ttf") : null,
                 FontSubsetNames = fontSubsetNames,
                 Semantics = args[0] == "semantic-roundtrip" ? SemanticSummary(reopened) : null,
@@ -77,7 +77,7 @@ static class Program
         }
         if (id is "paragraphs" or "tables" or "merged-table") return Layout(id);
         if (id is "inherited-page" or "stream-length" or "hybrid-xref" or "multi-stream") return Imported(id);
-        if (id is "reader-trailer" or "reader-pages") VerifyRejected(id);
+        if (id is "reader-trailer" or "reader-pages") VerifyCyclicInputHandled(id);
         var doc = new PdfDocument();
         if (id == "pdfa") PdfAManager.ForDocument(doc).SetFormat(PdfAFormat.ForcePdfAFormat(1, 'B'));
         if (id == "attachments")
@@ -173,13 +173,28 @@ static class Program
             Destination = destination, DestinationPage = 1, FileName = filename, Attachment = attachment };
     }
 
-    static void VerifyRejected(string id)
+    // What the reader does with the case's malformed input: a cyclic trailer chain is rebuilt, other input rejected.
+    static string? ReaderOutcome(string id)
+    {
+        if (id == "reader-trailer")
+            return "Rebuilt";
+        return id.StartsWith("reader-", StringComparison.Ordinal) ? "PdfReaderException" : null;
+    }
+
+    // A cyclic page tree is refused. A cyclic /Prev chain makes the reader rebuild the cross-reference information
+    // from the objects, as viewers do, so that file opens; either way the reader must not loop.
+    static void VerifyCyclicInputHandled(string id)
     {
         var scenario = id == "reader-trailer" ? "trailer-self" : "tree-self";
         try
         {
             using var input = new MemoryStream(ReaderFixtureData.Get(scenario));
             using var document = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+            if (id == "reader-trailer" && document.PageCount == 1)
+            {
+                Console.WriteLine("Rebuilt synthetic input with a cyclic trailer chain.");
+                return;
+            }
             _ = document.PageCount;
         }
         catch (PdfReaderException error)
