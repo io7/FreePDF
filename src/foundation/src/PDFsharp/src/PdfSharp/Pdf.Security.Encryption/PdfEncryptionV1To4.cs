@@ -149,18 +149,20 @@ namespace PdfSharp.Pdf.Security.Encryption
             RevisionValue = CalculateRevisionValue(VersionValue.Value, permissionsValue);
             SecurityHandler.Elements.SetInteger(PdfStandardSecurityHandler.Keys.R, RevisionValue.Value);
 
-            if (VersionValue == 4)
+            // Only write if differing from default value (true), and only for V4, which knows the entry. A false left
+            // from the file's earlier encryption made readers compute another key, so the file could not be opened.
+            if (VersionValue == 4 && !EncryptMetadata)
             {
-                // Only write if differing from default value (true).
-                if (!EncryptMetadata)
-                {
-                    SecurityHandler.Elements.SetBoolean(PdfStandardSecurityHandler.Keys.EncryptMetadata, EncryptMetadata);
+                SecurityHandler.Elements.SetBoolean(PdfStandardSecurityHandler.Keys.EncryptMetadata, EncryptMetadata);
 
-                    // The document's metadata stream, if it has one, stays unencrypted. A document without metadata
-                    // got a /Metadata dictionary that was no stream, which ISO 32000-1 Table 28 does not allow.
-                    if (SecurityHandler.Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
-                        SecurityHandler.SetIdentityCryptFilter(metadata);
-                }
+                // The document's metadata stream, if it has one, stays unencrypted. A document without metadata
+                // got a /Metadata dictionary that was no stream, which ISO 32000-1 Table 28 does not allow.
+                if (SecurityHandler.Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
+                    SecurityHandler.SetIdentityCryptFilter(metadata);
+            }
+            else
+            {
+                SecurityHandler.Elements.Remove(PdfStandardSecurityHandler.Keys.EncryptMetadata);
             }
 
             // Use user password twice if no owner password provided.

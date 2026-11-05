@@ -189,7 +189,8 @@ namespace PdfSharp.Pdf.Security.Encryption
 
             SecurityHandler.Elements.SetInteger(PdfStandardSecurityHandler.Keys.R, RevisionValue!.Value);
 
-            // Only write if differing from default value (true).
+            // Only write if differing from default value (true). A false left from the file's earlier encryption
+            // contradicted /Perms, which records the new value and which readers check.
             if (!EncryptMetadata)
             {
                 SecurityHandler.Elements.SetBoolean(PdfStandardSecurityHandler.Keys.EncryptMetadata, EncryptMetadata);
@@ -198,6 +199,10 @@ namespace PdfSharp.Pdf.Security.Encryption
                 // a /Metadata dictionary that was no stream, which ISO 32000-1 Table 28 does not allow.
                 if (SecurityHandler.Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
                     SecurityHandler.SetIdentityCryptFilter(metadata);
+            }
+            else
+            {
+                SecurityHandler.Elements.Remove(PdfStandardSecurityHandler.Keys.EncryptMetadata);
             }
 
             // Use user password twice if no owner password provided.

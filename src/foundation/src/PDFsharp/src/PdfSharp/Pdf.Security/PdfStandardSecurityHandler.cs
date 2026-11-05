@@ -1094,10 +1094,16 @@ namespace PdfSharp.Pdf.Security
             if (cryptFilterValue is null)
                 return null;
 
-            // The parameters at the crypt filter's place; without any, the filter is Identity.
+            // The parameters at the crypt filter's place; without any, the filter is Identity. An array may hold them by
+            // reference; one to an object not read yet is no parameters.
             var filterIndex = filters.IndexOf(cryptFilterValue);
             var decodeParms = dictionary.Elements.ArrayOrSingleItem.GetAll(PdfStream.Keys.DecodeParms).ToList();
-            if (filterIndex >= decodeParms.Count || decodeParms[filterIndex] is not PdfDictionary parameters)
+            PdfItem? entry = null;
+            if (filterIndex < decodeParms.Count)
+                entry = decodeParms[filterIndex];
+            if (entry is PdfReference reference)
+                entry = reference.Value;
+            if (entry is not PdfDictionary parameters)
                 return CryptFilterConstants.IdentityFilterValue;
 
             // /Type is optional, and a missing /Name means Identity (ISO 32000-1, Table 14).

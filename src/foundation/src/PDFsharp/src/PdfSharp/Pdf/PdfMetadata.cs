@@ -255,7 +255,7 @@ namespace PdfSharp.Pdf
             Elements.Remove(PdfStream.Keys.DL);
             CreateStream(xml);
             if (cryptFilter != null)
-                Owner.SecuritySettings.EffectiveSecurityHandler?.KeepCryptFilter(this, cryptFilter);
+                Owner?.SecuritySettings.EffectiveSecurityHandler?.KeepCryptFilter(this, cryptFilter);
         }
 
         /// <summary>

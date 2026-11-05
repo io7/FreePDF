@@ -17,6 +17,10 @@
   its crypt filter, which says whether the stream is encrypted. Setting metadata
   on compressed metadata, for example with `SetMetadata(ToString())`, wrote the
   plain XML under `/FlateDecode`, which no reader could decode.
+- Encrypting a document again with `EncryptMetadata` true, when the opened file
+  had it false, kept `/EncryptMetadata false` in the new encryption dictionary.
+  Readers then computed another key, and nobody could open the file (V4), or the
+  entry contradicted `/Perms` (V5).
 - An `Append`-mode save of an RC4 file with encryption version 1 to 3 whose
   encryption dictionary nevertheless says `/EncryptMetadata false` threw "Crypt
   filters are not supported" when the document's metadata changed.

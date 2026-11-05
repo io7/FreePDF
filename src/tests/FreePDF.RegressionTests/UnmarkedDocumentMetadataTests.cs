@@ -203,4 +203,76 @@ public class UnmarkedDocumentMetadataTests
         using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
         Assert.Contains("<replaced/>", TestPdf.Latin1.GetString(DocumentMetadata(reopened).Stream!.UnfilteredValue));
     }
+
+    // Names /StdCF through a reference inside the metadata's /DecodeParms array.
+    static void NameCryptFilterByReference(PdfDocument document, PdfMetadata metadata)
+    {
+        var parameters = new PdfDictionary(document);
+        parameters.Elements.SetName("/Type", "/CryptFilterDecodeParms");
+        parameters.Elements.SetName("/Name", "/StdCF");
+        document.Internals.AddObject(parameters);
+        metadata.Elements["/Filter"] = new PdfArray(document, new PdfName("/Crypt"));
+        metadata.Elements["/DecodeParms"] = new PdfArray(document, parameters.Reference!);
+    }
+
+    [Fact]
+    public void A_crypt_filter_named_by_reference_in_an_array_encrypts_the_stream()
+    {
+        // The writer did not follow the reference and wrote the XML plain under the /StdCF marker. Reading it back is
+        // left to pyHanko here: FreePDF decrypts streams while it reads the file, before the parameters, which come
+        // later, are read.
+        var result = KeepEncryption(WithUnmarkedMetadata("AES-256"), NameCryptFilterByReference);
+
+        Assert.DoesNotContain("<unmarked-check/>", TestPdf.Latin1.GetString(result));
+    }
+
+    [Fact]
+    public void New_content_keeps_a_crypt_filter_named_by_reference()
+    {
+        var result = KeepEncryption(WithUnmarkedMetadata("AES-128"), (document, metadata) => {
+            NameCryptFilterByReference(document, metadata);
+            metadata.SetMetadata(Xmp.Replace("<unmarked-check/>", "<replaced/>"));
+        });
+
+        AssertEncryptedAndReadable(result, "<replaced/>");
+    }
+
+    [Theory]
+    [InlineData("V4-RC4")]
+    [InlineData("AES-128")]
+    [InlineData("AES-256")]
+    public void Encrypting_a_file_again_with_EncryptMetadata_true_can_be_opened(string kind)
+    {
+        // The file's /EncryptMetadata false stayed in the new encryption dictionary, so no reader could open the file.
+        byte[] result;
+        using (var document = PdfReader.Open(new MemoryStream(WithUnmarkedMetadata(kind)), "owner", PdfDocumentOpenMode.Modify))
+        {
+            switch (kind)
+            {
+                case "V4-RC4": document.SecurityHandler.SetEncryptionToV4UsingRC4(true); break;
+                case "AES-128": document.SecurityHandler.SetEncryptionToV4UsingAES(true); break;
+                default: document.SecurityHandler.SetEncryptionToV5(true); break;
+            }
+            document.SecuritySettings.UserPassword = "new user";
+            document.SecuritySettings.OwnerPassword = "new owner";
+            using var output = new MemoryStream();
+            document.Save(output);
+            result = output.ToArray();
+        }
+
+        Assert.DoesNotMatch(new Regex(@"/EncryptMetadata\s*false"), TestPdf.Latin1.GetString(result));
+        using var reopened = PdfReader.Open(new MemoryStream(result), "new user", PdfDocumentOpenMode.Import);
+        Assert.Contains("<unmarked-check/>", TestPdf.Latin1.GetString(DocumentMetadata(reopened).Stream!.UnfilteredValue));
+    }
+
+    [Fact]
+    public void Metadata_outside_a_document_takes_new_content()
+    {
+        var metadata = new PdfMetadata();
+        metadata.Elements.SetName("/Filter", "/Crypt");
+
+        metadata.SetMetadata(TestPdf.Latin1.GetBytes(Xmp));
+
+        Assert.False(metadata.Elements.ContainsKey("/Filter"));
+    }
 }
