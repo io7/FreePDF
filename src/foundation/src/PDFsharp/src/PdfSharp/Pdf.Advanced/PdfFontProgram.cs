@@ -4,6 +4,7 @@
 using PdfSharp.Internal.OpenType;
 using PdfSharp.Fonts;
 using PdfSharp.Pdf.Filters;
+using PdfSharp.Pdf.PdfA;
 
 namespace PdfSharp.Pdf.Advanced
 {
@@ -46,6 +47,37 @@ namespace PdfSharp.Pdf.Advanced
             }
             Elements.SetInteger(PdfStream.Keys.Length, fontData.Length);
             CreateStream(fontData);
+
+            // PDF/A-1 requires a CIDSet for an embedded CID font subset (ISO 19005-1 6.3.5); validators refused the file
+            // without one. CID equals glyph index here. A subset holds exactly the glyphs of the closure that
+            // CreateFontSubset completed; a complete font file holds all of its glyphs.
+            if (cidFont && PdfAManager.ForDocument(Owner).Part == 1)
+            {
+                var face = pdfFontDescriptor.Descriptor.FontFace;
+                var glyphs = subSet != face
+                    ? cmapInfo.GlyphIndices.Keys
+                    : Enumerable.Range(0, face.maxp.numGlyphs).Select(index => (ushort)index);
+                AddCidSet(pdfFontDescriptor, glyphs);
+            }
+        }
+
+        void AddCidSet(PdfFontDescriptor pdfFontDescriptor, IEnumerable<ushort> glyphs)
+        {
+            var indices = glyphs.ToArray();
+            var bits = new byte[indices.Length == 0 ? 1 : indices.Max() / 8 + 1];
+            foreach (var index in indices)
+                bits[index >> 3] |= (byte)(0x80 >> (index & 7));
+
+            var cidSet = new PdfDictionary(Owner);
+            Owner.Internals.AddObject(cidSet);
+            if (!Owner.Options.NoCompression)
+            {
+                bits = Filtering.FlateDecode.Encode(bits, Document.Options.FlateEncodeMode);
+                cidSet.Elements.SetName(PdfStream.Keys.Filter, "/FlateDecode");
+            }
+            cidSet.Elements.SetInteger(PdfStream.Keys.Length, bits.Length);
+            cidSet.CreateStream(bits);
+            pdfFontDescriptor.Elements[PdfFontDescriptor.Keys.CIDSet] = cidSet.RequiredReference;
         }
     }
 }

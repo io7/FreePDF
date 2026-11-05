@@ -366,6 +366,14 @@ namespace PdfSharp.Pdf.Advanced
             public const string CharSet = "/CharSet";
 
             /// <summary>
+            /// (Optional; meaningful only in CIDFonts; PDF 1.3) A stream identifying which CIDs are present in the
+            /// CIDFont file: bit n of the stream, counting from the high-order bit of the first byte, is set when
+            /// CID n is present. PDF/A-1 requires it for embedded CID font subsets.
+            /// </summary>
+            [KeyInfo(KeyType.Stream | KeyType.Optional)]
+            public const string CIDSet = "/CIDSet";
+
+            /// <summary>
             /// Gets the KeysMeta for these keys.
             /// </summary>
             internal static DictionaryMeta Meta
