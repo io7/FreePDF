@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.8.0
 
 - A justified paragraph with a tab, such as a list item, and soft hyphens no
   longer makes rendering run forever. Justified lines with a tab or a field

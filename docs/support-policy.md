@@ -34,7 +34,10 @@ paragraph/table layout and PDF/RTF generation, page import/merge/stamping,
 attachments, AES-128/256 password encryption, and new detached CMS signatures
 using SHA-256/384/512. Original PDF/A-1b, 2b and 3b fixtures are independently
 validated. PDF/A conformance is a property of each output document; validate
-your own output, fonts and images before archival use.
+your own output, fonts and images before archival use. Since 7.8.0, PDF/A-1 CID
+fonts carry a CIDSet, and saving an opened file whose XMP claims PDF/A keeps its
+XMP in line with the document information and adds no page transparency group;
+veraPDF validated such files in the 7.8.0 release checks.
 
 Merging and splitting with `PdfDocument.AppendPages` and `ExtractPages` carry
 form fields, bookmarks, links and GoTo actions; regression tests cover them, and
@@ -134,6 +137,9 @@ Keep documents and passwords out of public issues. Submit an original minimal
 reproducer where possible; follow `SECURITY.md` for sensitive reports. Process
 untrusted documents with application-level time and memory limits. The bounded
 mutation corpus is a regression gate, not proof against every malformed PDF.
+Since 7.8.0, a file whose cross-reference information cannot be read is rebuilt
+from its objects, as viewers do; a rebuilt file may lack objects its damage hid,
+and Append mode refuses it.
 
 ## Promotion to stable
 
