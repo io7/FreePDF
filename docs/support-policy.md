@@ -61,7 +61,11 @@ documents are encrypted too (32 bytes), so pyHanko can read them. Since 7.5.2, d
 `EncryptMetadata` false whose metadata streams are encrypted (as pyHanko writes them) open and read
 correctly: regression tests cover RC4 and AES, and 400 pyHanko files were read. Since 7.6.1,
 FreePDF writes only the document's own metadata unencrypted when `EncryptMetadata` is false, as
-ISO 32000-1 specifies, and pyHanko reads the page metadata of such files.
+ISO 32000-1 specifies, and pyHanko reads the page metadata of such files. Since 7.7.0, pages
+can be added, removed and moved in Append mode also when the page tree is nested: regression
+tests check the objects each update writes and the tree's counts and parents, and nested files
+that pyHanko signed were edited with page sizes and rotation intact in poppler and MuPDF and
+every signature valid in pdfsig.
 
 Since 7.5.0, an Append-mode save refuses changes to signed signature fields and to fields a
 signature locks (FieldMDP, `/Lock`), and changes a certification signature
