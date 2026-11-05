@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- A justified paragraph with a tab, such as a list item, and soft hyphens no
+  longer makes rendering run forever. Justified lines with a tab or a field
+  are spaced correctly: words could overlap, jam together or run past the
+  right margin, and a list symbol was counted on every line.
+- An empty paragraph with a bottom border, or one that ends with a line break,
+  no longer throws "'Rectangle' must not be null here" when its last line fits
+  at the bottom of a page but its border does not; it ends on the next page.
+- A table row whose `KeepWith` reaches past the last row keeps with the rows up
+  to the end of the table; it threw `ArgumentOutOfRangeException`.
+- A column, line or area chart whose code sets no Y axis property no longer
+  throws "'Axis' must not be null here"; as bar charts already were, it is drawn
+  without a value axis. A chart whose code sets no X axis property no longer
+  draws its columns, bars or line at invalid (NaN) coordinates; it gets a
+  default category axis.
+- A table row taller than a page, which is cut off at the page bottom because
+  rows cannot break across pages, now logs a warning through
+  `MigraDocLogHost.PdfRenderingLogger`.
 - A stream whose `endstream` is more than 20 bytes from where `/Length` says it
   ends can be read: a correct length followed by padding, as IBM i invoice
   generators and Bluebeam write, or a length much too short. Such files did not

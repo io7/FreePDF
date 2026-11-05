@@ -1,7 +1,9 @@
 ﻿// MigraDoc - Creating Documents on the Fly
 // See the LICENSE file in the solution root for more information.
 
+using Microsoft.Extensions.Logging;
 using MigraDoc.DocumentObjectModel.Internals;
+using MigraDoc.Logging;
 using PdfSharp.Drawing;
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.DocumentObjectModel.Fields;
@@ -472,7 +474,12 @@ namespace MigraDoc.Rendering
                 XUnitPt probeHeight = _bottomBorderMap[probeRow + 1] - offset;
                 // First test whether MaxElementHeight has been set.
                 if (MaxElementHeight > 0 && firstProbe && probeHeight > MaxElementHeight - Tolerance)
+                {
+                    // Rows taller than a page are placed anyway and cut off at its bottom (upstream #94); say so.
+                    MigraDocLogHost.PdfRenderingLogger.LogWarning(
+                        MdPdfMsgs.TableRowsTallerThanPage(_startRow, probeRow, probeHeight.Point, MaxElementHeight.Point).Message);
                     probeHeight = MaxElementHeight - Tolerance;
+                }
                 //if (firstProbe && probeHeight > MaxElementHeight - Tolerance)
                 //    probeHeight = MaxElementHeight - Tolerance;
 
@@ -989,6 +996,8 @@ namespace MigraDoc.Rendering
         /// <returns>The last row that is connected with the given row.</returns>
         int CalcLastConnectedRowDirect(int row)
         {
+            // A KeepWith that reaches past the table connects to the last row; a MergeDown past it is refused earlier.
+            int lastRow = _table.Rows.Count - 1;
             int lastConnectedRow = row;
             var cellRow = _table.Rows[row];
             var cells = cellRow.Cells;
@@ -1005,7 +1014,7 @@ namespace MigraDoc.Rendering
                     int downConnection = Math.Max(cellRow.KeepWith, cell.MergeDown);
                     if (lastConnectedRow < row + downConnection)
                     {
-                        lastConnectedRow = row + downConnection;
+                        lastConnectedRow = Math.Min(row + downConnection, lastRow);
                     }
                 }
 
