@@ -31,7 +31,8 @@ namespace PdfSharp.Charting.Renderers
 
             var yari = new AxisRendererInfo
             {
-                Axis = chart._yAxis ?? NRT.ThrowOnNull<Axis>()
+                // Null when the code set no Y axis property: no axis is drawn and the scale is automatic, as for bar charts.
+                Axis = chart._yAxis
             };
             InitScale(yari);
             if (yari.Axis != null)

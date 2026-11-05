@@ -23,7 +23,8 @@ namespace MigraDoc.Rendering
         DisplayEmptyImageSize,
         DisplayImageFileNotFound,
         DisplayInvalidImageType,
-        DisplayImageNotRead
+        DisplayImageNotRead,
+        TableRowsTallerThanPage
     }
 
     // ReSharper restore InconsistentNaming
@@ -71,6 +72,10 @@ namespace MigraDoc.Rendering
 
         internal static MdPdfMsg EmptyImageSize
             => new(MdPdfMsgId.EmptyImageSize, "The specified image size is empty.");
+
+        internal static MdPdfMsg TableRowsTallerThanPage(int firstRow, int lastRow, double height, double available)
+            => new(MdPdfMsgId.TableRowsTallerThanPage, Invariant(
+                $"Table rows {firstRow} to {lastRow} (zero-based) are {height:0.#} pt high, but a page has room for {available:0.#} pt. Rows cannot break across pages, so the part that does not fit is cut off."));
 
         internal static MdPdfMsg ObjectNotRenderable(string typeName)
             => new(MdPdfMsgId.ObjectNotRenderable, "Only images, text-frames, charts and paragraphs can be rendered freely.");

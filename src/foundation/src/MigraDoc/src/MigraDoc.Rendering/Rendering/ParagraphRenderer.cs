@@ -948,23 +948,52 @@ namespace MigraDoc.Rendering
             _currentLineWidth = 0;
             _currentWordsWidth = 0;
             _currentLineEndsWithLineBreak = false;
+            // Counts start fresh for each line: the previous line's tab state, blank count and pending blank made the
+            // words of a justified line jam together or spread too far.
+            _lastTabPassed = lineInfo.LastTab == null;
+            _currentBlankCount = 0;
+            _savedBlankWidth = 0;
 
             var fittingRect = _formattingArea.GetFittingRect(_currentYPosition, _currentVerticalInfo.Height);
             if (fittingRect != null)
             {
                 _currentXPosition = fittingRect.X + LeftIndent;
-                FormatListSymbol();
+                // Only the first line has the list symbol.
+                if (_isFirstLine)
+                    FormatListSymbol();
                 bool goOn = true;
                 while (goOn && _currentLeaf != null)
                 {
                     if (_currentLeaf.Current == lineInfo.LastTab)
+                    {
                         _lastTabPassed = true;
-
-                    FormatElement(_currentLeaf.Current);
+                        // A blank before the last tab is not part of the justified text behind it.
+                        _savedBlankWidth = 0;
+                    }
 
                     if (_endLeaf is null)
                         NRT.ThrowOnNull();
-                    goOn = _currentLeaf != null && _currentLeaf.Current != _endLeaf.Current;
+
+                    // The line's elements are already chosen, so each is measured once and in order. A soft hyphen shows
+                    // only at the end of the line. FormatSoftHyphen would probe the next word and could step back to the
+                    // previous one, which repeated forever in justified lists (upstream #339).
+                    var leaf = _currentLeaf;
+                    if (IsSoftHyphen(leaf.Current))
+                    {
+                        if (leaf.Current == _endLeaf.Current && !IgnoreHorizontalGrowth)
+                        {
+                            XUnitPt hyphenWidth = MeasureString("-");
+                            _currentWordsWidth += hyphenWidth;
+                            _currentLineWidth += hyphenWidth;
+                        }
+                    }
+                    else
+                    {
+                        FormatElement(leaf.Current);
+                    }
+                    _currentLeaf = leaf;
+
+                    goOn = _currentLeaf.Current != _endLeaf.Current;
                     if (goOn)
                         _currentLeaf = _currentLeaf!.GetNextLeaf();
                 }
@@ -1573,7 +1602,12 @@ namespace MigraDoc.Rendering
             _currentVerticalInfo = CalcCurrentVerticalInfo();
             _currentYPosition = area.Y + TopBorderOffset;
             _formattingArea = area;
-            var rect = _formattingArea.GetFittingRect(_currentYPosition, _currentVerticalInfo.Height);
+            // FormatElement checks room for the bottom border with the last element; a paragraph without elements needs
+            // that room here, or the border's rectangle is missing at the bottom of a page.
+            var height = _currentVerticalInfo.Height;
+            if (_currentLeaf == null)
+                height += BottomBorderOffset;
+            var rect = _formattingArea.GetFittingRect(_currentYPosition, height);
             if (rect == null)
                 return false;
 
@@ -1724,6 +1758,15 @@ namespace MigraDoc.Rendering
                     break;
                 }
             }
+            // A paragraph that ends with a line break ends with an empty line, whose bottom border needs room too; without
+            // it, the border's rectangle was missing at the bottom of a page (upstream #83). The paragraph then ends on
+            // the next page.
+            if (formatInfo.IsEnding && lastResult == FormatResult.NewLine && BottomBorderOffset > 0
+                && _formattingArea.GetFittingRect(_currentYPosition + _currentVerticalInfo.Height, BottomBorderOffset) == null)
+            {
+                formatInfo._isEnding = false;
+            }
+
             if (formatInfo.IsEnding && lastResult != FormatResult.NewLine)
                 StoreLineInformation();
 
