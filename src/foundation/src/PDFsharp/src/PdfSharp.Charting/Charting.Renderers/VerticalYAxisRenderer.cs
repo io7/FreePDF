@@ -31,7 +31,8 @@ namespace PdfSharp.Charting.Renderers
 
             var yari = new AxisRendererInfo
             {
-                Axis = chart._yAxis ?? NRT.ThrowOnNull<Axis>()
+                // A chart whose code never set up this axis gets a default one, as if it had read chart.YAxis.
+                Axis = chart._yAxis ?? new Axis(chart)
             };
             InitScale(yari);
             if (yari.Axis != null)

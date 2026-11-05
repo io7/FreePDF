@@ -1,0 +1,104 @@
+// MigraDoc documents that threw or never finished, found in the upstream PDFsharp triage of 2026-11-05. The fixtures
+// are our own. MIT, see LICENSE.
+using MigraDoc.DocumentObjectModel;
+using MigraDoc.DocumentObjectModel.Shapes.Charts;
+using MigraDoc.Rendering;
+using PdfSharp.Pdf.Content;
+using PdfSharp.Pdf.Content.Objects;
+using Xunit;
+
+namespace FreePDF.RegressionTests;
+
+public class MigraDocLayoutCrashTests
+{
+    static Document NewDocument()
+    {
+        TestFonts.Initialize();
+        var document = new Document();
+        document.Styles[StyleNames.Normal]!.Font.Name = "FreePDF Synthetic";
+        return document;
+    }
+
+    static int Render(Document document)
+    {
+        var renderer = new PdfDocumentRenderer { Document = document };
+        renderer.RenderDocument();
+        var pages = renderer.PdfDocument.PageCount;
+        using var output = new MemoryStream();
+        renderer.PdfDocument.Save(output);
+        renderer.PdfDocument.Dispose();
+        return pages;
+    }
+
+    // Upstream #250: a row's KeepWith that reaches past the last row threw ArgumentOutOfRangeException.
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(2, 1)]
+    [InlineData(0, 100)]
+    public void A_keep_with_past_the_last_row_stops_at_the_table_end(int row, int keepWith)
+    {
+        var document = NewDocument();
+        var table = document.AddSection().AddTable();
+        table.AddColumn(Unit.FromCentimeter(4));
+        for (var index = 0; index < 3; index++)
+            table.AddRow().Cells[0].AddParagraph($"Row {index}");
+        table.Rows[0].HeadingFormat = row == 0;
+        table.Rows[row].KeepWith = keepWith;
+
+        Assert.Equal(1, Render(document));
+    }
+
+    // Upstream #83: an empty paragraph with a bottom border threw "'Rectangle' must not be null here" when its line
+    // still fitted at the bottom of a page but its border did not. The spacer moves it down a quarter point at a time
+    // across the last two lines of the page.
+    [Fact]
+    public void An_empty_paragraph_with_a_bottom_border_at_the_page_bottom_renders()
+    {
+        var failures = new List<string>();
+        for (var spacer = 650.0; spacer < 700.0; spacer += 0.25)
+        {
+            var document = NewDocument();
+            var section = document.AddSection();
+            section.AddParagraph("Top");
+            section.AddParagraph().Format.SpaceBefore = Unit.FromPoint(spacer);
+            section.AddParagraph().Format.Borders.Bottom.Width = 1;
+            try
+            {
+                Assert.InRange(Render(document), 1, 2);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{spacer}: {ex.Message}");
+            }
+        }
+        Assert.Empty(failures);
+    }
+
+    // Found in the triage: a chart threw "'Axis' must not be null here" unless the code had read chart.YAxis, and
+    // without chart.XAxis its columns or line were drawn at NaN coordinates, which viewers reject.
+    [Theory]
+    [InlineData(ChartType.Column2D)]
+    [InlineData(ChartType.ColumnStacked2D)]
+    [InlineData(ChartType.Line)]
+    [InlineData(ChartType.Area2D)]
+    [InlineData(ChartType.Bar2D)]
+    [InlineData(ChartType.BarStacked2D)]
+    public void A_chart_renders_without_touching_its_axes(ChartType type)
+    {
+        var document = NewDocument();
+        var chart = document.AddSection().AddChart(type);
+        chart.Width = Unit.FromCentimeter(12);
+        chart.Height = Unit.FromCentimeter(8);
+        chart.SeriesCollection.AddSeries().Add(1, 4, 2, 5);
+        chart.XValues.AddXSeries().Add("A", "B", "C", "D");
+
+        var renderer = new PdfDocumentRenderer { Document = document };
+        renderer.RenderDocument();
+        using var pdf = renderer.PdfDocument;
+        Assert.Equal(1, pdf.PageCount);
+        var operators = ContentReader.ReadContent(pdf.Pages[0]).OfType<COperator>().ToArray();
+        Assert.Contains(operators, op => op.Name is "re" or "l");
+        Assert.DoesNotContain(operators, op => op.Name == "NaN");
+        Assert.All(operators.SelectMany(op => op.Operands).OfType<CReal>(), real => Assert.False(double.IsNaN(real.Value) || double.IsInfinity(real.Value)));
+    }
+}

@@ -30,7 +30,7 @@ namespace PdfSharp.Charting.Renderers
 
             var yari = new AxisRendererInfo
             {
-                Axis = chart._yAxis
+                Axis = chart._yAxis ?? new Axis(chart)
             };
             InitScale(yari);
             if (yari.Axis != null)

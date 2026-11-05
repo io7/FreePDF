@@ -1573,7 +1573,12 @@ namespace MigraDoc.Rendering
             _currentVerticalInfo = CalcCurrentVerticalInfo();
             _currentYPosition = area.Y + TopBorderOffset;
             _formattingArea = area;
-            var rect = _formattingArea.GetFittingRect(_currentYPosition, _currentVerticalInfo.Height);
+            // FormatElement checks room for the bottom border with the last element; a paragraph without elements needs
+            // that room here, or the border's rectangle is missing at the bottom of a page.
+            var height = _currentVerticalInfo.Height;
+            if (_currentLeaf == null)
+                height += BottomBorderOffset;
+            var rect = _formattingArea.GetFittingRect(_currentYPosition, height);
             if (rect == null)
                 return false;
 

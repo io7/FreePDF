@@ -27,7 +27,7 @@ namespace PdfSharp.Charting.Renderers
 
             var xari = new AxisRendererInfo
             {
-                Axis = chart._xAxis
+                Axis = chart._xAxis ?? new Axis(chart)
             };
             if (xari.Axis != null)
             {
