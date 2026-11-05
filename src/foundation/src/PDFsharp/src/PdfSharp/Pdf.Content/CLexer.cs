@@ -233,21 +233,18 @@ namespace PdfSharp.Pdf.Content
                 }
             }
 
+            // Bytes above 127 are decoded like names in the file (UTF-8 first, then the current ANSI code page),
+            // so a content name such as a Shift-JIS font name matches its resource key.
             var name = Token;
-            // Check token for UTF-8 encoding.
             for (int idx = 0; idx < name.Length; idx++)
             {
-                // If the two top most significant bits are set this identifies a 2, 3, or 4
-                // byte UTF-8 encoding sequence.
-                if ((name[idx] & 0xC0) == 0xC0)
+                if (name[idx] > 0x7F)
                 {
-                    // Special characters in Name objects use UTF-8 encoding.
-                    var length = name.Length;
-                    var bytes = new byte[length];
-                    for (int idx2 = 0; idx2 < length; idx2++)
+                    var bytes = new byte[name.Length];
+                    for (int idx2 = 0; idx2 < name.Length; idx2++)
                         bytes[idx2] = (byte)name[idx2];
 
-                    var decodedName = Encoding.UTF8.GetString(bytes);
+                    var decodedName = Name.DecodeBytes(bytes);
                     _token.Clear();
                     _token.Append(decodedName);
                     break;

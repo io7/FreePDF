@@ -1,7 +1,10 @@
 // Files that poppler and MuPDF open and FreePDF refused, found in the upstream PDFsharp triage of 2026-11-05. The
 // fixtures are our own. MIT, see LICENSE.
+using System.Globalization;
 using System.Text;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Content;
+using PdfSharp.Pdf.Content.Objects;
 using PdfSharp.Pdf.IO;
 using FreePDF.Lab.Fixtures;
 using Xunit;
@@ -106,5 +109,35 @@ public class ReaderToleranceMoreTests
 
         using var document = Open(TestPdf.Latin1.GetBytes(text));
         Assert.Equal(1, document.PageCount);
+    }
+
+    // Upstream PR #365: a content name in a legacy code page did not match the same name as a resource key.
+    [Theory]
+    [InlineData("ja-JP", "/#83#65", "/テ")]
+    [InlineData("en-US", "/#83#65", "/ƒe")]
+    [InlineData("ja-JP", "/caf#C3#A9", "/café")]
+    public void Content_names_decode_like_resource_keys(string culture, string literal, string expected)
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            var content = $"{literal} gs";
+            var bytes = TestPdf.Create(new[] {
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Resources << /ExtGState << {literal} << /CA 1 >> >> >> /Contents 4 0 R >>",
+                $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+            });
+
+            using var document = Open(bytes);
+            var page = document.Pages[0];
+            var key = page.Resources.Elements.GetDictionary("/ExtGState")!.Elements.Keys.Single();
+            var operation = ContentReader.ReadContent(page).OfType<COperator>().Single();
+            var name = ((CName)operation.Operands[0]).Name;
+            Assert.Equal(expected, key);
+            Assert.Equal(expected, name);
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 }
