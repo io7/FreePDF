@@ -27,7 +27,8 @@ public class ExistingXmpUpdateTests
     const string PdfAIdentification =
         "<rdf:Description rdf:about=\"\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\"><pdfaid:part>1</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance></rdf:Description>\n";
 
-    static byte[] FileWithXmp(string packet, string pageExtra = "")
+    static byte[] FileWithXmp(string packet, string pageExtra = "", string info = "<< /Title (Info title) /Author (Info author) >>",
+        string? metadataObject = null)
     {
         var xmp = Encoding.UTF8.GetBytes(packet);
         // ASCII-safe: the packet travels hex encoded through the fixture builder.
@@ -36,8 +37,8 @@ public class ExistingXmpUpdateTests
             "<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Annots [6 0 R] {pageExtra}>>",
-            "<< /Title (Info title) /Author (Info author) >>",
-            $"<< /Type /Metadata /Subtype /XML /Filter /ASCIIHexDecode /Length {hex.Length} >>\nstream\n{hex}\nendstream",
+            info,
+            metadataObject ?? $"<< /Type /Metadata /Subtype /XML /Filter /ASCIIHexDecode /Length {hex.Length} >>\nstream\n{hex}\nendstream",
             "<< /Type /Annot /Subtype /Link /Rect [10 10 50 30] /Border [0 0 0] /A << /S /URI /URI (https://example.com) >> >>",
         }, _ => "/Info 4 0 R");
     }
@@ -168,5 +169,84 @@ public class ExistingXmpUpdateTests
 
         using var reopened = PdfReader.Open(new MemoryStream(Save(document)), PdfDocumentOpenMode.Import);
         Assert.Null(reopened.Pages[0].Elements["/Group"]);
+    }
+
+    // Found in review: a metadata stream that cannot be decoded made every Modify save throw, PDF/A or not.
+    [Theory]
+    [InlineData("<< /Type /Metadata /Subtype /XML /Filter /FlateDecode /Length 6 >>\nstream\nbroken\nendstream")]
+    [InlineData("<< /Type /Metadata /Subtype /XML /Filter /FooDecode /Length 6 >>\nstream\nbroken\nendstream")]
+    public void A_metadata_stream_that_cannot_be_decoded_does_not_stop_a_save(string metadataObject)
+    {
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp("", metadataObject: metadataObject)), PdfDocumentOpenMode.Modify);
+        Save(document);
+    }
+
+    // Found in review: characters XML cannot hold made the save throw; packet headers that are not the usual one too.
+    [Theory]
+    [InlineData("/Title (Report\\000) /Author (A\\001B)", "")]
+    [InlineData("/Title (Plain)", "\n")]
+    [InlineData("/Title (Plain)", "<?xml version=\"1.0\"?>")]
+    public void Unusual_values_and_headers_do_not_stop_the_update(string info, string beforeHeader)
+    {
+        var bytes = FileWithXmp(beforeHeader + Packet(PdfAIdentification), info: $"<< {info} >>");
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+
+        var (xml, names) = Parse(XmpOf(Save(document)));
+        var title = xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText;
+        Assert.StartsWith(info.Contains("Report") ? "Report" : "Plain", title);
+    }
+
+    [Fact]
+    public void A_double_encoded_byte_order_mark_in_the_header_does_not_stop_the_update()
+    {
+        var packet = Packet(PdfAIdentification).Replace("begin=\"\uFEFF\"", "begin=\"\u00EF\u00BB\u00BF\"");
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(packet)), PdfDocumentOpenMode.Modify);
+        document.Info.Title = "Updated";
+
+        var (xml, names) = Parse(XmpOf(Save(document)));
+        Assert.Equal("Updated", xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
+    }
+
+    // Found in review: pdfaid:part inside the XMP of a placed file (xmpMM:Pantry) made a plain file count as PDF/A.
+    [Fact]
+    public void A_nested_PDF_A_identification_is_not_a_claim()
+    {
+        const string pantry =
+            "<rdf:Description rdf:about=\"\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"><xmpMM:Pantry><rdf:Bag><rdf:li>" +
+            "<rdf:Description xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" pdfaid:part=\"1\" pdfaid:conformance=\"B\"/>" +
+            "</rdf:li></rdf:Bag></xmpMM:Pantry></rdf:Description>\n";
+        var packet = Packet(pantry);
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(packet)), PdfDocumentOpenMode.Modify);
+        document.Info.Title = "New title";
+
+        var saved = Save(document);
+        Assert.Equal(packet, XmpOf(saved));
+        using var reopened = PdfReader.Open(new MemoryStream(saved), PdfDocumentOpenMode.Import);
+        Assert.NotNull(reopened.Pages[0].Elements["/Group"]);
+    }
+
+    // Found in review: a line break in a value was normalised by XML parsers, and a cleared title left the old one.
+    [Fact]
+    public void Line_breaks_survive_and_an_empty_entry_empties_the_property()
+    {
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(Packet(PdfAIdentification))), PdfDocumentOpenMode.Modify);
+        document.Info.Subject = "First line\r\nSecond line";
+        document.Info.Title = "";
+
+        var (xml, names) = Parse(XmpOf(Save(document)));
+        Assert.Equal("First line\r\nSecond line", xml.SelectSingleNode("//dc:description/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
+        Assert.Equal("", xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
+    }
+
+    // Found in review: AutoGenerate set by the caller (or by PDF/UA) on an opened PDF/A file skipped the update.
+    [Fact]
+    public void An_explicit_AutoGenerate_strategy_also_updates_a_PDF_A_file()
+    {
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(Packet(PdfAIdentification))), PdfDocumentOpenMode.Modify);
+        MetadataManager.ForDocument(document).Strategy = DocumentMetadataStrategy.AutoGenerate;
+        document.Info.Title = "New title";
+
+        var (xml, names) = Parse(XmpOf(Save(document)));
+        Assert.Equal("New title", xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
     }
 }

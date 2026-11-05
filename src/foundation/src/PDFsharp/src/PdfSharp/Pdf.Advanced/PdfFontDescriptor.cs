@@ -146,6 +146,12 @@ namespace PdfSharp.Pdf.Advanced
         internal bool AddCmapTable { get; set; }
 
         /// <summary>
+        /// Whether a CIDFont uses this descriptor. A simple TrueType font may share it, which makes the font file keep
+        /// its cmap table, but the CIDFont still needs its CIDSet in PDF/A-1.
+        /// </summary>
+        internal bool UsedByCidFont { get; set; }
+
+        /// <summary>
         /// Gets the CMapInfo for PDF font descriptor.
         /// It contains all characters, ANSI and Unicode.
         /// </summary>

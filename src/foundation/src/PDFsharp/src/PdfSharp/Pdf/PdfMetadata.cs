@@ -265,6 +265,8 @@ namespace PdfSharp.Pdf
                     case '&': result.Append("&amp;"); break;
                     case '<': result.Append("&lt;"); break;
                     case '>': result.Append("&gt;"); break;
+                    // A parser turns a literal CR LF into LF; a reference keeps the value equal to the document information.
+                    case '\r': result.Append("&#xD;"); break;
                     default:
                         if (XmlConvert.IsXmlChar(ch))
                             result.Append(ch);

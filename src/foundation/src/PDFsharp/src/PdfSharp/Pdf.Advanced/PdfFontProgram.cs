@@ -50,8 +50,10 @@ namespace PdfSharp.Pdf.Advanced
 
             // PDF/A-1 requires a CIDSet for an embedded CID font subset (ISO 19005-1 6.3.5); validators refused the file
             // without one. CID equals glyph index here. A subset holds exactly the glyphs of the closure that
-            // CreateFontSubset completed; a complete font file holds all of its glyphs.
-            if (cidFont && PdfAManager.ForDocument(Owner).Part == 1)
+            // CreateFontSubset completed; a complete font file holds all of its glyphs. An opened file counts with the
+            // PDF/A part its XMP claims, so that text added to it keeps it conforming.
+            int part = Owner.PdfAManager is { IsPdfADocument: true } pdfa ? pdfa.Part : Owner.ClaimedPdfAPart;
+            if ((cidFont || pdfFontDescriptor.UsedByCidFont) && part == 1)
             {
                 var face = pdfFontDescriptor.Descriptor.FontFace;
                 var glyphs = subSet != face

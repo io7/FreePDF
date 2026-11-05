@@ -121,12 +121,8 @@ namespace PdfSharp.Pdf.Metadata
             {
                 // A file whose XMP claims PDF/A must keep XMP and document information in agreement, or a save that
                 // changes the information (Modify mode sets /ModDate) breaks its conformance (upstream #166).
-                if (canUpdate && catalog.GetMetadata() is { Stream.Value.Length: > 0 } existing
-                    && ReadPacket(existing) is { } packet && XmpPacketUpdater.ClaimedPdfAPart(packet) > 0
-                    && XmpPacketUpdater.Update(packet, new DocumentMetadataInfo(Document), null) is { } updated)
-                {
-                    existing.SetMetadata(updated);
-                }
+                if (canUpdate && catalog.GetMetadata() is { Stream.Value.Length: > 0 } existing)
+                    UpdateClaimedPdfA(existing);
                 return;
             }
 
@@ -151,11 +147,16 @@ namespace PdfSharp.Pdf.Metadata
                     // SetPdfA on a file with its own XMP: the packet is kept, but it must identify the file as PDF/A
                     // and agree with the document information (upstream #356). A packet that is not XML is replaced.
                     var updated = ReadPacket(metadata) is { } packet
-                        ? XmpPacketUpdater.Update(packet, new DocumentMetadataInfo(Document), pdfaManager.Format)
+                        ? XmpPacketUpdater.Update(packet, new DocumentMetadataInfo(Document), pdfaManager.Format, HasInfoEntry)
                         : null;
                     if (updated == null)
                         PdfSharpLogHost.Logger.LogWarning("The document's XMP metadata cannot be read; it is replaced by generated metadata.");
                     metadata.SetMetadata(updated ?? metadata.CreateDefaultMetadata());
+                }
+                else if (canUpdate)
+                {
+                    // AutoGenerate set by the caller, or by PDF/UA, on an opened file whose XMP claims PDF/A.
+                    UpdateClaimedPdfA(metadata);
                 }
                 return;
             }
@@ -172,10 +173,33 @@ namespace PdfSharp.Pdf.Metadata
             }
         }
 
-        // The packet as text: UTF-8, or UTF-16 with a byte order mark, as XMP in PDF allows.
+        // A file whose XMP claims PDF/A must keep XMP and document information in agreement, or a save that changes
+        // the information (Modify mode sets /ModDate) breaks its conformance (upstream #166). The PDF/A
+        // identification stays as it is; a packet that cannot be updated is kept.
+        void UpdateClaimedPdfA(PdfMetadata metadata)
+        {
+            if (ReadPacket(metadata) is { } packet && XmpPacketUpdater.ClaimedPdfAPart(packet) > 0
+                && XmpPacketUpdater.Update(packet, new DocumentMetadataInfo(Document), null, HasInfoEntry) is { } updated)
+            {
+                metadata.SetMetadata(updated);
+            }
+        }
+
+        bool HasInfoEntry(string key) => Document.Info.Elements.ContainsKey(key);
+
+        // The packet as text: UTF-8, or UTF-16 with a byte order mark, as XMP in PDF allows; null if it is empty or
+        // its stream cannot be decoded (a damaged or unknown filter), so that such a file still saves.
         internal static string? ReadPacket(PdfMetadata metadata)
         {
-            var bytes = metadata.Stream?.UnfilteredValue;
+            byte[]? bytes;
+            try
+            {
+                bytes = metadata.Stream?.UnfilteredValue;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return null;
+            }
             if (bytes == null || bytes.Length == 0)
                 return null;
             if (bytes.Length >= 2 && (bytes[0] == 0xFE && bytes[1] == 0xFF || bytes[0] == 0xFF && bytes[1] == 0xFE))

@@ -594,13 +594,15 @@ namespace PdfSharp.Pdf
 
             Info.Elements.SetString(PdfDocumentInformation.Keys.Producer, producer);
 
-            // Prepare used fonts.
-            _fontTable?.PrepareForSave();
-
             // An opened file is not treated as PDF/A, but a save must not break the PDF/A conformance its XMP claims.
+            // Fonts need to know it too.
             ClaimedPdfAPart = Catalog.GetMetadata() is { } metadata && MetadataManager.ReadPacket(metadata) is { } packet
                 ? XmpPacketUpdater.ClaimedPdfAPart(packet)
                 : 0;
+
+            // Prepare used fonts.
+            _fontTable?.PrepareForSave();
+
             PdfAManager.PrepareForSave(this, PdfAManager is { IsPdfADocument: true } pdfa ? pdfa.Part : ClaimedPdfAPart);
 
             // Let catalog do the rest.
