@@ -1,5 +1,22 @@
 # FreePDF changelog
 
+## Unreleased
+
+- A justified paragraph with a tab, such as a list item, and soft hyphens no
+  longer makes rendering run forever.
+- An empty paragraph with a bottom border no longer throws "'Rectangle' must not
+  be null here" when its line fits at the bottom of a page but its border does
+  not; it moves to the next page.
+- A table row whose `KeepWith` reaches past the last row keeps with the rows up
+  to the end of the table; it threw `ArgumentOutOfRangeException`.
+- A chart whose code never reads `YAxis` no longer throws "'Axis' must not be
+  null here" for column, line and area charts, and one whose code never reads
+  `XAxis` no longer draws its columns or line at invalid (NaN) coordinates.
+  Charts render as if the code had read both properties.
+- A table row taller than a page, which is cut off at the page bottom because
+  rows cannot break across pages, now logs a warning through
+  `MigraDocLogHost.PdfRenderingLogger`.
+
 ## 7.7.0
 
 - In `Append` mode, pages can be inserted, removed and moved, and merged with
