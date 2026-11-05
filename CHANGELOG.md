@@ -19,6 +19,23 @@
 - A table row taller than a page, which is cut off at the page bottom because
   rows cannot break across pages, now logs a warning through
   `MigraDocLogHost.PdfRenderingLogger`.
+- PDF/A-1 files with text outside WinAnsi pass validation: each embedded CID
+  font gets the CIDSet PDF/A-1 requires. veraPDF refused them (rule 6.3.5-3).
+- Generated XMP escapes text, so a title such as "Profit & Loss" no longer makes
+  the metadata unreadable, and drops characters XML does not allow.
+- Generated XMP leaves out a date the document information lacks; an empty
+  `xmp:ModifyDate` is no valid date.
+- Saving with generated XMP no longer throws when an information entry is not
+  text, such as a number or a reference to a missing object.
+- `SetPdfA` on an opened file that has XMP of its own keeps that XMP but adds
+  the PDF/A identification and the values of the document information to it;
+  the file did not claim PDF/A at all. Annotations that are not hidden get the
+  Print flag PDF/A requires, and PDF/A-1 pages lose their transparency group.
+- A Modify save of an opened file whose XMP claims PDF/A keeps it conforming:
+  the XMP is brought in line with the document information, which the save
+  changes (modification date, producer, any edited title), annotations get the
+  Print flag, and no page transparency group is added; such saves broke PDF/A-1
+  conformance. Incremental updates leave metadata and pages alone.
 - A stream whose `endstream` is more than 20 bytes from where `/Length` says it
   ends can be read: a correct length followed by padding, as IBM i invoice
   generators and Bluebeam write, or a length much too short. Such files did not

@@ -339,6 +339,7 @@
     <Compile Include="..\PdfSharp\Pdf.Metadata\enums\DocumentMetadataStrategy.cs" Link="Pdf.Metadata\enums\DocumentMetadataStrategy.cs" />
     <Compile Include="..\PdfSharp\Pdf.Metadata\DocumentMetadataInfo.cs" Link="Pdf.Metadata\DocumentMetadataInfo.cs" />
     <Compile Include="..\PdfSharp\Pdf.Metadata\MetadataManager.cs" Link="Pdf.Metadata\MetadataManager.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Metadata\XmpPacketUpdater.cs" Link="Pdf.Metadata\XmpPacketUpdater.cs" />
     <Compile Include="..\PdfSharp\Pdf.PdfA\PdfAFormat.cs" Link="Pdf.PdfA\PdfAFormat.cs" />
     <Compile Include="..\PdfSharp\Pdf.PdfA\PdfAFormats.cs" Link="Pdf.PdfA\PdfAFormats.cs" />
     <Compile Include="..\PdfSharp\Pdf.PdfA\PdfAManager.cs" Link="Pdf.PdfA\PdfAManager.cs" />

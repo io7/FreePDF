@@ -146,6 +146,12 @@ namespace PdfSharp.Pdf.Advanced
         internal bool AddCmapTable { get; set; }
 
         /// <summary>
+        /// Whether a CIDFont uses this descriptor. A simple TrueType font may share it, which makes the font file keep
+        /// its cmap table, but the CIDFont still needs its CIDSet in PDF/A-1.
+        /// </summary>
+        internal bool UsedByCidFont { get; set; }
+
+        /// <summary>
         /// Gets the CMapInfo for PDF font descriptor.
         /// It contains all characters, ANSI and Unicode.
         /// </summary>
@@ -364,6 +370,14 @@ namespace PdfSharp.Pdf.Advanced
             /// </summary>
             [KeyInfo(KeyType.String | KeyType.Optional)]
             public const string CharSet = "/CharSet";
+
+            /// <summary>
+            /// (Optional; meaningful only in CIDFonts; PDF 1.3) A stream identifying which CIDs are present in the
+            /// CIDFont file: bit n of the stream, counting from the high-order bit of the first byte, is set when
+            /// CID n is present. PDF/A-1 requires it for embedded CID font subsets.
+            /// </summary>
+            [KeyInfo(KeyType.Stream | KeyType.Optional)]
+            public const string CIDSet = "/CIDSet";
 
             /// <summary>
             /// Gets the KeysMeta for these keys.
