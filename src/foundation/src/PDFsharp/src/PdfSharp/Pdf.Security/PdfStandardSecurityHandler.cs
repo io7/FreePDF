@@ -591,7 +591,12 @@ namespace PdfSharp.Pdf.Security
         {
             // Return if encryption shall be left unchanged.
             if (DoNotResetEncryption)
+            {
+                // Some writers leave the document's metadata unmarked; readers then decrypt the plain stream.
+                if (Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
+                    MarkUnencryptedDocumentMetadata(metadata);
                 return;
+            }
 
             Elements[PdfSecurityHandler.Keys.Filter] = new PdfName("/Standard");
 
@@ -927,6 +932,38 @@ namespace PdfSharp.Pdf.Security
         }
 
         /// <summary>
+        /// Gives the document's metadata stream the Identity crypt filter when EncryptMetadata false leaves it
+        /// unencrypted (ISO 32000-1 Table 20), as a save that resets the encryption gives it. A stream that names
+        /// another crypt filter is encrypted with it and stays as it is, and so do files without crypt filters (V1 to 3).
+        /// </summary>
+        internal void MarkUnencryptedDocumentMetadata(PdfDictionary metadata)
+        {
+            if (!VersionSupportsCryptFilter() || GetEncryption().EncryptMetadata)
+                return;
+            if (NamesEncryptingCryptFilter(metadata))
+                return;
+            SetIdentityCryptFilter(metadata);
+        }
+
+        /// <summary>
+        /// Gives a stream whose content was replaced the crypt filter it named before, which says whether the stream is
+        /// encrypted, not how its content is coded. Files without crypt filters (V1 to 3) have none to keep.
+        /// </summary>
+        internal void KeepCryptFilter(PdfDictionary stream, string cryptFilter)
+        {
+            if (!VersionSupportsCryptFilter())
+                return;
+            if (cryptFilter == CryptFilterConstants.IdentityFilterValue)
+                SetIdentityCryptFilter(stream);
+            else if (cryptFilter.Length > 1)
+                SetCryptFilter(stream, cryptFilter);
+        }
+
+        // Whether the stream names a crypt filter other than Identity, as the writer reads it.
+        static bool NamesEncryptingCryptFilter(PdfDictionary stream)
+            => NamedCryptFilter(stream) is { Length: > 1 } named && named != CryptFilterConstants.IdentityFilterValue;
+
+        /// <summary>
         /// Sets the dictionary’s explicitly set crypt filter to the Identity crypt filter.
         /// </summary>
         public void SetIdentityCryptFilter(PdfDictionary dictionary)
@@ -1045,6 +1082,43 @@ namespace PdfSharp.Pdf.Security
         public CryptFilterBase? GetCryptFilter(PdfDictionary dictionary) => GetCryptFilter(dictionary, false);
 
         /// <summary>
+        /// Gets the crypt filter that a stream's /Filter and /DecodeParms name (ISO 32000-1 7.4.10 and Table 14): null
+        /// without a /Crypt filter, "/Identity" for the Identity filter or when the parameters name none, and an empty
+        /// string for parameters that are not crypt filter parameters. Writing and reading use the same answer.
+        /// </summary>
+        internal static string? NamedCryptFilter(PdfDictionary dictionary)
+        {
+            var filters = dictionary.Elements.ArrayOrSingleItem.GetAll(PdfStream.Keys.Filter).ToList();
+            // ReSharper disable once SuspiciousTypeConversion.Global
+            var cryptFilterValue = filters.OfType<PdfName>().FirstOrDefault(x => x.Equals(CryptFilterConstants.FilterValue));
+            if (cryptFilterValue is null)
+                return null;
+
+            // The parameters at the crypt filter's place; without any, the filter is Identity. An array may hold them by
+            // reference; one to an object not read yet is no parameters.
+            var filterIndex = filters.IndexOf(cryptFilterValue);
+            var decodeParms = dictionary.Elements.ArrayOrSingleItem.GetAll(PdfStream.Keys.DecodeParms).ToList();
+            PdfItem? entry = null;
+            if (filterIndex < decodeParms.Count)
+                entry = decodeParms[filterIndex];
+            if (entry is PdfReference reference)
+                entry = reference.Value;
+            if (entry is not PdfDictionary parameters)
+                return CryptFilterConstants.IdentityFilterValue;
+
+            // /Type is optional, and a missing /Name means Identity (ISO 32000-1, Table 14).
+            var elements = parameters.Elements;
+            if (elements.ContainsKey(CryptFilterConstants.DecodeParmsTypeKey)
+                && elements.GetName(CryptFilterConstants.DecodeParmsTypeKey) != CryptFilterConstants.DecodeParmsTypeValue)
+            {
+                return "";
+            }
+            if (!elements.ContainsKey(CryptFilterConstants.DecodeParmsNameKey))
+                return CryptFilterConstants.IdentityFilterValue;
+            return elements.GetName(CryptFilterConstants.DecodeParmsNameKey);
+        }
+
+        /// <summary>
         /// Gets the crypt filter for the dictionary. With EncryptMetadata false, only the document's metadata stream
         /// is written unencrypted (ISO 32000-1 Table 20); when reading, any metadata stream that holds plain XML is
         /// read as it is, because some writers leave them all unencrypted.
@@ -1057,42 +1131,15 @@ namespace PdfSharp.Pdf.Security
                 return IdentityCryptFilter.Instance;
 
             // If a crypt filter is set for this PdfDictionary, try to return the desired crypt filter.
-            var filters = dictionary.Elements.ArrayOrSingleItem.GetAll(PdfStream.Keys.Filter).ToList();
-            // ReSharper disable once SuspiciousTypeConversion.Global
-            var cryptFilterValue = filters.OfType<PdfName>().FirstOrDefault(x => x.Equals(CryptFilterConstants.FilterValue));
-            if (cryptFilterValue is not null)
+            if (NamedCryptFilter(dictionary) is { } named)
             {
-                // Try to return crypt filter declared in corresponding DecodeParms.
-                var filterIndex = filters.IndexOf(cryptFilterValue);
-                var decodeParms = dictionary.Elements.ArrayOrSingleItem.GetAll(PdfStream.Keys.DecodeParms).ToList();
-                var filterDecodeParms = filterIndex < decodeParms.Count ? decodeParms[filterIndex] : null;
-
-                if (filterDecodeParms is PdfDictionary filterDecodeParmsDict)
-                {
-                    // /Type is optional, and a missing /Name means Identity (ISO 32000-1, Table 14).
-                    var elements = filterDecodeParmsDict.Elements;
-                    if (!elements.ContainsKey(CryptFilterConstants.DecodeParmsTypeKey) ||
-                        elements.GetName(CryptFilterConstants.DecodeParmsTypeKey) == CryptFilterConstants.DecodeParmsTypeValue)
-                    {
-                        if (!elements.ContainsKey(CryptFilterConstants.DecodeParmsNameKey))
-                            return IdentityCryptFilter.Instance;
-
-                        var cryptFilterNameValue = elements.GetName(CryptFilterConstants.DecodeParmsNameKey);
-
-                        // For Identity crypt filter return its instance.
-                        if (cryptFilterNameValue == CryptFilterConstants.IdentityFilterValue)
-                            return IdentityCryptFilter.Instance;
-
-                        // For others try to load crypt filter form _loadedCryptFilters.
-                        var cryptFilterName = Name.RemoveSlash(cryptFilterNameValue);
-                        if (!string.IsNullOrEmpty(cryptFilterName))
-                            return _loadedCryptFilters![cryptFilterName];
-                    }
-
-                }
-                // Use IdentityCryptFilter (no encryption), if DecodeParms is not defined.
-                else
+                if (named == CryptFilterConstants.IdentityFilterValue)
                     return IdentityCryptFilter.Instance;
+
+                // For others try to load crypt filter form _loadedCryptFilters.
+                var cryptFilterName = Name.RemoveSlash(named);
+                if (!string.IsNullOrEmpty(cryptFilterName))
+                    return _loadedCryptFilters![cryptFilterName];
 
                 throw TH.InvalidOperationException_CryptFilterDecodeParmsNotInitializedCorrectly();
             }

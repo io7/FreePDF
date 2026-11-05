@@ -25,6 +25,28 @@
   longer keeps them, as every page already holds the values it inherits.
 - A page taken out with `Remove` or `RemoveAt` can be inserted again; `Insert`
   threw "Object already in table".
+- `PdfMetadata.SetMetadata(string)` accepts every XMP packet header the XMP
+  specification allows: the begin attribute in single quotes, and holding the
+  byte order mark U+FEFF, as XMP read from a file into a string has it. Both threw
+  "Unknown metadata encoding tag", and a cut-off header threw
+  `ArgumentOutOfRangeException` instead of `InvalidOperationException`.
+- With `EncryptMetadata` false, a `Modify`-mode save that keeps the encryption
+  (`PdfReaderOptions.DoNotResetEncryption`) marks the document's metadata with
+  the Identity crypt filter, as a save that resets the encryption does. Files
+  from writers that leave it unmarked kept it unmarked, and pyHanko and MuPDF
+  then tried to decrypt the plain stream. Metadata that names another crypt
+  filter stays encrypted with it, in this save and in `Append` mode.
+- `PdfMetadata.SetMetadata` drops the filters of the old content and keeps only
+  its crypt filter, which says whether the stream is encrypted. Setting metadata
+  on compressed metadata, for example with `SetMetadata(ToString())`, wrote the
+  plain XML under `/FlateDecode`, which no reader could decode.
+- Encrypting a document again with `EncryptMetadata` true, when the opened file
+  had it false, kept `/EncryptMetadata false` in the new encryption dictionary.
+  Readers then computed another key, and nobody could open the file (V4), or the
+  entry contradicted `/Perms` (V5).
+- An `Append`-mode save of an RC4 file with encryption version 1 to 3 whose
+  encryption dictionary nevertheless says `/EncryptMetadata false` threw "Crypt
+  filters are not supported" when the document's metadata changed.
 
 ## 7.6.1
 
