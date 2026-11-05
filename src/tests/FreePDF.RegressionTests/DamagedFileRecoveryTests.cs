@@ -342,4 +342,103 @@ public class DamagedFileRecoveryTests
 
         AssertSimplePage(WrongStartXRef(builder.Text));
     }
+
+    [Theory]
+    [InlineData("endstream")]
+    [InlineData(">>")]
+    [InlineData("]")]
+    public void A_header_on_the_line_of_an_object_without_endobj_is_found_by_a_rebuild(string before)
+    {
+        // An object lacks 'endobj', and object 3 starts on the same line.
+        var page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Contents 4 0 R >>";
+        var text = $"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + before switch
+        {
+            "endstream" => $"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 /Length 1 >>\nstream\nx\nendstream 3 0 obj\n{page}\nendobj\n",
+            ">>" => $"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >> 3 0 obj\n{page}\nendobj\n",
+            _ => $"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n5 0 obj\n[1 2] 3 0 obj\n{page}\nendobj\n",
+        };
+        text += $"4 0 obj\n<< /Length 17 >>\nstream\n{Content}\nendstream\nendobj\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n9\n%%EOF\n";
+
+        AssertSimplePage(TestPdf.Latin1.GetBytes(text));
+    }
+
+    [Theory]
+    [InlineData("xrefs")]
+    [InlineData("trailers")]
+    [InlineData("startxrefs")]
+    public void Keywords_inside_stream_data_must_be_whole_to_close_the_stream(string word)
+    {
+        var data = $"BT ( endstream {word} ) Tj ET {Content}";
+        var builder = new Builder();
+        PageObjects(builder);
+        // The declared length ends right before the fake 'endstream', so it is the nearer candidate.
+        builder.Obj(4, $"<< /Length {data.IndexOf("endstream", StringComparison.Ordinal) - 2} >>\nstream\n{data}\nendstream");
+        builder.Xref("/Size 5 /Root 1 0 R");
+
+        using var document = PdfReader.Open(new MemoryStream(builder.Bytes), PdfDocumentOpenMode.Import);
+        Assert.Equal(data, PageContent(document));
+    }
+
+    [Fact]
+    public void Without_a_trailer_naming_a_root_a_rebuild_keeps_the_encryption()
+    {
+        byte[] encrypted;
+        using (var source = new PdfDocument())
+        {
+            source.Info.Title = "Renamed root";
+            source.AddPage().Width = 240;
+            source.SecurityHandler.SetEncryptionToV4UsingAES();
+            source.SecuritySettings.UserPassword = "user";
+            source.SecuritySettings.OwnerPassword = "owner";
+            using var output = new MemoryStream();
+            source.Save(output);
+            encrypted = output.ToArray();
+        }
+        var text = TestPdf.Latin1.GetString(encrypted);
+        int trailer = text.LastIndexOf("trailer", StringComparison.Ordinal);
+        text = text.Substring(0, trailer) + text.Substring(trailer).Replace("/Root", "/Rxxx");
+        var bytes = TestPdf.Latin1.GetBytes(Regex.Replace(text, @"startxref\s+\d+", "startxref\n9"));
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Import));
+        using var document = PdfReader.Open(new MemoryStream(bytes), "owner", PdfDocumentOpenMode.Import);
+        Assert.Equal("Renamed root", document.Info.Title);
+    }
+
+    [Fact]
+    public void Junk_trailer_keywords_after_the_trailer_take_linear_time()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Xref("/Size 5 /Root 1 0 R");
+        var text = Regex.Replace(builder.Text, @"startxref\s+\d+\s+%%EOF\s*$", "")
+                   + string.Concat(Enumerable.Repeat(" trailer << /K (", 20000)) + "\nstartxref\n9\n%%EOF\n";
+
+        var watch = Stopwatch.StartNew();
+        AssertSimplePage(TestPdf.Latin1.GetBytes(text));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Rebuild took {watch.Elapsed}.");
+    }
+
+    [Fact]
+    public void An_indirect_length_is_tried_with_every_value_its_number_had()
+    {
+        // The length object 7 comes first; the embedded file has an integer object 7 too.
+        var inner = new Builder();
+        inner.Obj(7, "3");
+        inner.Obj(4, "<< /Length 7 0 R >>\nstream\nINN\nendstream");
+        inner.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        inner.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        inner.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 999 999] /Contents 4 0 R >>");
+        inner.Xref("/Size 8 /Root 1 0 R");
+        var embedded = inner.Text;
+
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(7, embedded.Length.ToString());
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(6, $"<< /Type /EmbeddedFile /Length 7 0 R >>\nstream\n{embedded}\nendstream");
+        builder.Xref("/Size 8 /Root 1 0 R");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
+    }
 }

@@ -1204,8 +1204,14 @@ namespace PdfSharp.Pdf.IO
                     return true;
                 foreach (var keyword in ClosingKeywords)
                 {
-                    if (String.CompareOrdinal(text, position, keyword, 0, keyword.Length) == 0)
+                    // The whole keyword: 'xrefs' or 'endobjects' in stream data does not close anything.
+                    int end = position + keyword.Length;
+                    if (String.CompareOrdinal(text, position, keyword, 0, keyword.Length) == 0
+                        && (end >= text.Length || text[end] is Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP
+                            or '<' or '>' or '[' or ']' or '(' or ')' or '{' or '}' or '/' or '%'))
+                    {
                         return true;
+                    }
                 }
                 return ObjectHeaderAt.Match(text, position) is { Success: true } header && header.Index == position;
             }
