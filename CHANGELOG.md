@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## Unreleased
+
+- `PdfMetadata.SetMetadata(string)` accepts every XMP packet header the XMP
+  specification allows: the begin attribute in single quotes, and holding the
+  byte order mark U+FEFF, as XMP read from a file into a string has it. Both threw
+  "Unknown metadata encoding tag", and a cut-off header threw
+  `ArgumentOutOfRangeException` instead of `InvalidOperationException`.
+- With `EncryptMetadata` false, a `Modify`-mode save that keeps the encryption
+  (`PdfReaderOptions.DoNotResetEncryption`) marks the document's metadata with
+  the Identity crypt filter, as a save that resets the encryption does. Files
+  from writers that leave it unmarked kept it unmarked, and pyHanko and MuPDF
+  then tried to decrypt the plain stream.
+
 ## 7.6.1
 
 - A list box that allows several selected options, whose value is an array

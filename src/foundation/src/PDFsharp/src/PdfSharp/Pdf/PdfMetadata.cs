@@ -252,7 +252,8 @@ namespace PdfSharp.Pdf
 
         /// <summary>
         /// Sets the metadata stream.<br/>
-        /// The BOM tag of the “&lt;?xpacket begin="{BOM}"” attribute must either be empty or 'UTF-8'.
+        /// The begin attribute of the “&lt;?xpacket begin="{BOM}"” header, in double or single quotes, may be empty,
+        /// hold the byte order mark U+FEFF, or name the encoding as ToString writes it, such as 'UTF8'.
         /// </summary>
         public void SetMetadata(string xml)
         {
@@ -535,18 +536,20 @@ namespace PdfSharp.Pdf
                 if (!xml.StartsWith(header))
                     throw new InvalidOperationException("An XMP metadata string must start with '" + header + "'.");
 
+                // The begin attribute is in single or double quotes (XMP Part 1, 7.3.2), and the header's other
+                // attributes may use either.
                 const int leftPartLength = 17;
-                var rightPartStart = xml.IndexOf("\"", leftPartLength, StringComparison.Ordinal);
+                var rightPartStart = -1;
+                if (xml.Length > leftPartLength && xml[leftPartLength - 1] is '\"' or '\'')
+                    rightPartStart = xml.IndexOf(xml[leftPartLength - 1], leftPartLength);
                 if (rightPartStart == -1)
-                    rightPartStart = xml.IndexOf("'", leftPartLength + 1, StringComparison.Ordinal);
-                if (xml[leftPartLength - 1] is not ('\"' or '\'') || xml[rightPartStart] is not ('\"' or '\'') || rightPartStart < leftPartLength)
                     throw new InvalidOperationException("An XMP metadata string has an invalid header.");
 
-                // Get BOM tag and remove it.
+                // Get BOM tag and remove it. The byte order mark of a string is U+FEFF, which stands for UTF-8 here.
                 var bomTag = xml[leftPartLength..rightPartStart];
                 xml = xml[..leftPartLength] + xml[rightPartStart..];
                 MetadataEncodingType encoding = MetadataEncodingType.UTF8;
-                if (bomTag.Length > 0)
+                if (bomTag.Length > 0 && bomTag != "﻿")
                 {
                     if (!Enum.TryParse<MetadataEncodingType>(bomTag, false, out encoding))
                         throw new InvalidOperationException($"Unknown metadata encoding tag '{bomTag}'.");

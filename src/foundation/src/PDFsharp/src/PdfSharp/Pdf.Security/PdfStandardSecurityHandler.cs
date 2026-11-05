@@ -591,7 +591,17 @@ namespace PdfSharp.Pdf.Security
         {
             // Return if encryption shall be left unchanged.
             if (DoNotResetEncryption)
+            {
+                // The document's metadata, which stays unencrypted with EncryptMetadata false, gets the Identity crypt
+                // filter as a reset encryption gives it. Some writers leave it out, and readers then decrypt the plain
+                // stream.
+                if (Elements.GetInteger(PdfSecurityHandler.Keys.V) >= 4 && !GetEncryption().EncryptMetadata
+                    && Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
+                {
+                    SetIdentityCryptFilter(metadata);
+                }
                 return;
+            }
 
             Elements[PdfSecurityHandler.Keys.Filter] = new PdfName("/Standard");
 
