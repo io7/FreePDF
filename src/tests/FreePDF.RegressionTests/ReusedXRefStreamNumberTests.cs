@@ -14,11 +14,13 @@ public class ReusedXRefStreamNumberTests
     // Revision 1: catalog 1, pages 2, page 3, and its cross-reference stream as object 4.
     // Revision 2: a new catalog 1 with /AcroForm 4 0 R, the form as object 4, a text field 5, and the revision's own
     // cross-reference stream 6 with /Prev pointing at revision 1's.
+    static void Put(Stream stream, byte[] bytes) => stream.Write(bytes, 0, bytes.Length);
+
     static byte[] File()
     {
         var pdf = new MemoryStream();
         var offsets = new Dictionary<int, long>();
-        void Write(string text) => pdf.Write(Encoding.ASCII.GetBytes(text));
+        void Write(string text) => Put(pdf, Encoding.ASCII.GetBytes(text));
         void Object(int number, string body)
         {
             offsets[number] = pdf.Position;
@@ -34,15 +36,15 @@ public class ReusedXRefStreamNumberTests
                 {
                     long offset = entry == number ? pdf.Position : offsets[entry];
                     data.WriteByte(1);
-                    data.Write(new[] { (byte)(offset >> 24), (byte)(offset >> 16), (byte)(offset >> 8), (byte)offset });
-                    data.Write(new byte[] { 0, 0 });
+                    Put(data, new[] { (byte)(offset >> 24), (byte)(offset >> 16), (byte)(offset >> 8), (byte)offset });
+                    Put(data, new byte[] { 0, 0 });
                 }
             }
             var index = string.Join(" ", sections.Select(section => $"{section.First} {section.Numbers.Length}"));
             var start = pdf.Position;
             offsets[number] = start;
             Write($"{number} 0 obj\n<< /Type /XRef /Size {size} /W [1 4 2] /Index [{index}] /Root 1 0 R {extra} /Length {data.Length} >>\nstream\n");
-            pdf.Write(data.ToArray());
+            Put(pdf, data.ToArray());
             Write("\nendstream\nendobj\n");
             return start;
         }

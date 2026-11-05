@@ -105,7 +105,7 @@ public class ReaderToleranceMoreTests
         // Remove the 'endobj' of object 2; its cross-reference entries keep their offsets.
         var text = TestPdf.Latin1.GetString(bytes);
         var at = text.IndexOf("endobj", text.IndexOf("2 0 obj", StringComparison.Ordinal), StringComparison.Ordinal);
-        text = text[..at] + "      " + text[(at + 6)..];
+        text = text.Substring(0, at) + "      " + text.Substring(at + 6);
 
         using var document = Open(TestPdf.Latin1.GetBytes(text));
         Assert.Equal(1, document.PageCount);
@@ -114,7 +114,9 @@ public class ReaderToleranceMoreTests
     sealed class ShortReadStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override int Read(byte[] buffer, int offset, int count) => base.Read(buffer, offset, Math.Min(count, 7));
+#if !NETFRAMEWORK
         public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(buffer.Length, 7)]);
+#endif
     }
 
     // Upstream PR #365: a stream that returns fewer bytes than asked for made the header check fail.

@@ -48,7 +48,7 @@ public class CrossReferenceRebuildTests
         var text = Text(TestPdf.Create(Objects));
         var xref = text.IndexOf("xref\n", StringComparison.Ordinal);
         var trailer = text.IndexOf("trailer", StringComparison.Ordinal);
-        text = text[..xref] + text[trailer..];
+        text = text.Substring(0, xref) + text.Substring(trailer);
         AssertOpens(Bytes(text));
     }
 
@@ -58,7 +58,7 @@ public class CrossReferenceRebuildTests
         // Every object moves seven bytes; the table still names the old offsets.
         var text = Text(TestPdf.Create(Objects));
         var first = text.IndexOf("1 0 obj", StringComparison.Ordinal);
-        text = text[..first] + "%moved\n" + text[first..];
+        text = text.Substring(0, first) + "%moved\n" + text.Substring(first);
         AssertOpens(Bytes(text));
     }
 
