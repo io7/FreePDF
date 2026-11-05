@@ -3,6 +3,7 @@
 
 using PdfSharp.Pdf.Internal;
 using System.Text;
+using System.Xml;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 using PdfSharp.Pdf.Metadata;
@@ -148,6 +149,9 @@ namespace PdfSharp.Pdf
             var metadataInfo = MetadataManager.GetMetadataInfo();
             // ReSharper disable StringLiteralTypo because we deal with XML elements here.
             bool isPdfA = metadataInfo.PdfAFormat.HasValue;
+            var metadataDate = String.IsNullOrWhiteSpace(metadataInfo.ModificationDate)
+                ? metadataInfo.CreationDate
+                : metadataInfo.ModificationDate;
 
             var xml =
                 // XMP header.
@@ -180,17 +184,20 @@ namespace PdfSharp.Pdf
                 // xmlns:pdf: Producer, Keywords
                 $"""
                      <rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
-                       <pdf:Producer>{metadataInfo.Producer}</pdf:Producer>
-                       <pdf:Keywords>{metadataInfo.Keywords}</pdf:Keywords>
+                       <pdf:Producer>{XmlText(metadataInfo.Producer)}</pdf:Producer>
+                       <pdf:Keywords>{XmlText(metadataInfo.Keywords)}</pdf:Keywords>
                      </rdf:Description>
                  """ + "\r\n" +
                 // xmlns:xap: CreatorTool, CreateDate, ModifyDate
                 $"""
                      <rdf:Description xmlns:xap="http://ns.adobe.com/xap/1.0/" rdf:about="">
-                       <xap:CreatorTool>{metadataInfo.Creator}</xap:CreatorTool>
-                       <xap:CreateDate>{metadataInfo.CreationDate}</xap:CreateDate>
-                       <xap:ModifyDate>{metadataInfo.ModificationDate}</xap:ModifyDate>
-                       <xap:MetadataDate>{(!String.IsNullOrWhiteSpace(metadataInfo.ModificationDate) ? metadataInfo.ModificationDate : metadataInfo.CreationDate)}</xap:MetadataDate>
+                       <xap:CreatorTool>{XmlText(metadataInfo.Creator)}</xap:CreatorTool>
+                 """ + "\r\n" +
+                // An empty date is no valid XMP date; a date the document information lacks is left out.
+                DateElement("xap:CreateDate", metadataInfo.CreationDate) +
+                DateElement("xap:ModifyDate", metadataInfo.ModificationDate) +
+                DateElement("xap:MetadataDate", metadataDate) +
+                """
                      </rdf:Description>
                  """ + "\r\n" +
                 // xmlns:dc: Title, Creator (author), Description
@@ -198,17 +205,17 @@ namespace PdfSharp.Pdf
                      <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
                        <dc:title>
                          <rdf:Alt>
-                           <rdf:li xml:lang="x-default">{metadataInfo.Title}</rdf:li>
+                           <rdf:li xml:lang="x-default">{XmlText(metadataInfo.Title)}</rdf:li>
                          </rdf:Alt>
                        </dc:title>
                        <dc:creator>
                          <rdf:Seq>
-                           <rdf:li>{metadataInfo.Author}</rdf:li>
+                           <rdf:li>{XmlText(metadataInfo.Author)}</rdf:li>
                          </rdf:Seq>
                        </dc:creator>
                        <dc:description>
                          <rdf:Alt>
-                           <rdf:li xml:lang="x-default">{metadataInfo.Subject}</rdf:li>
+                           <rdf:li xml:lang="x-default">{XmlText(metadataInfo.Subject)}</rdf:li>
                          </rdf:Alt>
                        </dc:description>
                      </rdf:Description>
@@ -231,6 +238,40 @@ namespace PdfSharp.Pdf
                  """;
             // ReSharper restore StringLiteralTypo
             return xml;
+        }
+
+        static string DateElement(string name, string value)
+            => String.IsNullOrWhiteSpace(value) ? "" : $"      <{name}>{value}</{name}>\r\n";
+
+        /// <summary>
+        /// Escapes text for an XML element and drops characters XML 1.0 does not allow, such as most control characters
+        /// and unpaired surrogates; a title such as "Profit &amp; Loss" made the packet malformed.
+        /// </summary>
+        static string XmlText(string? value)
+        {
+            if (String.IsNullOrEmpty(value))
+                return "";
+            var result = new StringBuilder(value!.Length + 16);
+            for (int index = 0; index < value.Length; index++)
+            {
+                char ch = value[index];
+                if (Char.IsHighSurrogate(ch) && index + 1 < value.Length && Char.IsLowSurrogate(value[index + 1]))
+                {
+                    result.Append(ch).Append(value[++index]);
+                    continue;
+                }
+                switch (ch)
+                {
+                    case '&': result.Append("&amp;"); break;
+                    case '<': result.Append("&lt;"); break;
+                    case '>': result.Append("&gt;"); break;
+                    default:
+                        if (XmlConvert.IsXmlChar(ch))
+                            result.Append(ch);
+                        break;
+                }
+            }
+            return result.ToString();
         }
 
         /// <summary>

@@ -17,12 +17,14 @@ namespace PdfSharp.Pdf.Metadata
         {
             var info = document.Info;
 
-            Title = info.Title;
-            Author = info.Author;
-            Subject = info.Subject;
-            Keywords = info.Keywords;
-            Creator = info.Creator;
-            Producer = info.Producer;
+            // Files from other writers may hold a number, an array or a dangling reference where text belongs; such an
+            // entry counts as missing here, as saving with generated metadata threw otherwise.
+            Title = Text(() => info.Title);
+            Author = Text(() => info.Author);
+            Subject = Text(() => info.Subject);
+            Keywords = Text(() => info.Keywords);
+            Creator = Text(() => info.Creator);
+            Producer = Text(() => info.Producer);
 
 #if DEBUG && true_
             // Check from where Acrobat takes the text.
@@ -33,13 +35,37 @@ namespace PdfSharp.Pdf.Metadata
             Creator = "(xmp) " + info.Creator;
             Producer = "(xmp) " + info.Producer;
 #endif
-            CreationDate = MetadataManager.ToXmpDateString(info.CreationDate);
-            ModificationDate = MetadataManager.ToXmpDateString(info.ModificationDate);
+            CreationDate = MetadataManager.ToXmpDateString(Date(() => info.CreationDate));
+            ModificationDate = MetadataManager.ToXmpDateString(Date(() => info.ModificationDate));
             DocumentID = document.Internals.FirstDocumentID;
             InstanceID = document.Internals.SecondDocumentID;
             var pdfaManager = PdfAManager.ForDocument(document);
             PdfAFormat = pdfaManager.IsPdfADocument ? pdfaManager.Format : null;
             IsPdfUA = document.UAManager != null;
+        }
+
+        static string Text(Func<string> read)
+        {
+            try
+            {
+                return read();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or InvalidCastException)
+            {
+                return "";
+            }
+        }
+
+        static DateTimeOffset? Date(Func<DateTimeOffset?> read)
+        {
+            try
+            {
+                return read();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or InvalidCastException or FormatException)
+            {
+                return null;
+            }
         }
 
         /// <summary>
