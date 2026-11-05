@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.7.0
 
 - In `Append` mode, pages can be inserted, removed and moved, and merged with
   `AppendPages`, also when the page tree is nested; this threw
