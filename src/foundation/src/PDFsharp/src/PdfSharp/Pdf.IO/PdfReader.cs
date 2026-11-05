@@ -310,9 +310,17 @@ namespace PdfSharp.Pdf.IO
                 }
 
                 // Get file version.
+                // A stream may return fewer bytes than asked for; one read made such streams look like no PDF.
                 byte[] header = new byte[1024];
                 stream.Position = 0;
-                var _ = stream.Read(header, 0, 1024);
+                int headerLength = 0;
+                while (headerLength < header.Length)
+                {
+                    int count = stream.Read(header, headerLength, header.Length - headerLength);
+                    if (count <= 0)
+                        break;
+                    headerLength += count;
+                }
                 _document.SetVersion(GetPdfFileVersion(header));
                 if (_document.Version == 0)
                     throw new PdfReaderException(PsMsgs.InvalidPdf);
@@ -341,8 +349,25 @@ namespace PdfSharp.Pdf.IO
                 _document.IrefTable.IsUnderConstruction = true;
                 var parser = new Parser(_document, _options, _logger);
 
-                // 1. Read all trailers or cross-reference streams, but no objects.
-                _document.Trailer = parser.ReadTrailer();
+                // 1. Read all trailers or cross-reference streams, but no objects. When they cannot be read, rebuild them
+                // from the objects in the file, as viewers do; a wrong 'startxref' or shifted offsets made the file fail.
+                try
+                {
+                    _document.Trailer = parser.ReadTrailer();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    _logger.LogWarning(ex, "The cross-reference information cannot be read; rebuilding it from the objects in the file.");
+                    try
+                    {
+                        _document.Trailer = parser.RebuildCrossReferences();
+                    }
+                    catch (Exception rebuildException) when (rebuildException is not OutOfMemoryException)
+                    {
+                        throw new PdfReaderException(
+                            $"{ex.Message} Rebuilding the cross-reference information from the objects failed too: {rebuildException.Message}", ex);
+                    }
+                }
                 if (_document.Trailer == null!)
                     ParserDiagnostics.ThrowParserException(
                         "Invalid PDF file: no trailer found."); // TODO_OLD L10N using PsMsgs

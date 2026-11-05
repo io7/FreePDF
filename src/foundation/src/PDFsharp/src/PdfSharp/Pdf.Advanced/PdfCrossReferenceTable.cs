@@ -647,8 +647,6 @@ namespace PdfSharp.Pdf.Advanced
             // that are not already in references to the stack.
             void FindReferencedItems(PdfObject pdfObj)
             {
-                Debug.Assert(pdfObj is PdfDictionary or PdfArray, "Call with dictionary or array only.");
-
 #if DEBUG
                 if (pdfObj.ObjectNumber == 18)
                     _ = typeof(int);
@@ -662,7 +660,11 @@ namespace PdfSharp.Pdf.Advanced
                 else if ((array = pdfObj as PdfArray) is not null)
                     items = array.Elements;
                 else
-                    Debug.Assert(false, "Should not come here.");
+                {
+                    // An indirect number, string or name refers to nothing; the closure of one threw
+                    // NullReferenceException.
+                    return;
+                }
 
                 foreach (PdfItem item in items)
                 {

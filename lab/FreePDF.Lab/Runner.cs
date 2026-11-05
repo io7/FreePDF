@@ -109,7 +109,9 @@ public static partial class Runner
         Expect(value["fields"]!.GetValue<int>() == (id is "forms" or "semantic-roundtrip" ? 1 : 0), "field count");
         if (id == "attachments") Expect(value["attachmentText"]?.GetValue<string>() == "<fixture>original synthetic data</fixture>", "attachment bytes");
         if (id is "attachments" or "pdfa") Expect(value["metadata"]!.GetValue<bool>(), "XMP metadata missing");
-        if (id.StartsWith("reader-", StringComparison.Ordinal)) Expect(value["readerRejection"]?.GetValue<string>() == "PdfReaderException", "malformed input was not rejected");
+        // A cyclic trailer chain is rebuilt from the objects; other malformed reader input is rejected.
+        if (id == "reader-trailer") Expect(value["readerRejection"]?.GetValue<string>() == "Rebuilt", "cyclic trailer chain was not rebuilt");
+        else if (id.StartsWith("reader-", StringComparison.Ordinal)) Expect(value["readerRejection"]?.GetValue<string>() == "PdfReaderException", "malformed input was not rejected");
         if (id == "shared-ownership") Expect(pages == 2, "shared content page count");
         if (id == "incremental-content") Expect(value["contentRectangles"]?.GetValue<int>() == 1, "incremental update lost content");
         if (id == "semantic-roundtrip")

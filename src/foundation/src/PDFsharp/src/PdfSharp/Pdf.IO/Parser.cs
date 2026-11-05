@@ -1,6 +1,8 @@
 ﻿// PDFsharp - A .NET library for processing PDF
 // See the LICENSE file in the solution root for more information.
 
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Internal;
 using PdfSharp.Logging;
@@ -335,7 +337,14 @@ namespace PdfSharp.Pdf.IO
                 symbol = ScanNextToken();
             }
             if (fromObjectStream is false && symbol != Symbol.EndObj)
-                ParserDiagnostics.ThrowParserException(PsMsgs.UnexpectedToken(_lexer.Token));
+            {
+                // An object whose 'endobj' is missing, followed by the next object or the file structure, is complete;
+                // viewers read it, and FreePDF refused the whole file. Anything else still means damage.
+                if (symbol is Symbol.Integer or Symbol.XRef or Symbol.Trailer or Symbol.StartXRef or Symbol.Eof)
+                    PdfSharpLogHost.PdfReadingLogger.LogWarning("Object '{ObjectID}' has no 'endobj'.", objectID);
+                else
+                    ParserDiagnostics.ThrowParserException(PsMsgs.UnexpectedToken(_lexer.Token));
+            }
             return pdfObject ?? NRT.ThrowOnNull<PdfObject>();
         }
 
@@ -561,21 +570,25 @@ namespace PdfSharp.Pdf.IO
                 "Failed to read 'endstream' in object '{ObjectID}' immediately behind the end of the stream. (counter: {Counter})",
                 dict.ObjectID, _endStreamNotFoundCounter);
 
-            // Try find 'endstream' manually.
+            // Find 'endstream' up to where the next object begins. It looked only 20 bytes past /Length, so a stream
+            // followed by more padding, or with a /Length much too short, made the whole file fail to open.
             var oldLength = streamLength;
-            //_lexer.DetermineStreamLength(dict.Reference!.Position, streamLength - length, ref streamLength);
-
-            // Try to read 20 extra bytes in case reported stream length is too small.
-            int scanWindow = (int)Math.Min((long)streamLength + 20, GetStreamSearchLength(dict, streamStart));
-
-            streamLength = _lexer.DetermineStreamLength(streamStart, scanWindow, suppressObjectOrderExceptions);
-            if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
+            var endStream = _lexer.FindEndStream(streamStart, GetStreamSearchLength(dict, streamStart), oldLength, out streamLength);
+            if (endStream < 0)
+            {
+                SuppressExceptions.HandleError(suppressObjectOrderExceptions,
+                    () => throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(streamStart));
                 return false;
-#if DEBUG
+            }
             if (streamLength == oldLength)
-                _ = typeof(int);
-#endif
-            Debug.Assert(streamLength != oldLength, "In this case we should not come here.");
+            {
+                // Only white space between the data and 'endstream': /Length is right. Continue behind 'endstream'.
+                _lexer.Position = streamStart + endStream + "endstream".Length;
+                PdfSharpLogHost.Logger.LogInformation(
+                    "Stream of object '{ObjectID}' is followed by white space before 'endstream'; its length {Length} is kept.",
+                    dict.ObjectID, oldLength);
+                return true;
+            }
             PdfSharpLogHost.Logger.LogInformation(
                 "Stream length of object '{ObjectID}' corrected from {OldLength} to {CorrectLength}.",
                 dict.ObjectID, oldLength, streamLength);
@@ -1324,6 +1337,658 @@ namespace PdfSharp.Pdf.IO
         }
 
         /// <summary>
+        /// Rebuilds the cross-reference information from the objects in the file, for a file whose cross-reference
+        /// table or stream cannot be read: a wrong 'startxref', offsets that point elsewhere, a missing table. Each
+        /// 'N G obj' outside stream data gives the object's position, a later one replacing an earlier one as an
+        /// incremental update does. Object streams supply the objects they hold (not in encrypted files, whose object
+        /// streams cannot be read yet). /Root, /Info, /ID and /Encrypt each come from the newest trailer or cross-reference
+        /// stream dictionary that has them; without a /Root that leads to an object, the last catalog found is used.
+        /// Viewers repair files the same way.
+        /// </summary>
+        internal PdfTrailer RebuildCrossReferences()
+        {
+            var length = _lexer.PdfLength;
+            if (length > int.MaxValue)
+                throw new PdfReaderException("Files over 2 GiB are not rebuilt.");
+            RepairedCrossReferences = true;
+            foreach (var reference in _document.IrefTable.AllReferences.ToList())
+                _document.IrefTable.Remove(reference);
+            _compressedObjectLocations.Clear();
+            _document.Trailer = null!;
+
+            var text = _lexer.ScanRawString(0, (int)length);
+            var found = FindObjects(text, out _, out var objectSpans, out var weakPositions);
+            if (found.Count == 0)
+                throw new PdfReaderException("The file holds no objects.");
+
+            // Direct objects first, so that the trailer and the object streams can refer to them. The last version of
+            // each object number in the file is the one an incremental update made current.
+            // A weak copy (a header behind an 'endstream' found by searching, which may lie inside stream data) is used
+            // only when the file has no other copy of that object number.
+            var newest = new Dictionary<int, SizeType>();
+            foreach (var item in found.Where(item => !weakPositions.Contains(item.Position)))
+                newest[item.Number] = item.Position;
+            foreach (var item in found.Where(item => weakPositions.Contains(item.Position) && !newest.ContainsKey(item.Number)).Reverse())
+                newest[item.Number] = item.Position;
+            var objects = found.Where(item => newest[item.Number] == item.Position).ToList();
+            var rebuilt = new RebuiltObjects();
+            foreach (var item in objects)
+            {
+                var objectID = new PdfObjectID(item.Number, item.Generation);
+                _document.IrefTable.Add(PdfReference.CreateForObjectID(objectID, item.Position));
+                rebuilt.Versions[item.Number] = item.Position;
+                rebuilt.Current[item.Number] = objectID;
+            }
+
+            var trailer = RebuildTrailer(text, objects, objectSpans);
+            if (trailer.Elements[PdfTrailer.Keys.Encrypt] is null)
+            {
+                foreach (var item in objects.Where(item => item.Kind == "/ObjStm"))
+                    AddObjectStreamMembers(item, rebuilt);
+            }
+            else
+            {
+                PdfSharpLogHost.PdfReadingLogger.LogWarning("The file is encrypted; objects in its object streams are not rebuilt.");
+            }
+
+            // A reference the trailer names must lead to an object found in the file; a /Root that does not falls back
+            // to the last catalog.
+            if (trailer.Elements[PdfTrailer.Keys.Info] is { } info and not (PdfReference or PdfDictionary))
+                trailer.Elements.Remove(PdfTrailer.Keys.Info);
+            foreach (var key in new[] { PdfTrailer.Keys.Root, PdfTrailer.Keys.Info, PdfTrailer.Keys.Encrypt })
+            {
+                if (trailer.Elements[key] is PdfReference reference)
+                {
+                    if (_document.IrefTable[reference.ObjectID] is { } current)
+                        trailer.Elements[key] = current;
+                    else
+                        trailer.Elements.Remove(key);
+                }
+            }
+            if (trailer.Elements[PdfTrailer.Keys.Root] is not PdfReference)
+            {
+                var catalog = objects.LastOrDefault(item => item.Kind == "/Catalog");
+                if (catalog.Number == 0)
+                    throw new PdfReaderException("The file has no catalog.");
+                trailer.Elements[PdfTrailer.Keys.Root] = _document.IrefTable[new PdfObjectID(catalog.Number, catalog.Generation)]!;
+            }
+
+            trailer.Elements.SetInteger(PdfTrailer.Keys.Size, rebuilt.Current.Keys.Max() + 1);
+            _document.Trailer = trailer;
+            _streamBoundaries = _document.IrefTable.AllReferences.Where(r => r.Position >= 0)
+                .Select(r => r.Position).OrderBy(position => position).ToArray();
+            PdfSharpLogHost.PdfReadingLogger.LogWarning("Rebuilt the cross-reference information from {Count} objects.", found.Count);
+            return trailer;
+        }
+
+        // Where each object number was last registered while rebuilding: its file position, or the position of the
+        // object stream that holds it, its current ID, and the object stream it was taken from.
+        sealed class RebuiltObjects
+        {
+            public readonly Dictionary<int, SizeType> Versions = new();
+            public readonly Dictionary<int, PdfObjectID> Current = new();
+            public readonly Dictionary<int, PdfObjectID> MemberOf = new();
+        }
+
+        // The largest object number and generation PDF allows (ISO 32000-1 C.2); a larger 'N G obj' is not an object.
+        const int MaxRebuiltObjectNumber = 8_388_607;
+        const int MaxRebuiltGeneration = 65_535;
+
+        // An object header that starts a line or follows 'endobj', as writers put them; the same text inside a string,
+        // such as "see 2 0 obj", does not count. Inside an object, a header that follows its end on the same line is
+        // found by the scan of the object body instead. A header at the start of a line inside a string spanning lines
+        // still counts; the scan cannot tell it from a string that never closes.
+        static readonly Regex ObjectHeaderPattern = new(
+            @"(?<=(?:\A|[\r\n]|endobj)[\0\t\f ]*)([0-9]{1,10})[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+obj(?![A-Za-z0-9])",
+            RegexOptions.CultureInvariant);
+        static readonly Regex AnchoredHeaderPattern = new(
+            @"\G([0-9]{1,10})[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+obj(?![A-Za-z0-9])", RegexOptions.CultureInvariant);
+        static readonly Regex ObjectTypePattern = new(@"/Type\s*/(ObjStm|XRef|Catalog)\b", RegexOptions.CultureInvariant);
+        static readonly Regex LengthPattern = new(
+            @"/Length[\0\t\n\f\r ]+([0-9]{1,10})(?:[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+R)?(?![0-9])",
+            RegexOptions.CultureInvariant);
+        static readonly Regex IntegerObjectPattern = new(
+            @"(?<=(?:\A|[\r\n]|endobj)[\0\t\f ]*)([0-9]{1,10})[\0\t\n\f\r ]+[0-9]{1,5}[\0\t\n\f\r ]+obj[\0\t\n\f\r ]*([0-9]{1,10})[\0\t\n\f\r ]*endobj",
+            RegexOptions.CultureInvariant);
+
+        // The objects in the file, in file order: number, generation, position and the /Type that matters here.
+        // Stream data is skipped, so that bytes inside it are not taken for objects, and so are strings and comments.
+        // Every search is bounded by the next object header, so the work grows with the file size only. The spans of
+        // objects that end with 'endobj' or a stream are returned too.
+        static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text,
+            out List<(int Start, int End)> streamRanges, out List<(int Start, int End)> objectSpans, out HashSet<SizeType> weakPositions)
+        {
+            var result = new List<(int, int, SizeType, string)>();
+            weakPositions = [];
+            streamRanges = [];
+            objectSpans = [];
+
+            // Integer objects, so that an indirect /Length can say where stream data ends. Every value is kept, as an
+            // update or an embedded file may have an integer object with the same number.
+            var integers = new Dictionary<int, List<int>>();
+            for (var integer = IntegerObjectPattern.Match(text); integer.Success; integer = integer.NextMatch())
+            {
+                if (int.TryParse(integer.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                    && int.TryParse(integer.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+                {
+                    if (!integers.TryGetValue(number, out var values))
+                        integers.Add(number, values = []);
+                    values.Add(value);
+                }
+            }
+
+            // The next header at the start of a line is searched for again only once the scan has passed it: an earlier
+            // result is still the first one at or after a later position. Searching on every object took quadratic time
+            // when objects follow each other on one line.
+            var lineStart = ObjectHeaderPattern.Match(text, 0);
+            var match = lineStart;
+            int noEndStreamFrom = Int32.MaxValue;
+            while (match.Success)
+            {
+                int body = match.Index + match.Length;
+                if (lineStart.Success && lineStart.Index < body)
+                    lineStart = ObjectHeaderPattern.Match(text, body);
+                var next = lineStart;
+                int limit = next.Success ? next.Index : text.Length;
+                if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                    || number is < 1 or > MaxRebuiltObjectNumber
+                    || !int.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var generation)
+                    || generation > MaxRebuiltGeneration)
+                {
+                    match = next;
+                    continue;
+                }
+
+                ScanObjectBody(text, body, limit, out int endObj, out int stream, out int sameLineHeader);
+                int dictionaryEnd;
+                int resume;
+                if (stream >= 0)
+                {
+                    dictionaryEnd = stream;
+                    int endStream = FindStreamEnd(text, body, stream, integers, ref noEndStreamFrom, out bool byLength);
+                    if (endStream >= 0)
+                    {
+                        streamRanges.Add((stream, endStream));
+                        resume = endStream + 9;
+                        objectSpans.Add((match.Index, resume));
+                        // 'endobj' may be missing, with the next header right behind 'endstream'. When /Length did not
+                        // locate that 'endstream', it may lie inside the stream data; such a header is checked below.
+                        int after = SkipWhiteSpace(text, resume);
+                        if (String.CompareOrdinal(text, after, "endobj", 0, 6) == 0)
+                            after = SkipWhiteSpace(text, after + 6);
+                        if (AnchoredHeaderPattern.Match(text, after) is { Success: true } following)
+                        {
+                            sameLineHeader = after;
+                            next = following;
+                            if (!byLength)
+                                weakPositions.Add(after);
+                        }
+                    }
+                    else
+                    {
+                        resume = limit;
+                    }
+                }
+                else
+                {
+                    int end = limit;
+                    if (endObj >= 0)
+                        end = endObj;
+                    else if (sameLineHeader >= 0)
+                        end = sameLineHeader;
+                    dictionaryEnd = end;
+                    resume = endObj >= 0 ? endObj + 6 : end;
+                    if (endObj >= 0)
+                        objectSpans.Add((match.Index, resume));
+                    else if (sameLineHeader >= 0)
+                        next = AnchoredHeaderPattern.Match(text, sameLineHeader);
+                }
+                // A header behind an 'endstream' found by searching is weak when its body holds 'endstream' too: then it
+                // lay inside stream data, followed by the rest of the stream. Otherwise it is an ordinary object.
+                if (weakPositions.Contains(match.Index)
+                    && text.IndexOf("endstream", body, dictionaryEnd - body, StringComparison.Ordinal) < 0)
+                {
+                    weakPositions.Remove(match.Index);
+                }
+                var dictionary = text.Substring(body, Math.Min(dictionaryEnd - body, 64 * 1024));
+                var kind = ObjectTypePattern.Match(dictionary) is { Success: true } typeMatch ? "/" + typeMatch.Groups[1].Value : "";
+                result.Add((number, generation, match.Index, kind));
+
+                // The next header was found from the dictionary on; when it lies inside this object's stream data, look
+                // again behind the data.
+                if (next.Success && next.Index < resume)
+                {
+                    if (lineStart.Success && lineStart.Index < resume)
+                        lineStart = ObjectHeaderPattern.Match(text, resume);
+                    next = lineStart;
+                }
+                match = next;
+            }
+            return result;
+        }
+
+        // Finds 'endobj', the 'stream' keyword, or the header of a next object that follows a missing 'endobj' on the
+        // same line ('>> 3 0 obj'), in the object whose body starts at 'from', skipping literal strings and comments,
+        // up to 'limit' (the next header at the start of a line). -1 for what is not found.
+        static void ScanObjectBody(string text, int from, int limit, out int endObj, out int stream, out int nextHeader)
+        {
+            endObj = -1;
+            stream = -1;
+            nextHeader = -1;
+            int index = from;
+            while (index < limit)
+            {
+                char ch = text[index];
+                if (ch is >= '0' and <= '9' && index > from && text[index - 1] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ' or '>' or ']' or ')'
+                    && AnchoredHeaderPattern.Match(text, index).Success)
+                {
+                    nextHeader = index;
+                    return;
+                }
+                switch (ch)
+                {
+                    case '(':
+                        index = SkipLiteralString(text, index, limit);
+                        continue;
+
+                    case '%':
+                        while (index < limit && text[index] is not ('\n' or '\r'))
+                            index++;
+                        continue;
+
+                    case 'e' when String.CompareOrdinal(text, index, "endobj", 0, 6) == 0:
+                        endObj = index;
+                        return;
+
+                    case 's' when String.CompareOrdinal(text, index, "stream", 0, 6) == 0 && IsStreamKeyword(text, from, index):
+                        stream = index;
+                        return;
+                }
+                index++;
+            }
+        }
+
+        // The position behind a literal string that starts at 'start', honouring nested parentheses and escapes; a
+        // string that does not close ends at 'limit'.
+        static int SkipLiteralString(string text, int start, int limit) => SkipLiteralString(text, start, limit, out _);
+
+        static int SkipLiteralString(string text, int start, int limit, out bool closed)
+        {
+            closed = false;
+            int depth = 0;
+            for (int index = start; index < limit; index++)
+            {
+                char ch = text[index];
+                if (ch == '\\')
+                {
+                    index++;
+                }
+                else if (ch == '(')
+                {
+                    depth++;
+                }
+                else if (ch == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        closed = true;
+                        return index + 1;
+                    }
+                }
+            }
+            return limit;
+        }
+
+        static int SkipWhiteSpace(string text, int index)
+        {
+            while (index < text.Length && text[index] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                index++;
+            return index;
+        }
+
+        // The 'stream' keyword: after the dictionary's '>>' and white space, and followed by an end-of-line marker,
+        // which some writers precede with spaces; names such as /BitstreamVera and the end of 'endstream' do not count.
+        static bool IsStreamKeyword(string text, int from, int at)
+        {
+            int before = at - 1;
+            while (before >= from && text[before] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                before--;
+            if (before < from || text[before] != '>')
+                return false;
+            int after = at + 6;
+            while (after < text.Length && text[after] is ' ' or '\t')
+                after++;
+            return after < text.Length && text[after] is '\n' or '\r';
+        }
+
+        // The 'endstream' that ends the data behind a 'stream' keyword: where /Length says (directly, or through an
+        // integer object), when 'endstream' follows there, else the first one, as stream data may itself contain PDF
+        // text such as an embedded file. Once no 'endstream' follows a position, none follows any later one either.
+        static int FindStreamEnd(string text, int dictionaryStart, int stream, Dictionary<int, List<int>> integers, ref int noEndStreamFrom,
+            out bool byLength)
+        {
+            byLength = false;
+            int data = stream + 6;
+            while (data < text.Length && text[data] is ' ' or '\t')
+                data++;
+            if (data < text.Length && text[data] == '\r')
+                data++;
+            if (data < text.Length && text[data] == '\n')
+                data++;
+            var length = LengthPattern.Match(text, dictionaryStart, stream - dictionaryStart);
+            if (length.Success && int.TryParse(length.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+            {
+                // A direct length, or every value an integer object of that number has, newest first.
+                IEnumerable<int> counts = [value];
+                if (length.Groups[2].Success)
+                    counts = integers.TryGetValue(value, out var values) ? Enumerable.Reverse(values) : [];
+                foreach (var bytes in counts)
+                {
+                    if (bytes < 0 || bytes > text.Length - data)
+                        continue;
+                    int end = SkipWhiteSpace(text, data + bytes);
+                    if (String.CompareOrdinal(text, end, "endstream", 0, 9) == 0)
+                    {
+                        byLength = true;
+                        return end;
+                    }
+                }
+            }
+            if (data >= noEndStreamFrom)
+                return -1;
+            int found = text.IndexOf("endstream", data, StringComparison.Ordinal);
+            if (found < 0)
+                noEndStreamFrom = data;
+            return found;
+        }
+
+        PdfTrailer RebuildTrailer(string text, List<(int Number, int Generation, SizeType Position, string Kind)> objects,
+            List<(int Start, int End)> objectSpans)
+        {
+            // The entries come from the newest trailer or cross-reference stream dictionary that has a /Root, so that
+            // they belong to one revision of one file; a linearized file's last trailer holds only /Size and is passed
+            // over. Only /ID may come from an older dictionary, when the chosen one encrypts but lacks it.
+            var sources = new List<(SizeType Position, bool IsXRefStream, int Number, int Generation)>();
+            var keywords = new List<int>();
+            for (int at = text.IndexOf("trailer", StringComparison.Ordinal); at >= 0; at = text.IndexOf("trailer", at + 7, StringComparison.Ordinal))
+            {
+                if (IsTrailerKeyword(text, at) && !IsInsideRange(objectSpans, at))
+                    keywords.Add(at);
+            }
+            // A trailer dictionary must close before the next 'trailer' keyword, except within a comment or a string of
+            // its own (some slack is allowed there); checking that first keeps junk such as a run of 'trailer << ('
+            // from being parsed to the end of the file each time. A keyword inside an accepted dictionary is no trailer.
+            int coveredUntil = -1;
+            for (int index = 0; index < keywords.Count; index++)
+            {
+                if (keywords[index] < coveredUntil)
+                    continue;
+                int start = SkipWhiteSpace(text, keywords[index] + 7);
+                int close = DictionaryEnd(text, start, keywords);
+                if (close >= 0)
+                {
+                    sources.Add((keywords[index], false, 0, 0));
+                    coveredUntil = close;
+                }
+            }
+            foreach (var item in objects.Where(item => item.Kind == "/XRef"))
+                sources.Add((item.Position, true, item.Number, item.Generation));
+
+            var trailer = new PdfTrailer(_document);
+            bool chosen = false;
+            var readable = new List<PdfDictionary>();
+            foreach (var source in sources.OrderByDescending(source => source.Position))
+            {
+                PdfDictionary? dictionary = null;
+                try
+                {
+                    if (source.IsXRefStream)
+                    {
+                        var reference = _document.IrefTable[new PdfObjectID(source.Number, source.Generation)];
+                        if (reference != null)
+                            dictionary = ReadIndirectObject(reference, null, true) as PdfDictionary;
+                    }
+                    else
+                    {
+                        _lexer.Position = source.Position;
+                        if (ScanNextToken() == Symbol.Trailer && ScanNextToken() == Symbol.BeginDictionary)
+                        {
+                            dictionary = new PdfDictionary(_document);
+                            ReadDictionary(dictionary, false);
+                        }
+                    }
+                }
+                catch (PdfReaderException)
+                {
+                    // An unreadable one is skipped; an older one may do.
+                    dictionary = null;
+                }
+                if (dictionary == null)
+                    continue;
+                readable.Add(dictionary);
+                if (!chosen)
+                {
+                    if (dictionary.Elements[PdfTrailer.Keys.Root] == null)
+                        continue;
+                    foreach (var key in new[] { PdfTrailer.Keys.Root, PdfTrailer.Keys.Info, PdfTrailer.Keys.ID, PdfTrailer.Keys.Encrypt })
+                        CopyEntry(dictionary, key);
+                    chosen = true;
+                    if (trailer.Elements[PdfTrailer.Keys.Encrypt] == null || trailer.Elements[PdfTrailer.Keys.ID] != null)
+                        break;
+                }
+                else if (dictionary.Elements[PdfTrailer.Keys.ID] != null)
+                {
+                    CopyEntry(dictionary, PdfTrailer.Keys.ID);
+                    break;
+                }
+            }
+            // No dictionary names a /Root, so the last catalog will. /Info comes from the newest dictionary that has one,
+            // /Encrypt with its /ID from the newest that encrypts (an update trailer may hold only /Size), and /ID
+            // otherwise from the newest that has one.
+            if (!chosen)
+            {
+                // Only dictionaries with /Size, as trailers and cross-reference streams have; others may be text in a
+                // comment or a stray dictionary.
+                readable.RemoveAll(dictionary => dictionary.Elements[PdfTrailer.Keys.Size] == null);
+                if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Info] != null) is { } withInfo)
+                    CopyEntry(withInfo, PdfTrailer.Keys.Info);
+                if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Encrypt] != null) is { } withEncrypt)
+                {
+                    CopyEntry(withEncrypt, PdfTrailer.Keys.Encrypt);
+                    CopyEntry(withEncrypt, PdfTrailer.Keys.ID);
+                }
+                if (trailer.Elements[PdfTrailer.Keys.ID] == null
+                    && readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.ID] != null) is { } withID)
+                {
+                    CopyEntry(withID, PdfTrailer.Keys.ID);
+                }
+            }
+            return trailer;
+
+            void CopyEntry(PdfDictionary dictionary, string key)
+            {
+                if (dictionary.Elements[key] is { } value)
+                    trailer.Elements[key] = value is PdfObject { IsIndirect: false } direct ? direct.Clone() : value;
+            }
+        }
+
+        // The position behind the '>>' that closes the dictionary starting at 'start', or -1 if it does not close
+        // before the next 'trailer' keyword. Strings and comments are skipped. One that crosses that keyword (it may
+        // hold the text 'trailer <<') may go on within a fixed 4 KiB budget, and the bound becomes the next keyword
+        // behind it; one that runs over 'startxref' or '%%EOF' belongs to junk, not to a trailer. The fixed budget
+        // keeps the work per keyword bounded, also on hostile runs of strings and comments.
+        static int DictionaryEnd(string text, int start, List<int> keywords)
+        {
+            const int slack = 4096;
+            int end = NextKeyword(start);
+            int limit = (int)Math.Min((long)end + slack, text.Length);
+            int depth = 0;
+            for (int index = start; index < end; index++)
+            {
+                char ch = text[index];
+                if (ch == '(')
+                {
+                    int behind = SkipLiteralString(text, index, limit, out bool closed);
+                    if (!closed && limit < text.Length)
+                        return -1;
+                    if (behind > end)
+                    {
+                        if (CrossesFileEnd(end, behind))
+                            return -1;
+                        end = Math.Min(NextKeyword(behind), limit);
+                    }
+                    index = behind - 1;
+                }
+                else if (ch == '%')
+                {
+                    int lineEnd = index;
+                    while (lineEnd < limit && text[lineEnd] is not ('\n' or '\r'))
+                        lineEnd++;
+                    if (lineEnd >= limit && limit < text.Length)
+                        return -1;
+                    if (lineEnd > end)
+                    {
+                        if (CrossesFileEnd(end, lineEnd))
+                            return -1;
+                        end = Math.Min(NextKeyword(lineEnd), limit);
+                    }
+                    index = lineEnd;
+                }
+                else if (ch == '<' && index + 1 < text.Length && text[index + 1] == '<')
+                {
+                    depth++;
+                    index++;
+                }
+                else if (ch == '>' && index + 1 < text.Length && text[index + 1] == '>')
+                {
+                    depth--;
+                    index++;
+                    if (depth <= 0)
+                        return index + 1;
+                }
+            }
+            return -1;
+
+            // The first keyword at or after a position, or the end of the text.
+            int NextKeyword(int position)
+            {
+                int found = keywords.BinarySearch(position);
+                if (found < 0)
+                    found = ~found;
+                return found < keywords.Count ? keywords[found] : text.Length;
+            }
+
+            bool CrossesFileEnd(int from, int to)
+                => text.IndexOf("startxref", from, to - from, StringComparison.Ordinal) >= 0
+                   || text.IndexOf("%%EOF", from, to - from, StringComparison.Ordinal) >= 0;
+        }
+
+        // 'trailer' as a keyword: after a delimiter or white space and before '<<'.
+        static bool IsTrailerKeyword(string text, int at)
+        {
+            if (at > 0 && text[at - 1] is not ('\0' or '\t' or '\n' or '\f' or '\r' or ' ' or '>' or ']' or ')'))
+                return false;
+            int after = at + 7;
+            while (after < text.Length && text[after] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                after++;
+            return String.CompareOrdinal(text, after, "<<", 0, 2) == 0;
+        }
+
+        // Whether a position lies strictly inside one of the ranges, which are disjoint and in file order.
+        static bool IsInsideRange(List<(int Start, int End)> ranges, int position)
+        {
+            int low = 0, high = ranges.Count - 1;
+            while (low <= high)
+            {
+                int middle = low + (high - low) / 2;
+                var range = ranges[middle];
+                if (position <= range.Start)
+                    high = middle - 1;
+                else if (position >= range.End)
+                    low = middle + 1;
+                else
+                    return true;
+            }
+            return false;
+        }
+
+        // Registers the objects an object stream holds, unless a later version of the object comes after the stream.
+        void AddObjectStreamMembers((int Number, int Generation, SizeType Position, string Kind) item, RebuiltObjects rebuilt)
+        {
+            var streamID = new PdfObjectID(item.Number, item.Generation);
+            var reference = _document.IrefTable[streamID];
+            if (reference == null)
+                return;
+            try
+            {
+                if (ReadIndirectObject(reference, null, true) is not PdfDictionary objectStream || objectStream.Stream == null)
+                    return;
+                int count = objectStream.Elements.GetInteger("/N");
+                var lexer = new Lexer(new MemoryStream(objectStream.Stream.UnfilteredValue), _logger);
+                for (int index = 0; index < count; index++)
+                {
+                    if (lexer.ScanNextToken(false) != Symbol.Integer)
+                        break;
+                    int number = lexer.TokenToInteger;
+                    if (lexer.ScanNextToken(false) != Symbol.Integer)
+                        break;
+                    if (number is < 1 or > MaxRebuiltObjectNumber || number == item.Number)
+                        continue;
+                    if (rebuilt.Versions.TryGetValue(number, out var newer) && newer > item.Position)
+                        continue;
+                    if (rebuilt.Current.TryGetValue(number, out var olderID) && _document.IrefTable[olderID] is { } older)
+                        _document.IrefTable.Remove(older);
+                    var objectID = new PdfObjectID(number);
+                    _document.IrefTable.Add(PdfReference.CreateForObjectID(objectID, -1));
+                    if (rebuilt.MemberOf.TryGetValue(number, out var previousStream)
+                        && _compressedObjectLocations.TryGetValue(previousStream, out var previousLocations))
+                    {
+                        previousLocations.Remove(objectID);
+                    }
+                    if (!_compressedObjectLocations.TryGetValue(streamID, out var locations))
+                        _compressedObjectLocations.Add(streamID, locations = new());
+                    locations[objectID] = index;
+                    rebuilt.Versions[number] = item.Position;
+                    rebuilt.Current[number] = objectID;
+                    rebuilt.MemberOf[number] = streamID;
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                PdfSharpLogHost.PdfReadingLogger.LogWarning("Object stream {ObjectID} could not be read while rebuilding: {Message}", streamID, ex.Message);
+            }
+            finally
+            {
+                // It is read again with the other objects.
+                reference.ResetObject();
+            }
+        }
+
+        /// <summary>
+        /// Finds the last 'startxref' before the end, searching backwards in blocks; -1 if there is none. The file was
+        /// read into one string, which took about five times its size in memory and refused files over 2 GiB.
+        /// </summary>
+        SizeType FindLastStartXRef(SizeType end)
+        {
+            const string keyword = "startxref";
+            const int blockSize = 64 * 1024;
+            while (end > 0)
+            {
+                SizeType start = Math.Max(0, end - blockSize);
+                var text = _lexer.ScanRawString(start, (int)(end - start));
+                int index = text.LastIndexOf(keyword, StringComparison.Ordinal);
+                if (index >= 0)
+                    return start + index;
+                if (start == 0)
+                    break;
+                // The next block overlaps this one, so a keyword across the border is found.
+                end = start + keyword.Length - 1;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Reads the cross-reference table(s) and their trailer dictionary or
         /// cross-reference streams.
         /// </summary>
@@ -1345,21 +2010,10 @@ namespace PdfSharp.Pdf.IO
             if (idx == -1)
             {
                 PdfSharpLogHost.Logger.LogError("Cannot find 'startxref' within the last 1024 bytes of the PDF file.");
-                // If 'startxref' was still not found yet, read the file completely.
-                if (length > int.MaxValue)
-                {
-                    //TODO_OLD: Implement chunking to read long files.
-                    throw new NotImplementedException(
-                        "Reading >2GiB files with a 'startxref' in the middle not implemented.");
-                }
-                string trail = _lexer.ScanRawString(0, (int)length);
-
-                idx = trail.LastIndexOf("startxref", StringComparison.Ordinal);
-
-                if (idx == -1)
+                var position = FindLastStartXRef(length);
+                if (position < 0)
                     throw new PdfReaderException("The StartXRef table could not be found, the file cannot be opened.");
-
-                _lexer.Position = idx;
+                _lexer.Position = position;
             }
 
             ReadSymbol(Symbol.StartXRef);
@@ -1621,14 +2275,18 @@ namespace PdfSharp.Pdf.IO
             else
             {
                 var oldIref = xrefTable.AllReferences.First(x => x.ObjectID == objectID);
-                oldIref.Value = xrefStream;
-
-                if (oldIref.Position != xrefStart)
+                if (oldIref.Position == xrefStart)
                 {
-                    PdfSharpLogHost.PdfReadingLogger.LogError("Object '{ObjectID}' already exists in xref table’s references, referring to position {Position}. The latter one referring to position {Position} is used. " +
-                                                              $"This should not occur. If you think this is a bug in PDFsharp, please visit {UrlLiterals.LinkToCannotOpenPdfFile} for further information.", oldIref.ObjectID, oldIref.Position, xrefStart);
-
-                    oldIref.Position = xrefStart;
+                    oldIref.Value = xrefStream;
+                }
+                else
+                {
+                    // A newer revision gave the number to another object, as incremental updates may (ISO 32000-1
+                    // 7.5.6); that object stands. The older cross-reference stream replaced it, so a form saved that
+                    // way was lost.
+                    PdfSharpLogHost.PdfReadingLogger.LogInformation("Object '{ObjectID}' at position {Position} is a newer revision's object; " +
+                                                                    "the older cross-reference stream at position {XRefStart} keeps no reference.",
+                        oldIref.ObjectID, oldIref.Position, xrefStart);
                 }
             }
 

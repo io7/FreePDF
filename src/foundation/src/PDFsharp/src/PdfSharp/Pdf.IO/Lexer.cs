@@ -2,6 +2,7 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 using PdfSharp.Internal;
@@ -101,6 +102,13 @@ namespace PdfSharp.Pdf.IO
 
                 case '(':
                     return ScanStringLiteral();
+
+                case ')':
+                    // A closing parenthesis outside a string means nothing; viewers skip it. It stopped the whole file
+                    // opening, for example as '(text))'.
+                    PdfSharpLogHost.PdfReadingLogger.LogWarning("Skipped a ')' outside a string at position {Position}.", _charIndex);
+                    ScanNextChar(true);
+                    goto TryAgain;
 
                 case '[':
                     ScanNextChar(true);
@@ -296,9 +304,11 @@ namespace PdfSharp.Pdf.IO
             // If we found a decimal point we later divide the result by the appropriate power of 10 and covert is to Double.
             // For edge cases, which are numbers with 19 digits, the token is parsed again with 'Int64.TryParse()' and
             // if this fails with 'Double.TryParse'.
-            // If 'testForObjectReference' is 'true' and the value has up to 7 digits, no decimal point and no sign,
-            // we look ahead whether it is an object reference having the form '{object-number} {generation-number} R'.
-            const int maxDigitsForObjectNumber = 7;      // max: 8_388_608 / 0x_7F_FF_FF
+            // If 'testForObjectReference' is 'true' and the value fits an int, has no decimal point and no sign, we look
+            // ahead whether it is an object reference having the form '{object-number} {generation-number} R'. Object
+            // numbers above the PDF maximum of 8_388_607 are references too (to nothing, so they read as null); with up
+            // to 7 digits only, one such reference made the whole file fail to open.
+            const int maxDigitsForObjectNumber = 10;     // max: Int32.MaxValue, 10 digits
             const int maxDigitsForGenerationNumber = 5;  // max: 65_535    / 0x_FF_FF
             const int maxDigitsForLong = 18;             // Up to 18 digits values can safely fit into 64-bit integer.
             const int maxDecimalDigits = 10;             // Maximum number of decimal digits we process.
@@ -404,7 +414,7 @@ namespace PdfSharp.Pdf.IO
 #endif
             // Can the scanned number be the first part of an object reference?
             if (testForObjectReference && period is false
-                && totalDigits <= maxDigitsForObjectNumber  // Values in range [8_388_609..9_999_999] are checked in PdfObjectID.
+                && totalDigits <= maxDigitsForObjectNumber && value <= Int32.MaxValue  // PdfObjectID logs values above 8_388_607.
                 && IsWhiteSpace(_currChar))
             {
 #if DEBUG_
@@ -1088,21 +1098,129 @@ namespace PdfSharp.Pdf.IO
         /// <returns>The real length of the stream when 'endstream' was found.</returns>
         public int DetermineStreamLength(SizeType start, int searchLength, SuppressExceptions? suppressObjectOrderExceptions = null)
         {
-            var rawString = RandomReadRawString(start, searchLength);
-
             // When we come here, we have either an invalid or no \Length entry.
-            // Best we can do is to consider all bytes before 'endstream' are part of the stream content.
-            // In case the stream is zipped, this is no problem. In case the stream is encrypted
-            // it would be a serious problem. But we wait if this really happens.
-            int idxEndStream = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
-            if (idxEndStream == -1)
+            if (FindEndStream(start, searchLength, -1, out var length) < 0)
             {
                 SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(start));
                 return -1;
             }
-
-            return idxEndStream;
+            return length;
         }
+
+        /// <summary>
+        /// Finds the 'endstream' that closes a stream whose /Length does not end right before it. The search range ends
+        /// where the next object in the cross-reference table begins, so it can also hold objects the table does not
+        /// list, such as versions an update replaced. Returns the offset of 'endstream' from the start of the stream
+        /// data, or -1. When only white space separates the declared length from the next 'endstream', as when a
+        /// producer pads streams, the declared length is kept. Otherwise the 'endstream' nearest the declared end is
+        /// taken, preferring one that 'endobj' follows, and the length is the bytes before the end-of-line marker that
+        /// precedes it, which is not part of the data (ISO 32000-1 7.3.8.1). Without a declared length (below 0) it is
+        /// the last 'endstream' in the range.
+        /// </summary>
+        public int FindEndStream(SizeType start, int searchLength, int declaredLength, out int length)
+        {
+            var rawString = RandomReadRawString(start, searchLength);
+            length = -1;
+            int index;
+            if (declaredLength < 0)
+            {
+                index = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
+            }
+            else
+            {
+                int padded = declaredLength <= rawString.Length
+                    ? rawString.IndexOf("endstream", declaredLength, StringComparison.Ordinal)
+                    : -1;
+                if (padded >= 0 && IsWhiteSpaceOnly(rawString, declaredLength, padded))
+                {
+                    length = declaredLength;
+                    return padded;
+                }
+                index = NearestEndStream(rawString, declaredLength);
+            }
+            if (index < 0)
+                return -1;
+
+            int end = index;
+            if (end > 0 && rawString[end - 1] == Chars.LF)
+            {
+                end--;
+                if (end > 0 && rawString[end - 1] == Chars.CR)
+                    end--;
+            }
+            else if (end > 0 && rawString[end - 1] == Chars.CR)
+            {
+                end--;
+            }
+            length = end;
+            return index;
+
+            // NUL is white space in PDF syntax but a common last byte of binary data, so it does not count as padding.
+            static bool IsWhiteSpaceOnly(string text, int from, int to)
+            {
+                for (int position = from; position < to; position++)
+                {
+                    if (text[position] is not (Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP))
+                        return false;
+                }
+                return true;
+            }
+
+            static int NearestEndStream(string text, int declared)
+            {
+                int best = -1;
+                bool bestClosesObject = false;
+                long bestDistance = Int64.MaxValue;
+                int closingCount = 0;
+                for (int at = text.IndexOf("endstream", StringComparison.Ordinal); at >= 0;
+                     at = text.IndexOf("endstream", at + 9, StringComparison.Ordinal))
+                {
+                    bool closesObject = ClosesObject(text, at + 9);
+                    if (closesObject)
+                        closingCount++;
+                    long distance = Math.Abs((long)at - declared);
+                    if (closesObject && !bestClosesObject || closesObject == bestClosesObject && distance < bestDistance)
+                    {
+                        best = at;
+                        bestClosesObject = closesObject;
+                        bestDistance = distance;
+                    }
+                }
+                // Stream data may itself contain 'endstream endobj', as an uncompressed embedded PDF does; then the
+                // declared length decides, and it may be wrong.
+                if (closingCount > 1)
+                    PdfSharpLogHost.Logger.LogWarning("Several 'endstream' keywords could end a stream; the one nearest its /Length is taken.");
+                return best;
+            }
+
+            // Whether what follows 'endstream' ends the object: 'endobj', or, as a missing 'endobj' is tolerated, the
+            // next object, a cross-reference section, a trailer, 'startxref' or the end of the range, which is where the
+            // next listed object begins.
+            static bool ClosesObject(string text, int position)
+            {
+                while (position < text.Length && text[position] is Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP)
+                    position++;
+                if (position >= text.Length)
+                    return true;
+                foreach (var keyword in ClosingKeywords)
+                {
+                    // The whole keyword: 'xrefs' or 'endobjects' in stream data does not close anything.
+                    int end = position + keyword.Length;
+                    if (String.CompareOrdinal(text, position, keyword, 0, keyword.Length) == 0
+                        && (end >= text.Length || text[end] is Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP
+                            or '<' or '>' or '[' or ']' or '(' or ')' or '{' or '}' or '/' or '%'))
+                    {
+                        return true;
+                    }
+                }
+                return ObjectHeaderAt.Match(text, position) is { Success: true } header && header.Index == position;
+            }
+        }
+
+        static readonly string[] ClosingKeywords = ["endobj", "xref", "trailer", "startxref"];
+
+        static readonly Regex ObjectHeaderAt = new(@"\G[0-9]{1,10}[\0\t\n\f\r ]+[0-9]{1,5}[\0\t\n\f\r ]+obj(?![A-Za-z0-9])",
+            RegexOptions.CultureInvariant);
 
         /// <summary>
         /// Tries to scan 'endstream' after reading the stream content with a logical position

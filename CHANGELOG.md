@@ -36,6 +36,36 @@
   changes (modification date, producer, any edited title), annotations get the
   Print flag, and no page transparency group is added; such saves broke PDF/A-1
   conformance. Incremental updates leave metadata and pages alone.
+- A stream whose `endstream` is more than 20 bytes from where `/Length` says it
+  ends can be read: a correct length followed by padding, as IBM i invoice
+  generators and Bluebeam write, or a length much too short. Such files did not
+  open ("Cannot retrieve stream length"). A stream whose length is recovered no
+  longer keeps the line break before `endstream`.
+- When the cross-reference information cannot be read (a wrong `startxref`,
+  offsets that point elsewhere, a missing table, a damaged cross-reference
+  stream), the reader rebuilds it from the objects in the file, as viewers do,
+  instead of refusing the file. The newest version of each object wins. Objects
+  in object streams are recovered too, except in encrypted files. `Append` mode
+  still refuses such files.
+- In a file whose incremental update gives an object the number of an older
+  revision's cross-reference stream, the newer object is read; the older stream
+  replaced it, so a form could vanish and a `Modify` save dropped it.
+- Importing a page whose `/Rotate`, media box or crop box is an indirect object,
+  as pdf-lib writes it, works with `AddPage`, `InsertRange` and `AppendPages`;
+  it threw `NullReferenceException` or "PdfRectangle is not implemented as an
+  array".
+- A file with `startxref` further than 1,030 bytes from its end is no longer
+  read into memory as one string, which took about five times the file's size.
+- A reference with an object number beyond seven digits reads as null, an
+  object without `endobj` is read, and a `)` outside a string is skipped; each
+  of these stopped the file opening.
+- The LZW decoder no longer loses a byte when a code names the table entry being
+  defined.
+- A stream that returns fewer bytes per read than asked for is no longer taken
+  for a file that isn't a PDF.
+- Names in content streams are decoded like names in the file (UTF-8 first, then
+  the current ANSI code page), so a Shift-JIS or GBK font name in the content
+  matches its resource key.
 
 ## 7.7.0
 

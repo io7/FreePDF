@@ -515,7 +515,11 @@ namespace PdfSharp.Pdf
             Debug.Assert(importPage.Owner != Document);
 
             //PdfItem? item = importPage.Elements[key];
-            PdfItem? item = importPage.Elements.GetValue(key); // #US373
+            PdfItem? item;
+            if (deepCopy && importPage.Elements[key] is PdfReference reference)
+                item = DirectValue(reference.Value);
+            else
+                item = importPage.Elements.GetValue(key); // #US373
             if (item != null)
             {
                 PdfImportedObjectTable? importedObjectTable = null;
@@ -555,6 +559,17 @@ namespace PdfSharp.Pdf
                     page.Elements[key] = item.Clone();
                 }
             }
+        }
+
+        // The value of a page box or rotation held as an indirect object, as pdf-lib and others write them, to copy as
+        // a direct value. Reading an indirect box through GetValue threw, and an indirect rotation crashed the copy.
+        static PdfItem DirectValue(PdfObject value)
+        {
+            if (value is PdfIntegerObject integer)
+                return new PdfInteger(integer.Value);
+            if (value is PdfArray { Elements.Count: 4 } array && array.Elements.All(element => element is PdfInteger or PdfReal or PdfLongInteger))
+                return new PdfRectangle(array);
+            return value;
         }
 
         static PdfReference? RemapReference(PdfPage[] newPages, PdfPage[] impPages, PdfReference iref)  // TODO review
