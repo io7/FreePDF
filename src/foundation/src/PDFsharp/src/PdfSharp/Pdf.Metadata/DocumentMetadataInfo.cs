@@ -1,6 +1,7 @@
 ﻿// PDFsharp - A .NET library for processing PDF
 // See the LICENSE file in the solution root for more information.
 
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.PdfA;
 
 // v7.0.0 Ready
@@ -19,12 +20,12 @@ namespace PdfSharp.Pdf.Metadata
 
             // Files from other writers may hold a number, an array or a dangling reference where text belongs; such an
             // entry counts as missing here, as saving with generated metadata threw otherwise.
-            Title = Text(() => info.Title);
-            Author = Text(() => info.Author);
-            Subject = Text(() => info.Subject);
-            Keywords = Text(() => info.Keywords);
-            Creator = Text(() => info.Creator);
-            Producer = Text(() => info.Producer);
+            Title = Text(info, PdfDocumentInformation.Keys.Title, () => info.Title);
+            Author = Text(info, PdfDocumentInformation.Keys.Author, () => info.Author);
+            Subject = Text(info, PdfDocumentInformation.Keys.Subject, () => info.Subject);
+            Keywords = Text(info, PdfDocumentInformation.Keys.Keywords, () => info.Keywords);
+            Creator = Text(info, PdfDocumentInformation.Keys.Creator, () => info.Creator);
+            Producer = Text(info, PdfDocumentInformation.Keys.Producer, () => info.Producer);
 
 #if DEBUG && true_
             // Check from where Acrobat takes the text.
@@ -44,17 +45,62 @@ namespace PdfSharp.Pdf.Metadata
             IsPdfUA = document.UAManager != null;
         }
 
-        static string Text(Func<string> read)
+        static string Text(PdfDocumentInformation info, string key, Func<string> read)
         {
+            string value;
             try
             {
-                return read();
+                value = read();
             }
             catch (Exception ex) when (ex is InvalidOperationException or InvalidCastException)
             {
                 return "";
             }
+            // A text string without a byte order mark is in PDFDocEncoding (ISO 32000-1 7.9.2.2). PDFsharp keeps such a
+            // string byte for byte, and writes a string set in memory with only characters below 256 the same way, so
+            // readers and validators decode it as PDFDocEncoding; XMP must hold what they read, or curly quotes and
+            // dashes became control characters.
+            var item = info.Elements[key];
+            if (item is PdfReference reference)
+                item = reference.Value;
+            var encoding = item switch
+            {
+                PdfString text => text.Encoding,
+                PdfStringObject text => text.Encoding,
+                _ => PdfStringEncoding.Unicode
+            };
+            return encoding == PdfStringEncoding.RawEncoding ? DecodePdfDocEncoding(value) : value;
         }
+
+        // The characters where PDFDocEncoding differs from Latin-1 (ISO 32000-1 Annex D): 0x18-0x1F, 0x80-0x9E and 0xA0.
+        static string DecodePdfDocEncoding(string bytes)
+        {
+            char[]? result = null;
+            for (int index = 0; index < bytes.Length; index++)
+            {
+                char ch = bytes[index];
+                char mapped = ch switch
+                {
+                    >= '\u0018' and <= '\u001F' => DocEncodingLow[ch - 0x18],
+                    >= '\u0080' and <= '\u009E' => DocEncodingHigh[ch - 0x80],
+                    '\u00A0' => '\u20AC',
+                    _ => ch
+                };
+                if (mapped != ch)
+                    (result ??= bytes.ToCharArray())[index] = mapped;
+            }
+            return result == null ? bytes : new string(result);
+        }
+
+        static readonly char[] DocEncodingLow = ['\u02D8', '\u02C7', '\u02C6', '\u02D9', '\u02DD', '\u02DB', '\u02DA', '\u02DC'];
+
+        static readonly char[] DocEncodingHigh =
+        [
+            '\u2022', '\u2020', '\u2021', '\u2026', '\u2014', '\u2013', '\u0192', '\u2044',
+            '\u2039', '\u203A', '\u2212', '\u2030', '\u201E', '\u201C', '\u201D', '\u2018',
+            '\u2019', '\u201A', '\u2122', '\uFB01', '\uFB02', '\u0141', '\u0152', '\u0160',
+            '\u0178', '\u017D', '\u0131', '\u0142', '\u0153', '\u0161', '\u017E'
+        ];
 
         static DateTimeOffset? Date(Func<DateTimeOffset?> read)
         {

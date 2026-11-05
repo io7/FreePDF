@@ -24,7 +24,7 @@ namespace PdfSharp.Pdf.Metadata
 
         // The header is always written in this form: SetMetadata reads its begin attribute, and headers with text
         // before them, an XML declaration or a mis-encoded byte order mark made the save throw.
-        const string Header = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>";
+        const string Header = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>";
 
         static readonly Regex TrailerPattern = new(@"\A<\?xpacket\s+end\s*=\s*([""'])([rw])\1\s*\?>", RegexOptions.CultureInvariant);
 
@@ -89,10 +89,9 @@ namespace PdfSharp.Pdf.Metadata
                         updater.SetSimple(Xmp, "xmp", name, value);
                 }
 
-                // Line breaks in values are written as character references, which a parser keeps; a parser turns a
-                // literal CR LF into LF, and the value would no longer agree with the document information. Line breaks
-                // between elements are written as LF, so that only values carry references.
-                NormalizeWhitespaceNodes(document);
+                // A CR in a value is written as a character reference, which a parser keeps; a parser turns a literal
+                // CR LF into LF, and the value would no longer agree with the document information. The parser that
+                // read the packet already turned literal line breaks between elements into LF.
                 var output = new StringWriter(CultureInfo.InvariantCulture);
                 var settings = new XmlWriterSettings { OmitXmlDeclaration = true, Indent = false, NewLineHandling = NewLineHandling.Entitize };
                 using (var writer = XmlWriter.Create(output, settings))
@@ -161,8 +160,12 @@ namespace PdfSharp.Pdf.Metadata
                 trailerStart = packet.Length;
             }
             var body = packet.Substring(bodyStart, trailerStart - bodyStart).TrimStart();
-            if (body.StartsWith("<?xml", StringComparison.Ordinal) && body.IndexOf("?>", StringComparison.Ordinal) is var declarationEnd and >= 0)
+            // An XML declaration ('<?xml' and white space), not another instruction such as '<?xml-stylesheet'.
+            if (body.Length > 5 && body.StartsWith("<?xml", StringComparison.Ordinal) && Char.IsWhiteSpace(body[5])
+                && body.IndexOf("?>", StringComparison.Ordinal) is var declarationEnd and >= 0)
+            {
                 body = body.Substring(declarationEnd + 2);
+            }
 
             var document = new XmlDocument { PreserveWhitespace = true, XmlResolver = null };
             try
@@ -183,17 +186,6 @@ namespace PdfSharp.Pdf.Metadata
 
         static IEnumerable<XmlElement> TopDescriptions(XmlElement rdf)
             => rdf.ChildNodes.OfType<XmlElement>().Where(element => element.LocalName == "Description" && element.NamespaceURI == Rdf);
-
-        static void NormalizeWhitespaceNodes(XmlNode node)
-        {
-            foreach (XmlNode child in node.ChildNodes)
-            {
-                if (child is XmlWhitespace or XmlSignificantWhitespace)
-                    child.Value = child.Value!.Replace("\r\n", "\n").Replace('\r', '\n');
-                else if (child.HasChildNodes)
-                    NormalizeWhitespaceNodes(child);
-            }
-        }
 
         sealed class Updater(XmlDocument document, XmlElement rdf)
         {

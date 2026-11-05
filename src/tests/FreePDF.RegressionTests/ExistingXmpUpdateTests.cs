@@ -249,4 +249,31 @@ public class ExistingXmpUpdateTests
         var (xml, names) = Parse(XmpOf(Save(document)));
         Assert.Equal("New title", xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
     }
+
+    // Found in review: information strings in PDFDocEncoding (no byte order mark) went into the XMP as Latin-1, so
+    // curly quotes, dashes and the euro sign became control characters or other characters.
+    [Fact]
+    public void PDFDocEncoding_information_strings_are_decoded_for_the_XMP()
+    {
+        var info = "<< /Title (\\215Quoted\\216 \\204 Dash \\222 \\200 \\240 \\030) >>";
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(Packet(PdfAIdentification), info: info)), PdfDocumentOpenMode.Modify);
+
+        var (xml, names) = Parse(XmpOf(Save(document)));
+        Assert.Equal("\u201CQuoted\u201D \u2014 Dash \u2122 \u2022 \u20AC \u02D8",
+            xml.SelectSingleNode("//dc:title/rdf:Alt/rdf:li[@xml:lang='x-default']", names)!.InnerText);
+    }
+
+    // Found in review: an instruction such as <?xml-stylesheet?> was dropped as if it were the XML declaration, and a
+    // value written as a character reference (&#xD;) was rewritten.
+    [Fact]
+    public void Processing_instructions_and_character_references_in_other_properties_are_kept()
+    {
+        var packet = Packet("<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:source>&#xD;</dc:source></rdf:Description>\n" + PdfAIdentification)
+            .Replace("<x:xmpmeta", "<?xml-stylesheet href=\"x.xsl\"?><x:xmpmeta");
+        using var document = PdfReader.Open(new MemoryStream(FileWithXmp(packet)), PdfDocumentOpenMode.Modify);
+
+        var xmp = XmpOf(Save(document));
+        Assert.Contains("<?xml-stylesheet href=\"x.xsl\"?>", xmp);
+        Assert.Contains("<dc:source>&#xD;</dc:source>", xmp);
+    }
 }
