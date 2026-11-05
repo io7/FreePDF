@@ -3,5 +3,9 @@
      role="img" aria-labelledby="title">
   <title id="title">FreePDF</title>
   <rect width="128" height="128" rx="24" fill="#A11F63"/>
-  <path d="M40 24H104V40H56V56H88V72H56V104H40Z" fill="#FFFFFF"/>
+  <g fill="#FFFFFF" transform="translate(-5 2)">
+    <path d="M22 78L29 43Q33 29 48 25L86 14L83 30L50 40Q43 42 41 50L36 70Z"/>
+    <path d="M37 94L44 59Q48 45 63 41L101 30L98 46L65 56Q58 58 56 66L51 86Z"/>
+    <path d="M52 110L59 75Q63 61 78 57L116 46L109 81Q106 95 91 100Z"/>
+  </g>
 </svg>
