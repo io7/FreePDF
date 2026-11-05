@@ -328,9 +328,7 @@ namespace PdfSharp.Pdf.IO
                     }
                     continue;
                 }
-                if (inherited != null && inherited.TryGetValue(key, out var atOpen)
-                    && TryHashItem(document, item) is { } hash && Same(atOpen, hash)
-                    && (tree is not { } now || SameAsTree(document, key, item, now)))
+                if (StillInherited(document, key, item, inherited, tree))
                 {
                     omitted.Add(new KeyValuePair<string, PdfItem>(key, item));
                     page.Elements.Remove(key);
@@ -349,26 +347,42 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        // The value a page without the key has, for when the page tree would give it one: no rotation, a crop box as
-        // large as the media box, no resources (ISO 32000-1 Table 30). Null when the tree gives none, and for the
-        // media box, which a page always has.
+        // Whether a value that opening the file copied onto a page from the page tree still applies by inheritance:
+        // unchanged since, and what the page's place in the tree gives it now. A page that is not in the tree keeps
+        // leaving out what it inherited when the file was opened.
+        static bool StillInherited(PdfDocument document, string key, PdfItem item, Dictionary<string, byte[]>? inheritedAtOpen,
+            PdfPageTreeNode.InheritedValues? tree)
+        {
+            if (inheritedAtOpen == null || !inheritedAtOpen.TryGetValue(key, out var atOpen))
+                return false;
+            if (TryHashItem(document, item) is not { } hash || !Same(atOpen, hash))
+                return false;
+            if (tree is { } now)
+                return SameAsTree(document, key, item, now);
+            return true;
+        }
+
+        // The value a page without the key has, for when the page tree would give it another: no rotation, a crop box
+        // as large as the media box, no resources (ISO 32000-1 Table 30). Null when the tree gives none or the same, and
+        // for the media box, which a page always has.
         static PdfItem? ValueWithoutInheritance(PdfPage page, PdfRectangle? mediaBox, string key, PdfPageTreeNode.InheritedValues tree)
         {
             switch (key)
             {
-                case "/Rotate" when tree.Rotate != null:
+                case "/Rotate" when tree.Rotate != null && tree.Rotate.Value % 360 != 0:
                     return new PdfInteger(0);
-                case "/CropBox" when tree.CropBox != null && mediaBox != null:
+                case "/CropBox" when tree.CropBox != null && mediaBox != null && tree.CropBox != mediaBox:
                     return new PdfRectangle(mediaBox.X1, mediaBox.Y1, mediaBox.X2, mediaBox.Y2);
-                case "/Resources" when tree.Resources != null:
+                case "/Resources" when tree.Resources is { Elements.Count: > 0 }:
                     return new PdfDictionary(page.Owner);
                 default:
                     return null;
             }
         }
 
-        // Whether a value of a page is the one its place in the page tree gives it, as opening the file puts it onto
-        // the page (PdfPage.ApplyInheritedValues), the US Letter media box of a page without any included.
+        // Whether a value of a page is the one its place in the page tree gives it, compared in the form opening the
+        // file puts it onto the page (PdfPage.ApplyInheritedValues). A page that the tree gives no media box has the
+        // one PdfPage gives a page without any.
         static bool SameAsTree(PdfDocument document, string key, PdfItem item, PdfPageTreeNode.InheritedValues tree)
         {
             switch (key)
@@ -381,7 +395,7 @@ namespace PdfSharp.Pdf.IO
                     return item is PdfDictionary && TryHashItem(document, item) is { } mine && TryHashItem(document, resources) is { } theirs
                            && Same(mine, theirs);
                 case "/MediaBox":
-                    return AsRectangle(item) is { } mediaBox && mediaBox == (tree.MediaBox ?? new PdfRectangle(0, 0, 612, 792));
+                    return AsRectangle(item) is { } mediaBox && mediaBox == (tree.MediaBox ?? PdfPage.MediaBoxWhenMissing);
                 case "/CropBox":
                     return tree.CropBox != null && AsRectangle(item) is { } cropBox && cropBox == tree.CropBox;
                 case "/Rotate":

@@ -269,11 +269,11 @@ DigitalSignatureHandler.ForDocument(approved, signer,
   `Append` mode; open those with `Modify` to save a new file.
 - Pages can be added, removed and moved, also when the page tree is nested
   (since 7.7). The update writes only the page tree nodes between the root and
-  the pages that change: a page at either end goes into the root, any other page
-  into the node of the page it is inserted in front of, and a node left without
-  pages is taken out of the tree. A page moved under another node keeps its media
-  box, crop box and rotation, and a new page takes none from the node it goes
-  into.
+  the pages that change: a page goes next to its neighbours in their node,
+  preferring the node it was in, and a page at either end that has no such node
+  goes into the root; a node left without pages is taken out of the tree. A page
+  moved under another node keeps its media box, crop box and rotation, and a new
+  page takes none from the node it goes into.
 
 ## Repeatable API evidence
 

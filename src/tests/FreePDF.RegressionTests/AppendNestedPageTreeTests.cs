@@ -194,21 +194,151 @@ public class AppendNestedPageTreeTests
         AssertValuesOfNode3(reopened.Pages[1]);
     }
 
+    [Theory]
+    [InlineData(1, 0, new[] { 6, 5, 7, 8 })]
+    [InlineData(0, 2, new[] { 6, 7, 5, 8 })]
+    public void A_page_moved_to_either_end_of_its_node_stays_in_it(int from, int to, int[] order)
+    {
+        var original = Nested();
+        var result = Save(original, document => document.Pages.MovePage(from, to));
+
+        Assert.Equal(new[] { 3 }, Written(original, result));
+        using var reopened = Reopen(result);
+        Assert.Equal(order, PageNumbers(reopened));
+        AssertConsistentTree(reopened);
+    }
+
+    [Fact]
+    public void Moving_a_page_and_moving_it_back_keeps_the_file()
+    {
+        var original = Nested();
+        var result = Save(original, document => {
+            document.Pages.MovePage(0, 3);
+            document.Pages.MovePage(3, 0);
+        });
+
+        Assert.Equal(original, result);
+    }
+
     [Fact]
     public void A_page_moved_to_another_node_writes_the_values_it_inherited()
     {
         var original = Nested();
-        var result = Save(original, document => document.Pages.MovePage(1, 2));
+        var result = Save(original, document => document.Pages.MovePage(1, 3));
 
-        Assert.Equal(new[] { 3, 4, 6 }, Written(original, result));
+        Assert.Equal(new[] { 2, 3, 6 }, Written(original, result));
         var page = WrittenObject(original, result, 6);
         Assert.Matches(@"/MediaBox\s*\[0 0 400 300\]", page);
         Assert.Matches(@"/Rotate\s*90\b", page);
         using var reopened = Reopen(result);
-        Assert.Equal(new[] { 5, 7, 6, 8 }, PageNumbers(reopened));
+        Assert.Equal(new[] { 5, 7, 8, 6 }, PageNumbers(reopened));
         AssertConsistentTree(reopened);
-        AssertValuesOfNode3(reopened.Pages[2]);
-        Assert.Equal(200, reopened.Pages[3].MediaBox.Width, 3);
+        AssertValuesOfNode3(reopened.Pages[3]);
+        Assert.Equal(200, reopened.Pages[2].MediaBox.Width, 3);
+    }
+
+    [Fact]
+    public void A_node_emptied_by_removing_a_page_that_stays_referenced_is_not_written()
+    {
+        // The bookmark keeps page 8, which still names node 4 as its parent.
+        var original = TestPdf.Create(new[] {
+            /* 1 */ "<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R >>",
+            /* 2 */ "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            /* 3 */ "<< /Type /Pages /Parent 2 0 R /Kids [5 0 R] /Count 1 /MediaBox [0 0 400 300] >>",
+            /* 4 */ "<< /Type /Pages /Parent 2 0 R /Kids [6 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+            /* 5 */ "<< /Type /Page /Parent 3 0 R >>",
+            /* 6 */ "<< /Type /Page /Parent 4 0 R >>",
+            /* 7 */ "<< /Title (Second page) /Parent 9 0 R /Dest [6 0 R /Fit] >>",
+            /* 8 */ "<< /Title (First page) /Parent 9 0 R /Dest [5 0 R /Fit] /Next 7 0 R >>",
+            /* 9 */ "<< /Type /Outlines /First 8 0 R /Last 7 0 R /Count 2 >>",
+        });
+
+        var result = Save(original, document => document.Pages.RemoveAt(1));
+
+        Assert.Equal(new[] { 2 }, Written(original, result));
+        using var reopened = Reopen(result);
+        Assert.Equal(new[] { 5 }, PageNumbers(reopened));
+        AssertConsistentTree(reopened);
+    }
+
+    [Fact]
+    public void An_indirect_rotation_in_the_tree_is_read_and_kept()
+    {
+        // Node 3 holds /Rotate as the indirect integer 8, which was ignored.
+        var original = TestPdf.Create(new[] {
+            /* 1 */ "<< /Type /Catalog /Pages 2 0 R >>",
+            /* 2 */ "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 3 >>",
+            /* 3 */ "<< /Type /Pages /Parent 2 0 R /Kids [5 0 R 6 0 R] /Count 2 /MediaBox [0 0 400 300] /Rotate 8 0 R >>",
+            /* 4 */ "<< /Type /Pages /Parent 2 0 R /Kids [7 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+            /* 5 */ "<< /Type /Page /Parent 3 0 R >>",
+            /* 6 */ "<< /Type /Page /Parent 3 0 R >>",
+            /* 7 */ "<< /Type /Page /Parent 4 0 R >>",
+            /* 8 */ "90",
+        });
+        using (var read = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Import))
+            Assert.Equal(90, read.Pages[0].Rotate);
+
+        var result = Save(original, document => {
+            document.Pages.Insert(1);
+            document.Pages.MovePage(0, 3);
+        });
+
+        using var reopened = Reopen(result);
+        Assert.Equal(new[] { 9, 6, 7, 5 }, PageNumbers(reopened));
+        Assert.Equal(0, reopened.Pages[0].Rotate);
+        Assert.Equal(90, reopened.Pages[1].Rotate);
+        Assert.Equal(90, reopened.Pages[3].Rotate);
+    }
+
+    [Fact]
+    public void An_indirect_root_rotation_survives_a_Modify_save()
+    {
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 400 300] /Rotate 4 0 R >>",
+            "<< /Type /Page /Parent 2 0 R >>",
+            "90",
+        });
+        using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
+        using var output = new MemoryStream();
+        document.Save(output);
+
+        using var reopened = Reopen(output.ToArray());
+        Assert.Equal(90, reopened.Pages[0].Rotate);
+    }
+
+    [Theory]
+    [InlineData(PdfDocumentOpenMode.Import)]
+    [InlineData(PdfDocumentOpenMode.Modify)]
+    [InlineData(PdfDocumentOpenMode.Append)]
+    public void A_page_with_its_own_indirect_boxes_opens_under_a_node_with_boxes(PdfDocumentOpenMode mode)
+    {
+        // Opening threw "PdfRectangle is not implemented as an array".
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 400 300] /CropBox [10 10 390 290] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox 4 0 R /CropBox 5 0 R >>",
+            "[0 0 200 100]",
+            "[5 5 195 95]",
+        });
+
+        using var document = PdfReader.Open(new MemoryStream(original), mode);
+        Assert.Equal(200, document.Pages[0].MediaBox.Width, 3);
+        Assert.Equal(190, document.Pages[0].CropBox.Width, 3);
+    }
+
+    [Fact]
+    public void A_new_page_under_a_node_with_rotation_0_gets_no_rotation_entry()
+    {
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /Rotate 0 /MediaBox [0 0 400 300] >>",
+            "<< /Type /Page /Parent 2 0 R >>",
+        });
+
+        var result = Save(original, document => document.AddPage());
+
+        Assert.DoesNotContain("/Rotate", WrittenObject(original, result, 4));
     }
 
     [Fact]
@@ -248,6 +378,8 @@ public class AppendNestedPageTreeTests
         });
 
         var written = Written(original, result);
+        // Without bookmarks to merge, the catalog does not change: it got an empty outline.
+        Assert.DoesNotContain(1, written);
         Assert.Contains(2, written);
         Assert.DoesNotContain(3, written);
         Assert.DoesNotContain(4, written);

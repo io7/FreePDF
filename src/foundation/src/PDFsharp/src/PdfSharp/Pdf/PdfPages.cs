@@ -401,17 +401,9 @@ namespace PdfSharp.Pdf
         /// </summary>
         public void Remove(PdfPage page)
         {
-            if (ChangesTreeInPlace)
-            {
-                int index = PagesArray.Elements.IndexOf(page);
-                if (index >= 0)
-                    RemoveFromTree(index);
-            }
-            else
-            {
-                PagesArray.Elements.Remove(page/*.RequiredReference*/);
-                Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
-            }
+            int index = PagesArray.Elements.IndexOf(page);
+            if (index >= 0)
+                RemoveFromTree(index);
 
             // #PDF-UA: Page was removed.
             if (Document.UAManager != null)
@@ -423,17 +415,8 @@ namespace PdfSharp.Pdf
         /// </summary>
         public void RemoveAt(int index)
         {
-            PdfPage? page;
-            if (ChangesTreeInPlace)
-            {
-                page = RemoveFromTree(index);
-            }
-            else
-            {
-                page = PagesArray.Elements[index] as PdfPage;
-                PagesArray.Elements.RemoveAt(index);
-                Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
-            }
+            var page = PagesArray.Elements[index] as PdfPage;
+            RemoveFromTree(index);
 
             // #PDF-UA
             if (Document.UAManager != null && page != null)
@@ -458,16 +441,7 @@ namespace PdfSharp.Pdf
             if (oldIndex == newIndex)
                 return;
 
-            if (ChangesTreeInPlace)
-            {
-                InsertIntoTree(newIndex, RemoveFromTree(oldIndex));
-                return;
-            }
-
-            //PdfPage page = (PdfPage)pagesArray.Elements[oldIndex];
-            var page = (PdfReference)PagesArray.Elements[oldIndex];
-            PagesArray.Elements.RemoveAt(oldIndex);
-            PagesArray.Elements.Insert(newIndex, page);
+            InsertIntoTree(newIndex, RemoveFromTree(oldIndex));
         }
 
         /// <summary>
@@ -649,15 +623,20 @@ namespace PdfSharp.Pdf
             Debug.Assert(count == array.Elements.Count);
             Elements.SetInteger(Keys.Count, array.Elements.Count);
 
-            // Every page now has the values it inherits, so the root does not need them, and pages added later would
-            // inherit them although they do not have them (a new page came out rotated, for example). In Append mode
-            // the root stays as it is in the file; the update gives new pages what they need instead.
+            // Every page now has the values it inherits from the root, so the root does not need them, and pages added
+            // later would inherit them although they do not have them (a new page came out rotated, for example). Only
+            // the values that were read, and so copied onto the pages, go. In Append mode the root stays as it is in the
+            // file; the update gives new pages what they need instead.
             if (Document.OpenMode != PdfDocumentOpenMode.Append)
             {
-                Elements.Remove(PdfPage.InheritablePageKeys.Resources);
-                Elements.Remove(PdfPage.InheritablePageKeys.MediaBox);
-                Elements.Remove(PdfPage.InheritablePageKeys.CropBox);
-                Elements.Remove(PdfPage.InheritablePageKeys.Rotate);
+                if (inheritedValues.Resources != null)
+                    Elements.Remove(PdfPage.InheritablePageKeys.Resources);
+                if (inheritedValues.MediaBox != null)
+                    Elements.Remove(PdfPage.InheritablePageKeys.MediaBox);
+                if (inheritedValues.CropBox != null)
+                    Elements.Remove(PdfPage.InheritablePageKeys.CropBox);
+                if (inheritedValues.Rotate != null)
+                    Elements.Remove(PdfPage.InheritablePageKeys.Rotate);
             }
 
             return;
@@ -757,18 +736,7 @@ namespace PdfSharp.Pdf
             if (index < 0 || index > Count)
                 throw new ArgumentOutOfRangeException(nameof(index), index, PsMsgs.PageIndexOutOfRange);
 
-            // A page at either end goes into the root, which changes no other node. Any other page goes in front of
-            // the page now at its index, in that page's node.
-            PdfPageTreeNode node = this;
-            int position = index == 0 ? 0 : KidsOf(this).Elements.Count;
-            if (index > 0 && index < Count)
-            {
-                var next = this[index];
-                node = Parents[next.ObjectID];
-                position = KidsOf(node).Elements.IndexOf(next.RequiredReference);
-                if (position < 0)
-                    throw new InvalidOperationException("The page tree node of a page does not list the page.");
-            }
+            var (node, position) = PlaceFor(index, HomeNode(page));
             KidsOf(node).Elements.Insert(position, page.RequiredReference);
             page.Elements[PdfPage.Keys.Parent] = node.RequiredReference;
             Parents[page.ObjectID] = node;
@@ -778,25 +746,72 @@ namespace PdfSharp.Pdf
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
         }
 
+        // Where a page inserted at a page index goes in Append mode: behind the page before it or in front of the page
+        // after it, in that page's node. The node the page was in when the file was opened comes first, so that a page
+        // moved within its node stays in it, and moving a page back leaves the tree as it was. Otherwise a page at
+        // either end goes into the root, which changes no other node, and any other page in front of the page after it.
+        (PdfPageTreeNode Node, int Position) PlaceFor(int index, PdfPageTreeNode? home)
+        {
+            if (index > 0)
+            {
+                var previous = this[index - 1];
+                var node = Parents[previous.ObjectID];
+                if (ReferenceEquals(node, home))
+                    return (node, PositionOf(node, previous) + 1);
+            }
+            if (index < Count)
+            {
+                var next = this[index];
+                var node = Parents[next.ObjectID];
+                if (index > 0 || ReferenceEquals(node, home))
+                    return (node, PositionOf(node, next));
+                return (this, 0);
+            }
+            return (this, KidsOf(this).Elements.Count);
+        }
+
+        int PositionOf(PdfPageTreeNode node, PdfPage page)
+        {
+            int position = KidsOf(node).Elements.IndexOf(page.RequiredReference);
+            if (position < 0)
+                throw new InvalidOperationException("The page tree node of a page does not list the page.");
+            return position;
+        }
+
+        // The node a page was in when the file was opened; null for a page that was not in the file's tree.
+        PdfPageTreeNode? HomeNode(PdfPage page)
+        {
+            _ = Parents;
+            _homes!.TryGetValue(page.ObjectID, out var home);
+            return home;
+        }
+
         /// <summary>
-        /// Takes the page at the specified page index out of the page tree, in Append mode. A node that has no pages
-        /// left goes too.
+        /// Takes the page at the specified page index out of the page tree. In Append mode, the highest node that has
+        /// no other pages goes with it, unchanged, so that the update does not write it.
         /// </summary>
         PdfPage RemoveFromTree(int index)
         {
             var page = this[index];
+            if (!ChangesTreeInPlace)
+            {
+                PagesArray.Elements.RemoveAt(index);
+                Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
+                return page;
+            }
+
+            PdfDictionary detached = page;
             var node = Parents[page.ObjectID];
-            KidsOf(node).Elements.Remove(page.RequiredReference);
             Parents.Remove(page.ObjectID);
+            while (!ReferenceEquals(node, this) && KidsOf(node).Elements.Count == 1)
+            {
+                detached = node;
+                node = Parents[node.ObjectID];
+                Parents.Remove(detached.ObjectID);
+            }
+            KidsOf(node).Elements.Remove(detached.RequiredReference);
             for (var above = node; !ReferenceEquals(above, this); above = Parents[above.ObjectID])
                 above.Elements.SetInteger(Keys.Count, above.Count - 1);
-            while (!ReferenceEquals(node, this) && KidsOf(node).Elements.Count == 0)
-            {
-                var parent = Parents[node.ObjectID];
-                KidsOf(parent).Elements.Remove(node.RequiredReference);
-                Parents.Remove(node.ObjectID);
-                node = parent;
-            }
             _flattenedPages?.Elements.RemoveAt(index);
             Elements.SetInteger(Keys.Count, PagesArray.Elements.Count);
             return page;
@@ -851,10 +866,13 @@ namespace PdfSharp.Pdf
                             pending.Push(kid);
                     }
                 }
+                // Every change to the tree reads this first, so the copy is the tree as the file has it.
+                _homes = new Dictionary<PdfObjectID, PdfPageTreeNode>(parents);
                 return _parents = parents;
             }
         }
         Dictionary<PdfObjectID, PdfPageTreeNode>? _parents;
+        Dictionary<PdfObjectID, PdfPageTreeNode>? _homes;
 
         /// <summary>
         /// Preserves the page tree of an imported document.

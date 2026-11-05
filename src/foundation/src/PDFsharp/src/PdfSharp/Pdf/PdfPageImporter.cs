@@ -119,6 +119,9 @@ namespace PdfSharp.Pdf
             if (_fieldRoots.Count > 0)
                 CommitFields();
 
+            // Reading the outline creates it, which changes the catalog, also in an Append-mode update.
+            if (_options.BookmarkTitle == null && _bookmarks.Count == 0)
+                return;
             var parent = _target.Outlines;
             if (_options.BookmarkTitle != null)
                 parent = _target.Outlines.Add(_options.BookmarkTitle, _newPages[0].Page).Outlines;
