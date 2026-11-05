@@ -1088,20 +1088,59 @@ namespace PdfSharp.Pdf.IO
         /// <returns>The real length of the stream when 'endstream' was found.</returns>
         public int DetermineStreamLength(SizeType start, int searchLength, SuppressExceptions? suppressObjectOrderExceptions = null)
         {
-            var rawString = RandomReadRawString(start, searchLength);
-
             // When we come here, we have either an invalid or no \Length entry.
-            // Best we can do is to consider all bytes before 'endstream' are part of the stream content.
-            // In case the stream is zipped, this is no problem. In case the stream is encrypted
-            // it would be a serious problem. But we wait if this really happens.
-            int idxEndStream = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
-            if (idxEndStream == -1)
+            if (FindEndStream(start, searchLength, -1, out var length) < 0)
             {
                 SuppressExceptions.HandleError(suppressObjectOrderExceptions, () => throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(start));
                 return -1;
             }
+            return length;
+        }
 
-            return idxEndStream;
+        /// <summary>
+        /// Finds the 'endstream' that closes a stream whose /Length does not end right before it: the last one in the
+        /// search range, which ends where the next object begins. Returns its offset from the start of the stream data,
+        /// or -1. The length is the declared one when only white space separates it from 'endstream', as some
+        /// producers pad streams; otherwise it is the bytes before the end-of-line marker that precedes 'endstream',
+        /// which is not part of the data (ISO 32000-1 7.3.8.1). A declared length below 0 means none.
+        /// </summary>
+        public int FindEndStream(SizeType start, int searchLength, int declaredLength, out int length)
+        {
+            var rawString = RandomReadRawString(start, searchLength);
+            int index = rawString.LastIndexOf("endstream", StringComparison.Ordinal);
+            length = -1;
+            if (index < 0)
+                return -1;
+
+            if (declaredLength >= 0 && declaredLength <= index && IsWhiteSpaceOnly(rawString, declaredLength, index))
+            {
+                length = declaredLength;
+                return index;
+            }
+
+            int end = index;
+            if (end > 0 && rawString[end - 1] == Chars.LF)
+            {
+                end--;
+                if (end > 0 && rawString[end - 1] == Chars.CR)
+                    end--;
+            }
+            else if (end > 0 && rawString[end - 1] == Chars.CR)
+            {
+                end--;
+            }
+            length = end;
+            return index;
+
+            static bool IsWhiteSpaceOnly(string text, int from, int to)
+            {
+                for (int position = from; position < to; position++)
+                {
+                    if (text[position] is not (Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP))
+                        return false;
+                }
+                return true;
+            }
         }
 
         /// <summary>

@@ -561,21 +561,25 @@ namespace PdfSharp.Pdf.IO
                 "Failed to read 'endstream' in object '{ObjectID}' immediately behind the end of the stream. (counter: {Counter})",
                 dict.ObjectID, _endStreamNotFoundCounter);
 
-            // Try find 'endstream' manually.
+            // Find 'endstream' up to where the next object begins. It looked only 20 bytes past /Length, so a stream
+            // followed by more padding, or with a /Length much too short, made the whole file fail to open.
             var oldLength = streamLength;
-            //_lexer.DetermineStreamLength(dict.Reference!.Position, streamLength - length, ref streamLength);
-
-            // Try to read 20 extra bytes in case reported stream length is too small.
-            int scanWindow = (int)Math.Min((long)streamLength + 20, GetStreamSearchLength(dict, streamStart));
-
-            streamLength = _lexer.DetermineStreamLength(streamStart, scanWindow, suppressObjectOrderExceptions);
-            if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
+            var endStream = _lexer.FindEndStream(streamStart, GetStreamSearchLength(dict, streamStart), oldLength, out streamLength);
+            if (endStream < 0)
+            {
+                SuppressExceptions.HandleError(suppressObjectOrderExceptions,
+                    () => throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(streamStart));
                 return false;
-#if DEBUG
+            }
             if (streamLength == oldLength)
-                _ = typeof(int);
-#endif
-            Debug.Assert(streamLength != oldLength, "In this case we should not come here.");
+            {
+                // Only white space between the data and 'endstream': /Length is right. Continue behind 'endstream'.
+                _lexer.Position = streamStart + endStream + "endstream".Length;
+                PdfSharpLogHost.Logger.LogInformation(
+                    "Stream of object '{ObjectID}' is followed by white space before 'endstream'; its length {Length} is kept.",
+                    dict.ObjectID, oldLength);
+                return true;
+            }
             PdfSharpLogHost.Logger.LogInformation(
                 "Stream length of object '{ObjectID}' corrected from {OldLength} to {CorrectLength}.",
                 dict.ObjectID, oldLength, streamLength);
