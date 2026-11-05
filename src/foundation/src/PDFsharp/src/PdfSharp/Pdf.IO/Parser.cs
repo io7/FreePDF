@@ -1625,14 +1625,18 @@ namespace PdfSharp.Pdf.IO
             else
             {
                 var oldIref = xrefTable.AllReferences.First(x => x.ObjectID == objectID);
-                oldIref.Value = xrefStream;
-
-                if (oldIref.Position != xrefStart)
+                if (oldIref.Position == xrefStart)
                 {
-                    PdfSharpLogHost.PdfReadingLogger.LogError("Object '{ObjectID}' already exists in xref table’s references, referring to position {Position}. The latter one referring to position {Position} is used. " +
-                                                              $"This should not occur. If you think this is a bug in PDFsharp, please visit {UrlLiterals.LinkToCannotOpenPdfFile} for further information.", oldIref.ObjectID, oldIref.Position, xrefStart);
-
-                    oldIref.Position = xrefStart;
+                    oldIref.Value = xrefStream;
+                }
+                else
+                {
+                    // A newer revision gave the number to another object, as incremental updates may (ISO 32000-1
+                    // 7.5.6); that object stands. The older cross-reference stream replaced it, so a form saved that
+                    // way was lost.
+                    PdfSharpLogHost.PdfReadingLogger.LogInformation("Object '{ObjectID}' at position {Position} is a newer revision's object; " +
+                                                                    "the older cross-reference stream at position {XRefStart} keeps no reference.",
+                        oldIref.ObjectID, oldIref.Position, xrefStart);
                 }
             }
 
