@@ -52,18 +52,26 @@ public class MigraDocLayoutCrashTests
 
     // Upstream #83: an empty paragraph with a bottom border threw "'Rectangle' must not be null here" when its line
     // still fitted at the bottom of a page but its border did not. The spacer moves it down a quarter point at a time
-    // across the last two lines of the page.
-    [Fact]
-    public void An_empty_paragraph_with_a_bottom_border_at_the_page_bottom_renders()
+    // across the last two lines of the page. A paragraph that ends with a line break ends with such an empty line.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_empty_paragraph_with_a_bottom_border_at_the_page_bottom_renders(bool textAndLineBreak)
     {
         var failures = new List<string>();
-        for (var spacer = 650.0; spacer < 700.0; spacer += 0.25)
+        for (var spacer = 640.0; spacer < 700.0; spacer += 0.25)
         {
             var document = NewDocument();
             var section = document.AddSection();
             section.AddParagraph("Top");
             section.AddParagraph().Format.SpaceBefore = Unit.FromPoint(spacer);
-            section.AddParagraph().Format.Borders.Bottom.Width = 1;
+            var bordered = section.AddParagraph();
+            if (textAndLineBreak)
+            {
+                bordered.AddText("Text");
+                bordered.AddLineBreak();
+            }
+            bordered.Format.Borders.Bottom.Width = 1;
             try
             {
                 Assert.InRange(Render(document), 1, 2);
@@ -148,8 +156,8 @@ public class MigraDocLayoutCrashTests
         await render;
     }
 
-    // Found in the triage: a chart threw "'Axis' must not be null here" unless the code had read chart.YAxis, and
-    // without chart.XAxis its columns or line were drawn at NaN coordinates, which viewers reject.
+    // Found in the triage: a chart threw "'Axis' must not be null here" unless the code set a Y axis property, and
+    // without an X axis property its columns, bars or line were drawn at NaN coordinates, which viewers reject.
     [Theory]
     [InlineData(ChartType.Column2D)]
     [InlineData(ChartType.ColumnStacked2D)]

@@ -948,17 +948,28 @@ namespace MigraDoc.Rendering
             _currentLineWidth = 0;
             _currentWordsWidth = 0;
             _currentLineEndsWithLineBreak = false;
+            // Counts start fresh for each line: the previous line's tab state, blank count and pending blank made the
+            // words of a justified line jam together or spread too far.
+            _lastTabPassed = lineInfo.LastTab == null;
+            _currentBlankCount = 0;
+            _savedBlankWidth = 0;
 
             var fittingRect = _formattingArea.GetFittingRect(_currentYPosition, _currentVerticalInfo.Height);
             if (fittingRect != null)
             {
                 _currentXPosition = fittingRect.X + LeftIndent;
-                FormatListSymbol();
+                // Only the first line has the list symbol.
+                if (_isFirstLine)
+                    FormatListSymbol();
                 bool goOn = true;
                 while (goOn && _currentLeaf != null)
                 {
                     if (_currentLeaf.Current == lineInfo.LastTab)
+                    {
                         _lastTabPassed = true;
+                        // A blank before the last tab is not part of the justified text behind it.
+                        _savedBlankWidth = 0;
+                    }
 
                     if (_endLeaf is null)
                         NRT.ThrowOnNull();
@@ -1747,6 +1758,15 @@ namespace MigraDoc.Rendering
                     break;
                 }
             }
+            // A paragraph that ends with a line break ends with an empty line, whose bottom border needs room too; without
+            // it, the border's rectangle was missing at the bottom of a page (upstream #83). The paragraph then ends on
+            // the next page.
+            if (formatInfo.IsEnding && lastResult == FormatResult.NewLine && BottomBorderOffset > 0
+                && _formattingArea.GetFittingRect(_currentYPosition + _currentVerticalInfo.Height, BottomBorderOffset) == null)
+            {
+                formatInfo._isEnding = false;
+            }
+
             if (formatInfo.IsEnding && lastResult != FormatResult.NewLine)
                 StoreLineInformation();
 

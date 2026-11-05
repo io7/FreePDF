@@ -996,7 +996,7 @@ namespace MigraDoc.Rendering
         /// <returns>The last row that is connected with the given row.</returns>
         int CalcLastConnectedRowDirect(int row)
         {
-            // A KeepWith or MergeDown that reaches past the table connects to the last row.
+            // A KeepWith that reaches past the table connects to the last row; a MergeDown past it is refused earlier.
             int lastRow = _table.Rows.Count - 1;
             int lastConnectedRow = row;
             var cellRow = _table.Rows[row];
