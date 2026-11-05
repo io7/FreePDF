@@ -857,9 +857,9 @@ namespace PdfSharp.Pdf
         internal override void WriteObject(PdfWriter writer)
         {
             // #PDF-A
-            // Suppress transparency group if PDF-A is required.
+            // Suppress transparency group if PDF-A is required, also for an opened file whose XMP claims PDF/A.
             // An incremental update changes no page only to add the group.
-            if (!Document.IsPdfA && Document.OpenMode != PdfDocumentOpenMode.Append)
+            if (!Document.IsPdfA && Document.ClaimedPdfAPart == 0 && Document.OpenMode != PdfDocumentOpenMode.Append)
             {
                 // Add transparency group to prevent rendering problems of Adobe viewer.
                 // Update (PDFsharp 1.50 beta 3): Add transparency group only if ColorMode is defined.
