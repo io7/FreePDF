@@ -74,6 +74,31 @@ public class MigraDocLayoutCrashTests
         Assert.Empty(failures);
     }
 
+    // Upstream #339: a justified list paragraph with soft hyphens never finished laying out at many left indents.
+    [Fact]
+    public async Task Justified_list_paragraphs_with_soft_hyphens_finish()
+    {
+        const string shy = "­";
+        var text = $"This text shows the issue with the Donau{shy}dampf{shy}schiff{shy}fahrts{shy}gesell{shy}schafts{shy}" +
+                   $"kapitaens{shy}muetzen{shy}band of MigraDoc, which should be hyphen{shy}ated correctly. The text should be " +
+                   $"justified and the hyphen{shy}ation should work as expected.";
+        var render = Task.Run(() =>
+        {
+            for (var indent = 10; indent <= 60; indent++)
+            {
+                var document = NewDocument();
+                var paragraph = document.AddSection().AddParagraph(text);
+                paragraph.Format.ListInfo.ListType = ListType.BulletList1;
+                paragraph.Format.LeftIndent = Unit.FromMillimeter(indent);
+                paragraph.Format.FirstLineIndent = Unit.FromMillimeter(-5);
+                paragraph.Format.Alignment = ParagraphAlignment.Justify;
+                Assert.Equal(1, Render(document));
+            }
+        });
+        Assert.Same(render, await Task.WhenAny(render, Task.Delay(TimeSpan.FromSeconds(30))));
+        await render;
+    }
+
     // Found in the triage: a chart threw "'Axis' must not be null here" unless the code had read chart.YAxis, and
     // without chart.XAxis its columns or line were drawn at NaN coordinates, which viewers reject.
     [Theory]

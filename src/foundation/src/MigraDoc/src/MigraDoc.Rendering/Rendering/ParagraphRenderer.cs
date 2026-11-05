@@ -960,11 +960,29 @@ namespace MigraDoc.Rendering
                     if (_currentLeaf.Current == lineInfo.LastTab)
                         _lastTabPassed = true;
 
-                    FormatElement(_currentLeaf.Current);
-
                     if (_endLeaf is null)
                         NRT.ThrowOnNull();
-                    goOn = _currentLeaf != null && _currentLeaf.Current != _endLeaf.Current;
+
+                    // The line's elements are already chosen, so each is measured once and in order. A soft hyphen shows
+                    // only at the end of the line. FormatSoftHyphen would probe the next word and could step back to the
+                    // previous one, which repeated forever in justified lists (upstream #339).
+                    var leaf = _currentLeaf;
+                    if (IsSoftHyphen(leaf.Current))
+                    {
+                        if (leaf.Current == _endLeaf.Current && !IgnoreHorizontalGrowth)
+                        {
+                            XUnitPt hyphenWidth = MeasureString("-");
+                            _currentWordsWidth += hyphenWidth;
+                            _currentLineWidth += hyphenWidth;
+                        }
+                    }
+                    else
+                    {
+                        FormatElement(leaf.Current);
+                    }
+                    _currentLeaf = leaf;
+
+                    goOn = _currentLeaf.Current != _endLeaf.Current;
                     if (goOn)
                         _currentLeaf = _currentLeaf!.GetNextLeaf();
                 }
