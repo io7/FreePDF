@@ -441,4 +441,75 @@ public class DamagedFileRecoveryTests
 
         AssertSimplePage(WrongStartXRef(builder.Text));
     }
+
+    [Theory]
+    [InlineData("/Note (see trailer << x >>)")]
+    [InlineData("% old trailer << /Size 1 >>\n")]
+    public void A_trailer_holding_trailer_text_in_a_string_or_comment_is_used(string extra)
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] >>",
+            "<< /Title (real title) >>",
+        }, _ => "/Info 4 0 R " + extra);
+        var text = Regex.Replace(TestPdf.Latin1.GetString(bytes), @"startxref\s+\d+", "startxref\n9");
+
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), PdfDocumentOpenMode.Import);
+        Assert.Equal("real title", document.Info.Title);
+    }
+
+    [Fact]
+    public void Objects_on_one_line_without_endobj_take_linear_time()
+    {
+        // 8,000 such objects took 29 seconds when the next header at a line start was searched for on every object.
+        var text = new StringBuilder("%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> ");
+        text.Append("3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] >>");
+        for (int index = 0; index < 8000; index++)
+            text.Append($" {10 + index} 0 obj << /A {index} >>");
+        text.Append("\ntrailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n9\n%%EOF\n");
+
+        var watch = Stopwatch.StartNew();
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text.ToString())), PdfDocumentOpenMode.Import);
+        Assert.Equal(1, document.PageCount);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Rebuild took {watch.Elapsed}.");
+    }
+
+    [Fact]
+    public void A_header_behind_an_endstream_found_by_searching_is_not_an_object()
+    {
+        // /Length is wrong, so the search finds the 'endstream' inside the string first; '3 0 obj' behind it is data.
+        var data = $"BT (endstream 3 0 obj) Tj ET {Content}";
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 5 >>\nstream\n{data}\nendstream");
+        builder.Xref("/Size 5 /Root 1 0 R");
+
+        using var document = PdfReader.Open(new MemoryStream(WrongStartXRef(builder.Text)), PdfDocumentOpenMode.Import);
+        Assert.Equal(240, document.Pages[0].MediaBox.Width, 3);
+    }
+
+    [Fact]
+    public void Without_a_root_the_encryption_comes_from_the_newest_trailer_that_has_it()
+    {
+        byte[] encrypted;
+        using (var source = new PdfDocument())
+        {
+            source.Info.Title = "Size-only update";
+            source.AddPage().Width = 240;
+            source.SecurityHandler.SetEncryptionToV4UsingAES();
+            source.SecuritySettings.UserPassword = "user";
+            source.SecuritySettings.OwnerPassword = "owner";
+            using var output = new MemoryStream();
+            source.Save(output);
+            encrypted = output.ToArray();
+        }
+        var text = TestPdf.Latin1.GetString(encrypted);
+        int trailer = text.LastIndexOf("trailer", StringComparison.Ordinal);
+        text = text.Substring(0, trailer) + text.Substring(trailer).Replace("/Root", "/Rxxx");
+        text += "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 9 >>\nstartxref\n9\n%%EOF\n";
+
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text)), "owner", PdfDocumentOpenMode.Import);
+        Assert.Equal("Size-only update", document.Info.Title);
+    }
 }

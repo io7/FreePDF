@@ -1470,12 +1470,18 @@ namespace PdfSharp.Pdf.IO
                 }
             }
 
-            var match = ObjectHeaderPattern.Match(text, 0);
+            // The next header at the start of a line is searched for again only once the scan has passed it: an earlier
+            // result is still the first one at or after a later position. Searching on every object took quadratic time
+            // when objects follow each other on one line.
+            var lineStart = ObjectHeaderPattern.Match(text, 0);
+            var match = lineStart;
             int noEndStreamFrom = Int32.MaxValue;
             while (match.Success)
             {
                 int body = match.Index + match.Length;
-                var next = ObjectHeaderPattern.Match(text, body);
+                if (lineStart.Success && lineStart.Index < body)
+                    lineStart = ObjectHeaderPattern.Match(text, body);
+                var next = lineStart;
                 int limit = next.Success ? next.Index : text.Length;
                 if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
                     || number is < 1 or > MaxRebuiltObjectNumber
@@ -1492,17 +1498,18 @@ namespace PdfSharp.Pdf.IO
                 if (stream >= 0)
                 {
                     dictionaryEnd = stream;
-                    int endStream = FindStreamEnd(text, body, stream, integers, ref noEndStreamFrom);
+                    int endStream = FindStreamEnd(text, body, stream, integers, ref noEndStreamFrom, out bool byLength);
                     if (endStream >= 0)
                     {
                         streamRanges.Add((stream, endStream));
                         resume = endStream + 9;
                         objectSpans.Add((match.Index, resume));
-                        // 'endobj' may be missing, with the next header right behind 'endstream'.
+                        // 'endobj' may be missing, with the next header right behind 'endstream'. Only when /Length
+                        // located that 'endstream': the first one found by searching may lie inside the stream data.
                         int after = SkipWhiteSpace(text, resume);
                         if (String.CompareOrdinal(text, after, "endobj", 0, 6) == 0)
                             after = SkipWhiteSpace(text, after + 6);
-                        if (AnchoredHeaderPattern.Match(text, after) is { Success: true } following)
+                        if (byLength && AnchoredHeaderPattern.Match(text, after) is { Success: true } following)
                         {
                             sameLineHeader = after;
                             next = following;
@@ -1533,7 +1540,13 @@ namespace PdfSharp.Pdf.IO
 
                 // The next header was found from the dictionary on; when it lies inside this object's stream data, look
                 // again behind the data.
-                match = !next.Success || next.Index >= resume ? next : ObjectHeaderPattern.Match(text, resume);
+                if (next.Success && next.Index < resume)
+                {
+                    if (lineStart.Success && lineStart.Index < resume)
+                        lineStart = ObjectHeaderPattern.Match(text, resume);
+                    next = lineStart;
+                }
+                match = next;
             }
             return result;
         }
@@ -1630,8 +1643,10 @@ namespace PdfSharp.Pdf.IO
         // The 'endstream' that ends the data behind a 'stream' keyword: where /Length says (directly, or through an
         // integer object), when 'endstream' follows there, else the first one, as stream data may itself contain PDF
         // text such as an embedded file. Once no 'endstream' follows a position, none follows any later one either.
-        static int FindStreamEnd(string text, int dictionaryStart, int stream, Dictionary<int, List<int>> integers, ref int noEndStreamFrom)
+        static int FindStreamEnd(string text, int dictionaryStart, int stream, Dictionary<int, List<int>> integers, ref int noEndStreamFrom,
+            out bool byLength)
         {
+            byLength = false;
             int data = stream + 6;
             while (data < text.Length && text[data] is ' ' or '\t')
                 data++;
@@ -1652,7 +1667,10 @@ namespace PdfSharp.Pdf.IO
                         continue;
                     int end = SkipWhiteSpace(text, data + bytes);
                     if (String.CompareOrdinal(text, end, "endstream", 0, 9) == 0)
+                    {
+                        byLength = true;
                         return end;
+                    }
                 }
             }
             if (data >= noEndStreamFrom)
@@ -1676,21 +1694,28 @@ namespace PdfSharp.Pdf.IO
                 if (IsTrailerKeyword(text, at) && !IsInsideRange(objectSpans, at))
                     keywords.Add(at);
             }
-            // A trailer dictionary holds no 'trailer' keyword, so it must close before the next one; checking that first
-            // keeps junk such as a run of 'trailer << (' from being parsed to the end of the file each time.
+            // A trailer dictionary must close before the next 'trailer' keyword, except within a comment or a string of
+            // its own (some slack is allowed there); checking that first keeps junk such as a run of 'trailer << ('
+            // from being parsed to the end of the file each time. A keyword inside an accepted dictionary is no trailer.
+            int coveredUntil = -1;
             for (int index = 0; index < keywords.Count; index++)
             {
+                if (keywords[index] < coveredUntil)
+                    continue;
                 int start = SkipWhiteSpace(text, keywords[index] + 7);
-                int end = index + 1 < keywords.Count ? keywords[index + 1] : text.Length;
-                if (DictionaryCloses(text, start, end))
+                int close = DictionaryEnd(text, start, keywords);
+                if (close >= 0)
+                {
                     sources.Add((keywords[index], false, 0, 0));
+                    coveredUntil = close;
+                }
             }
             foreach (var item in objects.Where(item => item.Kind == "/XRef"))
                 sources.Add((item.Position, true, item.Number, item.Generation));
 
             var trailer = new PdfTrailer(_document);
             bool chosen = false;
-            PdfDictionary? newestReadable = null;
+            var readable = new List<PdfDictionary>();
             foreach (var source in sources.OrderByDescending(source => source.Position))
             {
                 PdfDictionary? dictionary = null;
@@ -1719,7 +1744,7 @@ namespace PdfSharp.Pdf.IO
                 }
                 if (dictionary == null)
                     continue;
-                newestReadable ??= dictionary;
+                readable.Add(dictionary);
                 if (!chosen)
                 {
                     if (dictionary.Elements[PdfTrailer.Keys.Root] == null)
@@ -1736,11 +1761,23 @@ namespace PdfSharp.Pdf.IO
                     break;
                 }
             }
-            // No dictionary names a /Root, so the last catalog will; the other entries come from the newest one read.
-            if (!chosen && newestReadable != null)
+            // No dictionary names a /Root, so the last catalog will. /Info comes from the newest dictionary that has one,
+            // /Encrypt with its /ID from the newest that encrypts (an update trailer may hold only /Size), and /ID
+            // otherwise from the newest that has one.
+            if (!chosen)
             {
-                foreach (var key in new[] { PdfTrailer.Keys.Info, PdfTrailer.Keys.ID, PdfTrailer.Keys.Encrypt })
-                    CopyEntry(newestReadable, key);
+                if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Info] != null) is { } withInfo)
+                    CopyEntry(withInfo, PdfTrailer.Keys.Info);
+                if (readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.Encrypt] != null) is { } withEncrypt)
+                {
+                    CopyEntry(withEncrypt, PdfTrailer.Keys.Encrypt);
+                    CopyEntry(withEncrypt, PdfTrailer.Keys.ID);
+                }
+                if (trailer.Elements[PdfTrailer.Keys.ID] == null
+                    && readable.FirstOrDefault(dictionary => dictionary.Elements[PdfTrailer.Keys.ID] != null) is { } withID)
+                {
+                    CopyEntry(withID, PdfTrailer.Keys.ID);
+                }
             }
             return trailer;
 
@@ -1751,36 +1788,60 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        // Whether the dictionary that starts at 'start' closes before 'end'; strings and comments are skipped.
-        static bool DictionaryCloses(string text, int start, int end)
+        // The position behind the '>>' that closes the dictionary starting at 'start', or -1 if it does not close
+        // before the next 'trailer' keyword. Strings and comments are skipped; one that reaches past that keyword may go
+        // on for 4 KiB more, as it may hold the text 'trailer <<', and the bound becomes the next keyword behind it.
+        static int DictionaryEnd(string text, int start, List<int> keywords)
         {
+            const int stringSlack = 4096;
+            int end = NextKeyword(start);
             int depth = 0;
             for (int index = start; index < end; index++)
             {
                 char ch = text[index];
                 if (ch == '(')
                 {
-                    index = SkipLiteralString(text, index, end) - 1;
+                    int limit = (int)Math.Min((long)end + stringSlack, text.Length);
+                    int behind = SkipLiteralString(text, index, limit);
+                    if (behind >= limit && limit < text.Length)
+                        return -1;
+                    if (behind > end)
+                        end = NextKeyword(behind);
+                    index = behind - 1;
                 }
                 else if (ch == '%')
                 {
-                    while (index < end && text[index] is not ('\n' or '\r'))
+                    int limit = (int)Math.Min((long)end + stringSlack, text.Length);
+                    while (index < limit && text[index] is not ('\n' or '\r'))
                         index++;
+                    if (index >= limit && limit < text.Length)
+                        return -1;
+                    if (index > end)
+                        end = NextKeyword(index);
                 }
-                else if (ch == '<' && index + 1 < end && text[index + 1] == '<')
+                else if (ch == '<' && index + 1 < text.Length && text[index + 1] == '<')
                 {
                     depth++;
                     index++;
                 }
-                else if (ch == '>' && index + 1 < end && text[index + 1] == '>')
+                else if (ch == '>' && index + 1 < text.Length && text[index + 1] == '>')
                 {
                     depth--;
                     index++;
                     if (depth <= 0)
-                        return true;
+                        return index + 1;
                 }
             }
-            return false;
+            return -1;
+
+            // The first keyword at or after a position, or the end of the text.
+            int NextKeyword(int position)
+            {
+                int found = keywords.BinarySearch(position);
+                if (found < 0)
+                    found = ~found;
+                return found < keywords.Count ? keywords[found] : text.Length;
+            }
         }
 
         // 'trailer' as a keyword: after a delimiter or white space and before '<<'.
