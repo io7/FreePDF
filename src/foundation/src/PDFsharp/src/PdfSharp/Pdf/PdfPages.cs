@@ -415,6 +415,8 @@ namespace PdfSharp.Pdf
         /// </summary>
         public void RemoveAt(int index)
         {
+            // The list holds references, so this is null and, as before, no PDF/UA event follows (UAManager does not
+            // support removing pages).
             var page = PagesArray.Elements[index] as PdfPage;
             RemoveFromTree(index);
 
@@ -748,8 +750,9 @@ namespace PdfSharp.Pdf
 
         // Where a page inserted at a page index goes in Append mode: behind the page before it or in front of the page
         // after it, in that page's node. The node the page was in when the file was opened comes first, so that a page
-        // moved within its node stays in it, and moving a page back leaves the tree as it was. Otherwise a page at
-        // either end goes into the root, which changes no other node, and any other page in front of the page after it.
+        // moved within its node stays in it, and moving it back leaves the tree as it was (unless it was the only page
+        // of its node, which then left the tree). Otherwise a page at either end goes into the root, which changes no
+        // other node, and any other page in front of the page after it.
         (PdfPageTreeNode Node, int Position) PlaceFor(int index, PdfPageTreeNode? home)
         {
             if (index > 0)
@@ -781,7 +784,8 @@ namespace PdfSharp.Pdf
         // The node a page was in when the file was opened; null for a page that was not in the file's tree.
         PdfPageTreeNode? HomeNode(PdfPage page)
         {
-            _ = Parents;
+            if (_homes == null)
+                BuildParents();
             _homes!.TryGetValue(page.ObjectID, out var home);
             return home;
         }
@@ -849,27 +853,33 @@ namespace PdfSharp.Pdf
         {
             get
             {
-                if (_parents != null)
-                    return _parents;
-                var parents = new Dictionary<PdfObjectID, PdfPageTreeNode>();
-                var pending = new Stack<PdfPageTreeNode>();
-                pending.Push(this);
-                while (pending.Count > 0)
-                {
-                    var node = pending.Pop();
-                    foreach (var item in KidsOf(node).Elements)
-                    {
-                        if (item is not PdfReference child)
-                            continue;
-                        parents[child.ObjectID] = node;
-                        if (child.Value is PdfPageTreeNode kid)
-                            pending.Push(kid);
-                    }
-                }
-                // Every change to the tree reads this first, so the copy is the tree as the file has it.
-                _homes = new Dictionary<PdfObjectID, PdfPageTreeNode>(parents);
-                return _parents = parents;
+                if (_parents == null)
+                    BuildParents();
+                return _parents!;
             }
+        }
+
+        // Builds the parent map, and a copy of it that keeps the tree as the file has it: every change to the tree
+        // reads the map first.
+        void BuildParents()
+        {
+            var parents = new Dictionary<PdfObjectID, PdfPageTreeNode>();
+            var pending = new Stack<PdfPageTreeNode>();
+            pending.Push(this);
+            while (pending.Count > 0)
+            {
+                var node = pending.Pop();
+                foreach (var item in KidsOf(node).Elements)
+                {
+                    if (item is not PdfReference child)
+                        continue;
+                    parents[child.ObjectID] = node;
+                    if (child.Value is PdfPageTreeNode kid)
+                        pending.Push(kid);
+                }
+            }
+            _parents = parents;
+            _homes = new Dictionary<PdfObjectID, PdfPageTreeNode>(parents);
         }
         Dictionary<PdfObjectID, PdfPageTreeNode>? _parents;
         Dictionary<PdfObjectID, PdfPageTreeNode>? _homes;

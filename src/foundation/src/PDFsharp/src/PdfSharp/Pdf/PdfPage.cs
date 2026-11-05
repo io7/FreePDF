@@ -891,6 +891,11 @@ namespace PdfSharp.Pdf
         /// </summary>
         internal bool TransparencyUsed { get; set; }
 
+        // Whether the page has a value of its own for an inheritable key. It is read raw, because reading an indirect
+        // box as a rectangle threw; null, also as an indirect object, is no value (ISO 32000-1 7.3.9).
+        bool HasOwnValue(string key)
+            => Elements[key] is not (null or PdfNull or PdfReference { Value: PdfNullObject });
+
         /// <summary>
         /// Applies inherited values from the parent nodes to this page.
         /// </summary>
@@ -942,14 +947,13 @@ namespace PdfSharp.Pdf
                 }
             }
 
-            // Whether the page has a value of its own is read raw: reading an indirect box as a rectangle threw.
-            if (inheritedValues.MediaBox != null && Elements[InheritablePageKeys.MediaBox] is null or PdfNull)
+            if (inheritedValues.MediaBox != null && !HasOwnValue(InheritablePageKeys.MediaBox))
                 Elements[InheritablePageKeys.MediaBox] = inheritedValues.MediaBox;
 
-            if (inheritedValues.CropBox != null && Elements[InheritablePageKeys.CropBox] is null or PdfNull)
+            if (inheritedValues.CropBox != null && !HasOwnValue(InheritablePageKeys.CropBox))
                 Elements[InheritablePageKeys.CropBox] = inheritedValues.CropBox;
 
-            if (inheritedValues.Rotate != null && Elements[InheritablePageKeys.Rotate] is null or PdfNull)
+            if (inheritedValues.Rotate != null && !HasOwnValue(InheritablePageKeys.Rotate))
                 Elements[InheritablePageKeys.Rotate] = inheritedValues.Rotate;
 #else
             // Old code - DELETE

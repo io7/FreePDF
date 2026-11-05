@@ -7,15 +7,16 @@
   `NotSupportedException`. The update changes the tree where it is: it writes
   only the page tree nodes between the root and the pages that come or go, and a
   node left without pages is taken out of the tree. A page moved within its node
-  stays in it, and moving a page back leaves the file as it was. A page moved
-  under another node keeps its media box, crop box and rotation.
+  stays in it. A page moved under another node keeps its media box, crop box and
+  rotation.
 - `AppendPages` no longer adds an empty outline to the catalog when there are no
   bookmarks to merge, which in `Append` mode was a change to the catalog.
 - A `/Rotate` that a page inherits as an indirect object, or as a real number, is
   read; such pages were read without their rotation.
 - A page whose own media box or crop box is an indirect object, under a node with
   one, can be opened; reading it threw "PdfRectangle is not implemented as an
-  array".
+  array". A box or rotation that refers to a null object counts as missing, so
+  the page inherits the node's.
 - In `Append` mode, a new page no longer takes the crop box, rotation or
   resources of the page tree node it goes into, also when the root of a flat
   tree has them; it came out rotated or cropped, for example.

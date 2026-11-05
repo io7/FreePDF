@@ -328,6 +328,24 @@ public class AppendNestedPageTreeTests
     }
 
     [Fact]
+    public void A_box_or_rotation_that_refers_to_null_is_inherited()
+    {
+        // ISO 32000-1 7.3.9: an entry whose value is null is the same as no entry.
+        var original = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 400 300] /CropBox [10 10 390 290] /Rotate 90 >>",
+            "<< /Type /Page /Parent 2 0 R /CropBox 4 0 R /Rotate 4 0 R >>",
+            "null",
+        });
+        using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
+        using var output = new MemoryStream();
+        document.Save(output);
+
+        using var reopened = Reopen(output.ToArray());
+        AssertValuesOfNode3(reopened.Pages[0]);
+    }
+
+    [Fact]
     public void A_new_page_under_a_node_with_rotation_0_gets_no_rotation_entry()
     {
         var original = TestPdf.Create(new[] {
