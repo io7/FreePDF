@@ -297,24 +297,43 @@ namespace PdfSharp.Pdf.IO
 
         /// <summary>
         /// Writes an object. A page leaves out the values it inherits and that were copied onto it when the file was
-        /// opened, unless they changed since: they still apply by inheritance, and writing them would change the
-        /// page's keys, which signature validators count as a change to the page.
+        /// opened, unless they changed since or its place in the page tree now gives it others: they still apply by
+        /// inheritance, and writing them would change the page's keys, which signature validators count as a change
+        /// to the page. A page that lacks a value its place in the tree would give it, such as a new page under a node
+        /// with /Rotate, gets the value it has without one, so that it does not inherit what it does not have.
         /// </summary>
         void WriteWithoutInheritedValues(PdfDocument document, PdfWriter writer, PdfReference iref)
         {
             var value = iref.Value;
-            if (!_inheritedPageValues.TryGetValue(iref.ObjectID, out var inherited) || value is not PdfDictionary page)
+            if (value is not PdfPage page)
             {
                 value.WriteObject(writer);
                 return;
             }
+            _inheritedPageValues.TryGetValue(iref.ObjectID, out var inherited);
+            var tree = document.Pages.InheritedValuesAt(page);
+            // Read before the loop, which may leave the media box out.
+            var mediaBox = AsRectangle(page.Elements[PdfPage.InheritablePageKeys.MediaBox]);
             var omitted = new List<KeyValuePair<string, PdfItem>>();
-            foreach (var pair in inherited)
+            var added = new List<string>();
+            foreach (var key in InheritablePageAttributes)
             {
-                if (page.Elements[pair.Key] is { } item && TryHashItem(document, item) is { } hash && Same(pair.Value, hash))
+                var item = page.Elements[key];
+                if (item == null)
                 {
-                    omitted.Add(new KeyValuePair<string, PdfItem>(pair.Key, item));
-                    page.Elements.Remove(pair.Key);
+                    if (tree is { } values && ValueWithoutInheritance(page, mediaBox, key, values) is { } own)
+                    {
+                        page.Elements[key] = own;
+                        added.Add(key);
+                    }
+                    continue;
+                }
+                if (inherited != null && inherited.TryGetValue(key, out var atOpen)
+                    && TryHashItem(document, item) is { } hash && Same(atOpen, hash)
+                    && (tree is not { } now || SameAsTree(document, key, item, now)))
+                {
+                    omitted.Add(new KeyValuePair<string, PdfItem>(key, item));
+                    page.Elements.Remove(key);
                 }
             }
             try
@@ -323,8 +342,66 @@ namespace PdfSharp.Pdf.IO
             }
             finally
             {
+                foreach (var key in added)
+                    page.Elements.Remove(key);
                 foreach (var pair in omitted)
                     page.Elements[pair.Key] = pair.Value;
+            }
+        }
+
+        // The value a page without the key has, for when the page tree would give it one: no rotation, a crop box as
+        // large as the media box, no resources (ISO 32000-1 Table 30). Null when the tree gives none, and for the
+        // media box, which a page always has.
+        static PdfItem? ValueWithoutInheritance(PdfPage page, PdfRectangle? mediaBox, string key, PdfPageTreeNode.InheritedValues tree)
+        {
+            switch (key)
+            {
+                case "/Rotate" when tree.Rotate != null:
+                    return new PdfInteger(0);
+                case "/CropBox" when tree.CropBox != null && mediaBox != null:
+                    return new PdfRectangle(mediaBox.X1, mediaBox.Y1, mediaBox.X2, mediaBox.Y2);
+                case "/Resources" when tree.Resources != null:
+                    return new PdfDictionary(page.Owner);
+                default:
+                    return null;
+            }
+        }
+
+        // Whether a value of a page is the one its place in the page tree gives it, as opening the file puts it onto
+        // the page (PdfPage.ApplyInheritedValues), the US Letter media box of a page without any included.
+        static bool SameAsTree(PdfDocument document, string key, PdfItem item, PdfPageTreeNode.InheritedValues tree)
+        {
+            switch (key)
+            {
+                case "/Resources":
+                    if (tree.Resources is not { } resources)
+                        return false;
+                    if (resources.Reference != null)
+                        return item is PdfReference reference && reference.ObjectID == resources.ObjectID;
+                    return item is PdfDictionary && TryHashItem(document, item) is { } mine && TryHashItem(document, resources) is { } theirs
+                           && Same(mine, theirs);
+                case "/MediaBox":
+                    return AsRectangle(item) is { } mediaBox && mediaBox == (tree.MediaBox ?? new PdfRectangle(0, 0, 612, 792));
+                case "/CropBox":
+                    return tree.CropBox != null && AsRectangle(item) is { } cropBox && cropBox == tree.CropBox;
+                case "/Rotate":
+                    return tree.Rotate != null && Resolve(item) is PdfInteger rotate && rotate.Value == tree.Rotate.Value;
+                default:
+                    return false;
+            }
+        }
+
+        static PdfRectangle? AsRectangle(PdfItem? item)
+        {
+            if (item == null)
+                return null;
+            try
+            {
+                return new PdfRectangle(item);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return null;
             }
         }
 

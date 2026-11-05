@@ -1,5 +1,22 @@
 # FreePDF changelog
 
+## Unreleased
+
+- In `Append` mode, pages can be inserted, removed and moved, and merged with
+  `AppendPages`, also when the page tree is nested; this threw
+  `NotSupportedException`. The update changes the tree where it is: it writes
+  only the page tree nodes between the root and the pages that come or go, and a
+  node left without pages is taken out of the tree. A page moved under another
+  node keeps its media box, crop box and rotation.
+- In `Append` mode, a new page no longer takes the crop box, rotation or
+  resources of the page tree node it goes into, also when the root of a flat
+  tree has them; it came out rotated or cropped, for example.
+- In `Modify` mode, a new page no longer takes the media box, crop box, rotation
+  or resources that the page tree's root of the opened file had. The root no
+  longer keeps them, as every page already holds the values it inherits.
+- A page taken out with `Remove` or `RemoveAt` can be inserted again; `Insert`
+  threw "Object already in table".
+
 ## 7.6.1
 
 - A list box that allows several selected options, whose value is an array
