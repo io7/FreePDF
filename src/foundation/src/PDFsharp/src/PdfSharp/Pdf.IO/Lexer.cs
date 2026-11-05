@@ -2,6 +2,7 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 using PdfSharp.Internal;
@@ -1170,10 +1171,13 @@ namespace PdfSharp.Pdf.IO
                 int best = -1;
                 bool bestClosesObject = false;
                 long bestDistance = Int64.MaxValue;
+                int closingCount = 0;
                 for (int at = text.IndexOf("endstream", StringComparison.Ordinal); at >= 0;
                      at = text.IndexOf("endstream", at + 9, StringComparison.Ordinal))
                 {
-                    bool closesObject = IsFollowedByEndObj(text, at + 9);
+                    bool closesObject = ClosesObject(text, at + 9);
+                    if (closesObject)
+                        closingCount++;
                     long distance = Math.Abs((long)at - declared);
                     if (closesObject && !bestClosesObject || closesObject == bestClosesObject && distance < bestDistance)
                     {
@@ -1182,16 +1186,35 @@ namespace PdfSharp.Pdf.IO
                         bestDistance = distance;
                     }
                 }
+                // Stream data may itself contain 'endstream endobj', as an uncompressed embedded PDF does; then the
+                // declared length decides, and it may be wrong.
+                if (closingCount > 1)
+                    PdfSharpLogHost.Logger.LogWarning("Several 'endstream' keywords could end a stream; the one nearest its /Length is taken.");
                 return best;
             }
 
-            static bool IsFollowedByEndObj(string text, int position)
+            // Whether what follows 'endstream' ends the object: 'endobj', or, as a missing 'endobj' is tolerated, the
+            // next object, a cross-reference section, a trailer, 'startxref' or the end of the range, which is where the
+            // next listed object begins.
+            static bool ClosesObject(string text, int position)
             {
                 while (position < text.Length && text[position] is Chars.NUL or Chars.HT or Chars.LF or Chars.FF or Chars.CR or Chars.SP)
                     position++;
-                return String.CompareOrdinal(text, position, "endobj", 0, 6) == 0;
+                if (position >= text.Length)
+                    return true;
+                foreach (var keyword in ClosingKeywords)
+                {
+                    if (String.CompareOrdinal(text, position, keyword, 0, keyword.Length) == 0)
+                        return true;
+                }
+                return ObjectHeaderAt.Match(text, position) is { Success: true } header && header.Index == position;
             }
         }
+
+        static readonly string[] ClosingKeywords = ["endobj", "xref", "trailer", "startxref"];
+
+        static readonly Regex ObjectHeaderAt = new(@"\G[0-9]{1,10}[\0\t\n\f\r ]+[0-9]{1,5}[\0\t\n\f\r ]+obj(?![A-Za-z0-9])",
+            RegexOptions.CultureInvariant);
 
         /// <summary>
         /// Tries to scan 'endstream' after reading the stream content with a logical position

@@ -32,6 +32,14 @@ public class DamagedFileRecoveryTests
 
         public void Raw(string text) => _text.Append(text);
 
+        // An object without 'endobj', which readers tolerate.
+        public void ObjWithoutEndObj(int number, string body)
+        {
+            _offsets[number] = _text.Length;
+            _pending.Add(number);
+            _text.Append($"{number} 0 obj\n{body}\n");
+        }
+
         public int Xref(string trailer, int? previous = null)
         {
             int at = _text.Length;
@@ -225,5 +233,113 @@ public class DamagedFileRecoveryTests
         using var document = PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(text.ToString())), PdfDocumentOpenMode.Import);
         Assert.Equal(1, document.PageCount);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(8), $"Rebuild took {watch.Elapsed}.");
+    }
+
+    [Fact]
+    public void Object_header_and_endobj_text_inside_strings_are_not_taken_for_structure()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Note (endobj) /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(5, "<< /Type /Annot /Contents (See 2 0 obj in the spec, then endobj) >>");
+        builder.Xref("/Size 6 /Root 1 0 R");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
+    }
+
+    [Fact]
+    public void A_trailer_inside_a_string_does_not_make_a_rebuilt_file_encrypted()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(5, "<< /Contents (trailer << /Encrypt 3 0 R >>) >>");
+        builder.Xref("/Size 6 /Root 1 0 R");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
+    }
+
+    [Fact]
+    public void A_rebuild_takes_all_trailer_entries_from_the_newest_file_revision()
+    {
+        // An encrypted file with a plain file appended: the plain one is newest, and none of the encrypted file's
+        // entries may leak into it.
+        byte[] encrypted;
+        using (var source = new PdfDocument())
+        {
+            source.AddPage().Width = 100;
+            source.SecurityHandler.SetEncryptionToV4UsingAES();
+            source.SecuritySettings.UserPassword = "user";
+            using var output = new MemoryStream();
+            source.Save(output);
+            encrypted = output.ToArray();
+        }
+        var plain = new Builder();
+        PageObjects(plain);
+        plain.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        plain.Xref("/Size 5 /Root 1 0 R");
+
+        AssertSimplePage(encrypted.Concat(plain.Bytes).ToArray());
+    }
+
+    [Fact]
+    public void Trailer_text_repeated_in_a_string_takes_linear_time()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(5, $"<< /Note ({string.Concat(Enumerable.Repeat("trailer", 40000))}) >>");
+        builder.Xref("/Size 6 /Root 1 0 R");
+
+        var watch = Stopwatch.StartNew();
+        AssertSimplePage(WrongStartXRef(builder.Text));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Rebuild took {watch.Elapsed}.");
+    }
+
+    [Theory]
+    [InlineData("/Length 7 0 R", "stream\n")]
+    [InlineData("/Length {0}", "stream \n")]
+    public void An_embedded_PDF_with_an_indirect_length_or_a_space_after_stream_stays_data(string length, string keyword)
+    {
+        var inner = new Builder();
+        inner.Obj(4, "<< /Length 5 >>\nstream\nINNER\nendstream");
+        inner.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        inner.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        inner.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 999 999] /Contents 4 0 R >>");
+        inner.Xref("/Size 5 /Root 1 0 R");
+        var embedded = inner.Text;
+
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Obj(6, $"<< /Type /EmbeddedFile {string.Format(length, embedded.Length)} >>\n{keyword}{embedded}\nendstream");
+        builder.Obj(7, embedded.Length.ToString());
+        builder.Xref("/Size 8 /Root 1 0 R");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
+    }
+
+    [Fact]
+    public void A_short_length_without_endobj_does_not_swallow_an_unlisted_object()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.ObjWithoutEndObj(4, $"<< /Length 15 >>\nstream\n{Content}\nendstream");
+        builder.Raw("9 0 obj\n<< /Length 5 >>\nstream\nhello\nendstream\nendobj\n");
+        builder.Xref("/Size 5 /Root 1 0 R");
+
+        AssertSimplePage(builder.Bytes);
+    }
+
+    [Fact]
+    public void A_generation_beyond_the_PDF_limit_is_ignored_by_a_rebuild()
+    {
+        var builder = new Builder();
+        PageObjects(builder);
+        builder.Obj(4, $"<< /Length 17 >>\nstream\n{Content}\nendstream");
+        builder.Raw("3 99999 obj\nnull\nendobj\n");
+        builder.Xref("/Size 5 /Root 1 0 R");
+
+        AssertSimplePage(WrongStartXRef(builder.Text));
     }
 }

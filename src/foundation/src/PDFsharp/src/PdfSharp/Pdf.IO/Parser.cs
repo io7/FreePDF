@@ -1357,7 +1357,7 @@ namespace PdfSharp.Pdf.IO
             _document.Trailer = null!;
 
             var text = _lexer.ScanRawString(0, (int)length);
-            var found = FindObjects(text, out var streamRanges);
+            var found = FindObjects(text, out _, out var objectSpans);
             if (found.Count == 0)
                 throw new PdfReaderException("The file holds no objects.");
 
@@ -1376,7 +1376,7 @@ namespace PdfSharp.Pdf.IO
                 rebuilt.Current[item.Number] = objectID;
             }
 
-            var trailer = RebuildTrailer(text, objects, streamRanges);
+            var trailer = RebuildTrailer(text, objects, objectSpans);
             if (trailer.Elements[PdfTrailer.Keys.Encrypt] is null)
             {
                 foreach (var item in objects.Where(item => item.Kind == "/ObjStm"))
@@ -1424,22 +1424,45 @@ namespace PdfSharp.Pdf.IO
             public readonly Dictionary<int, PdfObjectID> MemberOf = new();
         }
 
-        // The largest object number PDF allows (ISO 32000-1 C.2); a larger 'N G obj' is not an object.
+        // The largest object number and generation PDF allows (ISO 32000-1 C.2); a larger 'N G obj' is not an object.
         const int MaxRebuiltObjectNumber = 8_388_607;
+        const int MaxRebuiltGeneration = 65_535;
 
-        static readonly Regex ObjectHeaderPattern = new(@"(?<![0-9])([0-9]{1,10})[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+obj(?![A-Za-z0-9])",
+        // An object header that starts a line or follows 'endobj', as writers put them; the same text inside a string,
+        // such as "see 2 0 obj", does not count.
+        static readonly Regex ObjectHeaderPattern = new(
+            @"(?<=(?:\A|[\r\n]|endobj)[\0\t\f ]*)([0-9]{1,10})[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+obj(?![A-Za-z0-9])",
             RegexOptions.CultureInvariant);
         static readonly Regex ObjectTypePattern = new(@"/Type\s*/(ObjStm|XRef|Catalog)\b", RegexOptions.CultureInvariant);
-        static readonly Regex DirectLengthPattern = new(@"/Length[\0\t\n\f\r ]+([0-9]{1,10})(?![0-9]|[\0\t\n\f\r ]+[0-9]+[\0\t\n\f\r ]+R)",
+        static readonly Regex LengthPattern = new(
+            @"/Length[\0\t\n\f\r ]+([0-9]{1,10})(?:[\0\t\n\f\r ]+([0-9]{1,5})[\0\t\n\f\r ]+R)?(?![0-9])",
+            RegexOptions.CultureInvariant);
+        static readonly Regex IntegerObjectPattern = new(
+            @"(?<=(?:\A|[\r\n]|endobj)[\0\t\f ]*)([0-9]{1,10})[\0\t\n\f\r ]+[0-9]{1,5}[\0\t\n\f\r ]+obj[\0\t\n\f\r ]*([0-9]{1,10})[\0\t\n\f\r ]*endobj",
             RegexOptions.CultureInvariant);
 
         // The objects in the file, in file order: number, generation, position and the /Type that matters here.
-        // Stream data is skipped, so that bytes inside it are not taken for objects. Every search is bounded by the
-        // next object header, so the work grows with the file size only.
-        static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text, out List<(int Start, int End)> streamRanges)
+        // Stream data is skipped, so that bytes inside it are not taken for objects, and so are strings and comments.
+        // Every search is bounded by the next object header, so the work grows with the file size only. The spans of
+        // objects that end with 'endobj' or a stream are returned too.
+        static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text,
+            out List<(int Start, int End)> streamRanges, out List<(int Start, int End)> objectSpans)
         {
             var result = new List<(int, int, SizeType, string)>();
             streamRanges = [];
+            objectSpans = [];
+
+            // Integer objects, so that an indirect /Length can say where stream data ends; the last one wins.
+            var integers = new Dictionary<int, int>();
+            for (var integer = IntegerObjectPattern.Match(text); integer.Success; integer = integer.NextMatch())
+            {
+                if (int.TryParse(integer.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                    && int.TryParse(integer.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+                {
+                    integers[number] = value;
+                }
+            }
+
             var match = ObjectHeaderPattern.Match(text, 0);
             int noEndStreamFrom = Int32.MaxValue;
             while (match.Success)
@@ -1449,35 +1472,37 @@ namespace PdfSharp.Pdf.IO
                 int limit = next.Success ? next.Index : text.Length;
                 if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
                     || number is < 1 or > MaxRebuiltObjectNumber
-                    || !int.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var generation))
+                    || !int.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var generation)
+                    || generation > MaxRebuiltGeneration)
                 {
                     match = next;
                     continue;
                 }
 
-                int endObj = text.IndexOf("endobj", body, limit - body, StringComparison.Ordinal);
-                int objectEnd = endObj >= 0 ? endObj : limit;
-                int stream = FindStreamKeyword(text, body, objectEnd);
+                ScanObjectBody(text, body, limit, out int endObj, out int stream);
                 int dictionaryEnd;
                 int resume;
                 if (stream >= 0)
                 {
                     dictionaryEnd = stream;
-                    int endStream = FindStreamEnd(text, body, stream, ref noEndStreamFrom);
+                    int endStream = FindStreamEnd(text, body, stream, integers, ref noEndStreamFrom);
                     if (endStream >= 0)
                     {
                         streamRanges.Add((stream, endStream));
                         resume = endStream + 9;
+                        objectSpans.Add((match.Index, resume));
                     }
                     else
                     {
-                        resume = objectEnd;
+                        resume = limit;
                     }
                 }
                 else
                 {
-                    dictionaryEnd = objectEnd;
+                    dictionaryEnd = endObj >= 0 ? endObj : limit;
                     resume = endObj >= 0 ? endObj + 6 : limit;
+                    if (endObj >= 0)
+                        objectSpans.Add((match.Index, resume));
                 }
                 var dictionary = text.Substring(body, Math.Min(dictionaryEnd - body, 64 * 1024));
                 var kind = ObjectTypePattern.Match(dictionary) is { Success: true } typeMatch ? "/" + typeMatch.Groups[1].Value : "";
@@ -1490,42 +1515,105 @@ namespace PdfSharp.Pdf.IO
             return result;
         }
 
-        // The 'stream' keyword: after the dictionary's '>>' and white space, and followed by an end-of-line marker, so
-        // that names such as /BitstreamVera and the end of 'endstream' do not count.
-        static int FindStreamKeyword(string text, int from, int to)
+        // Finds 'endobj' and the 'stream' keyword of the object whose body starts at 'from', skipping literal strings
+        // and comments, up to 'limit' (the next object header). -1 for what is not found.
+        static void ScanObjectBody(string text, int from, int limit, out int endObj, out int stream)
         {
-            for (int at = text.IndexOf("stream", from, to - from, StringComparison.Ordinal); at >= 0;
-                 at = at + 6 < to ? text.IndexOf("stream", at + 6, to - at - 6, StringComparison.Ordinal) : -1)
+            endObj = -1;
+            stream = -1;
+            int index = from;
+            while (index < limit)
             {
-                int before = at - 1;
-                while (before >= from && text[before] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
-                    before--;
-                int after = at + 6;
-                if (before >= from && text[before] == '>' && after < text.Length && text[after] is '\n' or '\r')
-                    return at;
+                switch (text[index])
+                {
+                    case '(':
+                        index = SkipLiteralString(text, index, limit);
+                        continue;
+
+                    case '%':
+                        while (index < limit && text[index] is not ('\n' or '\r'))
+                            index++;
+                        continue;
+
+                    case 'e' when String.CompareOrdinal(text, index, "endobj", 0, 6) == 0:
+                        endObj = index;
+                        return;
+
+                    case 's' when String.CompareOrdinal(text, index, "stream", 0, 6) == 0 && IsStreamKeyword(text, from, index):
+                        stream = index;
+                        return;
+                }
+                index++;
             }
-            return -1;
         }
 
-        // The 'endstream' that ends the data behind a 'stream' keyword: where a direct /Length says, when 'endstream'
-        // follows there, else the first one, as stream data may itself contain PDF text such as an embedded file. Once
-        // no 'endstream' follows a position, none follows any later one either.
-        static int FindStreamEnd(string text, int dictionaryStart, int stream, ref int noEndStreamFrom)
+        // The position behind a literal string that starts at 'start', honouring nested parentheses and escapes; a
+        // string that does not close ends at 'limit'.
+        static int SkipLiteralString(string text, int start, int limit)
+        {
+            int depth = 0;
+            for (int index = start; index < limit; index++)
+            {
+                char ch = text[index];
+                if (ch == '\\')
+                {
+                    index++;
+                }
+                else if (ch == '(')
+                {
+                    depth++;
+                }
+                else if (ch == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return index + 1;
+                }
+            }
+            return limit;
+        }
+
+        // The 'stream' keyword: after the dictionary's '>>' and white space, and followed by an end-of-line marker,
+        // which some writers precede with spaces; names such as /BitstreamVera and the end of 'endstream' do not count.
+        static bool IsStreamKeyword(string text, int from, int at)
+        {
+            int before = at - 1;
+            while (before >= from && text[before] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                before--;
+            if (before < from || text[before] != '>')
+                return false;
+            int after = at + 6;
+            while (after < text.Length && text[after] is ' ' or '\t')
+                after++;
+            return after < text.Length && text[after] is '\n' or '\r';
+        }
+
+        // The 'endstream' that ends the data behind a 'stream' keyword: where /Length says (directly, or through an
+        // integer object), when 'endstream' follows there, else the first one, as stream data may itself contain PDF
+        // text such as an embedded file. Once no 'endstream' follows a position, none follows any later one either.
+        static int FindStreamEnd(string text, int dictionaryStart, int stream, Dictionary<int, int> integers, ref int noEndStreamFrom)
         {
             int data = stream + 6;
+            while (data < text.Length && text[data] is ' ' or '\t')
+                data++;
             if (data < text.Length && text[data] == '\r')
                 data++;
             if (data < text.Length && text[data] == '\n')
                 data++;
-            var length = DirectLengthPattern.Match(text, dictionaryStart, stream - dictionaryStart);
-            if (length.Success && int.TryParse(length.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var count)
-                && count <= text.Length - data)
+            var length = LengthPattern.Match(text, dictionaryStart, stream - dictionaryStart);
+            if (length.Success && int.TryParse(length.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
             {
-                int end = data + count;
-                while (end < text.Length && text[end] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
-                    end++;
-                if (String.CompareOrdinal(text, end, "endstream", 0, 9) == 0)
-                    return end;
+                int? count = value;
+                if (length.Groups[2].Success)
+                    count = integers.TryGetValue(value, out var resolved) ? resolved : null;
+                if (count is { } bytes && bytes >= 0 && bytes <= text.Length - data)
+                {
+                    int end = data + bytes;
+                    while (end < text.Length && text[end] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                        end++;
+                    if (String.CompareOrdinal(text, end, "endstream", 0, 9) == 0)
+                        return end;
+                }
             }
             if (data >= noEndStreamFrom)
                 return -1;
@@ -1536,25 +1624,24 @@ namespace PdfSharp.Pdf.IO
         }
 
         PdfTrailer RebuildTrailer(string text, List<(int Number, int Generation, SizeType Position, string Kind)> objects,
-            List<(int Start, int End)> streamRanges)
+            List<(int Start, int End)> objectSpans)
         {
-            // Each entry comes from the newest trailer or cross-reference stream dictionary that has it. A linearized
-            // file keeps them in its first-page trailer, while its last trailer may hold only /Size.
-            var keys = new[] { PdfTrailer.Keys.Root, PdfTrailer.Keys.Info, PdfTrailer.Keys.ID, PdfTrailer.Keys.Encrypt };
+            // The entries come from the newest trailer or cross-reference stream dictionary that has a /Root, so that
+            // they belong to one revision of one file; a linearized file's last trailer holds only /Size and is passed
+            // over. Only /ID may come from an older dictionary, when the chosen one encrypts but lacks it.
             var sources = new List<(SizeType Position, bool IsXRefStream, int Number, int Generation)>();
             for (int at = text.IndexOf("trailer", StringComparison.Ordinal); at >= 0; at = text.IndexOf("trailer", at + 7, StringComparison.Ordinal))
             {
-                if (!IsInStreamData(streamRanges, at))
+                if (IsTrailerKeyword(text, at) && !IsInsideRange(objectSpans, at))
                     sources.Add((at, false, 0, 0));
             }
             foreach (var item in objects.Where(item => item.Kind == "/XRef"))
                 sources.Add((item.Position, true, item.Number, item.Generation));
 
             var trailer = new PdfTrailer(_document);
+            bool chosen = false;
             foreach (var source in sources.OrderByDescending(source => source.Position))
             {
-                if (keys.All(key => trailer.Elements[key] != null))
-                    break;
                 PdfDictionary? dictionary = null;
                 try
                 {
@@ -1581,23 +1668,50 @@ namespace PdfSharp.Pdf.IO
                 }
                 if (dictionary == null)
                     continue;
-                foreach (var key in keys)
+                if (!chosen)
                 {
-                    if (trailer.Elements[key] == null && dictionary.Elements[key] is { } value)
-                        trailer.Elements[key] = value is PdfObject { IsIndirect: false } direct ? direct.Clone() : value;
+                    if (dictionary.Elements[PdfTrailer.Keys.Root] == null)
+                        continue;
+                    foreach (var key in new[] { PdfTrailer.Keys.Root, PdfTrailer.Keys.Info, PdfTrailer.Keys.ID, PdfTrailer.Keys.Encrypt })
+                        CopyEntry(dictionary, key);
+                    chosen = true;
+                    if (trailer.Elements[PdfTrailer.Keys.Encrypt] == null || trailer.Elements[PdfTrailer.Keys.ID] != null)
+                        break;
+                }
+                else if (dictionary.Elements[PdfTrailer.Keys.ID] != null)
+                {
+                    CopyEntry(dictionary, PdfTrailer.Keys.ID);
+                    break;
                 }
             }
             return trailer;
+
+            void CopyEntry(PdfDictionary dictionary, string key)
+            {
+                if (dictionary.Elements[key] is { } value)
+                    trailer.Elements[key] = value is PdfObject { IsIndirect: false } direct ? direct.Clone() : value;
+            }
         }
 
-        // Whether a position lies inside stream data; the ranges are in file order.
-        static bool IsInStreamData(List<(int Start, int End)> streamRanges, int position)
+        // 'trailer' as a keyword: after a delimiter or white space and before '<<'.
+        static bool IsTrailerKeyword(string text, int at)
         {
-            int low = 0, high = streamRanges.Count - 1;
+            if (at > 0 && text[at - 1] is not ('\0' or '\t' or '\n' or '\f' or '\r' or ' ' or '>' or ']' or ')'))
+                return false;
+            int after = at + 7;
+            while (after < text.Length && text[after] is '\0' or '\t' or '\n' or '\f' or '\r' or ' ')
+                after++;
+            return String.CompareOrdinal(text, after, "<<", 0, 2) == 0;
+        }
+
+        // Whether a position lies strictly inside one of the ranges, which are disjoint and in file order.
+        static bool IsInsideRange(List<(int Start, int End)> ranges, int position)
+        {
+            int low = 0, high = ranges.Count - 1;
             while (low <= high)
             {
                 int middle = low + (high - low) / 2;
-                var range = streamRanges[middle];
+                var range = ranges[middle];
                 if (position <= range.Start)
                     high = middle - 1;
                 else if (position >= range.End)
