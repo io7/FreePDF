@@ -102,6 +102,13 @@ namespace PdfSharp.Pdf.IO
                 case '(':
                     return ScanStringLiteral();
 
+                case ')':
+                    // A closing parenthesis outside a string means nothing; viewers skip it. It stopped the whole file
+                    // opening, for example as '(text))'.
+                    PdfSharpLogHost.PdfReadingLogger.LogWarning("Skipped a ')' outside a string at position {Position}.", _charIndex);
+                    ScanNextChar(true);
+                    goto TryAgain;
+
                 case '[':
                     ScanNextChar(true);
                     return Symbol = Symbol.BeginArray;

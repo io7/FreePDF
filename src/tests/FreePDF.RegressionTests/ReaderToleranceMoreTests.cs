@@ -74,6 +74,22 @@ public class ReaderToleranceMoreTests
         Assert.Equal("AAAAAAA", Encoding.ASCII.GetString(content));
     }
 
+    // Upstream PR #152: a stray ')' after a string stopped the whole file opening.
+    [Fact]
+    public void A_stray_closing_parenthesis_is_ignored()
+    {
+        var bytes = TestPdf.Create(new[] {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /Label (Page one)) /MediaBox [0 0 240 200] >>",
+        });
+
+        using var document = Open(bytes);
+        Assert.Equal(1, document.PageCount);
+        Assert.Equal("Page one", document.Pages[0].Elements.GetString("/Label"));
+        Assert.Equal(240, document.Pages[0].MediaBox.Width, 3);
+    }
+
     // Upstream #211: an object without 'endobj' stopped the whole file opening.
     [Fact]
     public void An_object_without_endobj_is_read()

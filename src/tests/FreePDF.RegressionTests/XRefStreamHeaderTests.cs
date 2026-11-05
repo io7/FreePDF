@@ -1,6 +1,6 @@
 // Cross-reference stream dictionaries that do not describe their data. The reader threw InvalidOperationException,
-// IndexOutOfRangeException or a type mismatch instead of PdfReaderException. Found by mutation fuzzing.
-// Original fixtures; MIT, see LICENSE.
+// IndexOutOfRangeException or a type mismatch instead of PdfReaderException (found by mutation fuzzing); since 7.8 it
+// rebuilds the cross-reference information from the objects, so these files open. Original fixtures; MIT, see LICENSE.
 using System.Text;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -68,30 +68,34 @@ public class XRefStreamHeaderTests
     [InlineData("/Size 5 /W [1 2 1] /Index [0 -5]")]
     [InlineData("/Size 5 /W [1 2 1] /Index [0 2000000000]")]
     [InlineData("/Size 5 /W [1 2 1] /Prev (x)")]
-    public void A_header_that_does_not_describe_the_data_is_a_reader_error(string entries)
+    public void A_header_that_does_not_describe_the_data_is_rebuilt_from_the_objects(string entries)
     {
-        Assert.Throws<PdfReaderException>(() => Open(File(entries)));
+        using var document = Open(File(entries));
+        Assert.Equal(1, document.PageCount);
     }
 
     [Theory]
     [InlineData("/FlateDecmde")]
     [InlineData("/FlateDecode")]
     [InlineData("[/ASCIIHexDecode /RunLengthDecode]")]
-    public void Data_that_cannot_be_decoded_is_a_reader_error(string filter)
+    public void Data_that_cannot_be_decoded_is_rebuilt_from_the_objects(string filter)
     {
-        Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", filter: filter)));
+        using var document = Open(File("/Size 5 /W [1 2 1]", filter: filter));
+        Assert.Equal(1, document.PageCount);
     }
 
     [Fact]
-    public void An_offset_far_beyond_the_end_of_the_file_is_a_reader_error()
+    public void An_offset_far_beyond_the_end_of_the_file_is_rebuilt_from_the_objects()
     {
         // Building the error message dumped the bytes around the offset and overflowed for offsets outside the file.
-        Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", pageOffset: 0xFFF0)));
+        using var document = Open(File("/Size 5 /W [1 2 1]", pageOffset: 0xFFF0));
+        Assert.Equal(1, document.PageCount);
     }
 
     [Fact]
-    public void Data_shorter_than_the_header_describes_is_a_reader_error()
+    public void Data_shorter_than_the_header_describes_is_rebuilt_from_the_objects()
     {
-        Assert.Throws<PdfReaderException>(() => Open(File("/Size 5 /W [1 2 1]", keepEntries: 3)));
+        using var document = Open(File("/Size 5 /W [1 2 1]", keepEntries: 3));
+        Assert.Equal(1, document.PageCount);
     }
 }

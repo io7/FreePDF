@@ -44,16 +44,16 @@ public class ReaderRobustnessTests
     [Theory]
     [InlineData("valid", 0, "OPENED: 1")]
     [InlineData("incremental", 0, "OPENED: 1")]
-    [InlineData("trailer-self", 11, "cross-reference")]
-    [InlineData("trailer-cycle", 11, "cross-reference")]
-    [InlineData("trailer-negative", 11, "cross-reference")]
-    [InlineData("trailer-outside", 11, "cross-reference")]
+    [InlineData("trailer-self", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
+    [InlineData("trailer-cycle", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
+    [InlineData("trailer-negative", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
+    [InlineData("trailer-outside", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
     [InlineData("tree-self", 11, "page tree")]
     [InlineData("tree-cycle", 11, "page tree")]
     [InlineData("tree-repeated", 11, "page tree")]
     [InlineData("tree-deep", 0, "OPENED: 1")]
-    [InlineData("hybrid-outside", 11, "cross-reference")]
-    [InlineData("hybrid-table", 11, "cross-reference")]
+    [InlineData("hybrid-outside", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
+    [InlineData("hybrid-table", 0, "OPENED: 1")]  // Rebuilt from the objects since 7.8.
     public async Task Reader_finishes_or_rejects_invalid_structure_without_hanging(string scenario, int exitCode, string message)
     {
         var result = await Probe(scenario);
