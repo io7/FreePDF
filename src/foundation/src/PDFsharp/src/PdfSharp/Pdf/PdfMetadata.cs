@@ -6,6 +6,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 using PdfSharp.Pdf.Metadata;
+using PdfSharp.Pdf.Security;
 
 // v7.0.0 TODO review and sync with document information, DateTimeOffset review
 // TODO DocumentID, InstanceID
@@ -246,13 +247,15 @@ namespace PdfSharp.Pdf
         public void SetMetadata(byte[] xml)
         {
             // The bytes are plain XML, so the filters of the old content do not apply to them; written under its
-            // /FlateDecode they could not be read. Saving gives the document's metadata the crypt filter that its
-            // encryption needs.
+            // /FlateDecode they could not be read. A crypt filter says whether the stream is encrypted, so it stays.
+            var cryptFilter = PdfStandardSecurityHandler.NamedCryptFilter(this);
             Stream = null;
             Elements.Remove(PdfStream.Keys.Filter);
             Elements.Remove(PdfStream.Keys.DecodeParms);
             Elements.Remove(PdfStream.Keys.DL);
             CreateStream(xml);
+            if (cryptFilter != null)
+                Owner.SecuritySettings.EffectiveSecurityHandler?.KeepCryptFilter(this, cryptFilter);
         }
 
         /// <summary>

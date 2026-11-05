@@ -129,4 +129,78 @@ public class UnmarkedDocumentMetadataTests
         using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
         Assert.Contains("<changed/>", TestPdf.Latin1.GetString(DocumentMetadata(reopened).Stream!.UnfilteredValue));
     }
+
+    // Saves with DoNotResetEncryption after the change and returns the file.
+    static byte[] KeepEncryption(byte[] original, Action<PdfDocument, PdfMetadata> change)
+    {
+        using var document = PdfReader.Open(new MemoryStream(original), "owner", PdfDocumentOpenMode.Modify,
+            new PdfReaderOptions { DoNotResetEncryption = true });
+        change(document, document.Catalog.GetMetadata()!);
+        using var output = new MemoryStream();
+        document.Save(output);
+        return output.ToArray();
+    }
+
+    static void AssertEncryptedAndReadable(byte[] file, string marker)
+    {
+        Assert.DoesNotContain(marker, TestPdf.Latin1.GetString(file));
+        using var reopened = PdfReader.Open(new MemoryStream(file), "user", PdfDocumentOpenMode.Import);
+        Assert.Contains(marker, TestPdf.Latin1.GetString(DocumentMetadata(reopened).Stream!.UnfilteredValue));
+    }
+
+    [Theory]
+    [InlineData("V4-RC4")]
+    [InlineData("AES-128")]
+    public void Crypt_filter_parameters_without_a_type_are_kept(string kind)
+    {
+        // ISO 32000-1 Table 14 makes /Type optional.
+        var result = KeepEncryption(WithUnmarkedMetadata(kind), (_, metadata) => {
+            metadata.Elements.SetName("/Filter", "/Crypt");
+            var parameters = new PdfDictionary();
+            parameters.Elements.SetName("/Name", "/StdCF");
+            metadata.Elements["/DecodeParms"] = parameters;
+        });
+
+        AssertEncryptedAndReadable(result, "<unmarked-check/>");
+    }
+
+    [Theory]
+    [InlineData("V4-RC4")]
+    [InlineData("AES-256")]
+    public void New_content_keeps_the_crypt_filter_of_the_old(string kind)
+    {
+        var result = KeepEncryption(WithUnmarkedMetadata(kind), (document, metadata) => {
+            document.SecurityHandler.SetCryptFilter(metadata, "StdCF");
+            metadata.SetMetadata(Xmp.Replace("<unmarked-check/>", "<replaced/>"));
+        });
+
+        AssertEncryptedAndReadable(result, "<replaced/>");
+    }
+
+    [Fact]
+    public void New_content_of_metadata_its_writer_left_unencrypted_stays_unencrypted()
+    {
+        // EncryptMetadata true, but the writer marked the metadata with the Identity crypt filter.
+        byte[] original;
+        using (var document = new PdfDocument())
+        {
+            document.AddPage();
+            var metadata = document.Catalog.GetOrCreateMetadata();
+            metadata.SetMetadata(Xmp);
+            document.SecurityHandler.SetEncryptionToV4UsingAES();
+            document.SecurityHandler.SetIdentityCryptFilter(metadata);
+            document.SecuritySettings.UserPassword = "user";
+            document.SecuritySettings.OwnerPassword = "owner";
+            using var output = new MemoryStream();
+            document.Save(output);
+            original = output.ToArray();
+        }
+        Assert.Contains("<unmarked-check/>", TestPdf.Latin1.GetString(original));
+
+        var result = KeepEncryption(original, (_, metadata) => metadata.SetMetadata(Xmp.Replace("<unmarked-check/>", "<replaced/>")));
+
+        Assert.Contains("<replaced/>", TestPdf.Latin1.GetString(result));
+        using var reopened = PdfReader.Open(new MemoryStream(result), "user", PdfDocumentOpenMode.Import);
+        Assert.Contains("<replaced/>", TestPdf.Latin1.GetString(DocumentMetadata(reopened).Stream!.UnfilteredValue));
+    }
 }

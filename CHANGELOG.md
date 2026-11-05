@@ -13,9 +13,10 @@
   from writers that leave it unmarked kept it unmarked, and pyHanko and MuPDF
   then tried to decrypt the plain stream. Metadata that names another crypt
   filter stays encrypted with it, in this save and in `Append` mode.
-- `PdfMetadata.SetMetadata` drops the filters of the old content. Setting
-  metadata on compressed metadata, for example with `SetMetadata(ToString())`,
-  wrote the plain XML under `/FlateDecode`, which no reader could decode.
+- `PdfMetadata.SetMetadata` drops the filters of the old content and keeps only
+  its crypt filter, which says whether the stream is encrypted. Setting metadata
+  on compressed metadata, for example with `SetMetadata(ToString())`, wrote the
+  plain XML under `/FlateDecode`, which no reader could decode.
 - An `Append`-mode save of an RC4 file with encryption version 1 to 3 whose
   encryption dictionary nevertheless says `/EncryptMetadata false` threw "Crypt
   filters are not supported" when the document's metadata changed.
