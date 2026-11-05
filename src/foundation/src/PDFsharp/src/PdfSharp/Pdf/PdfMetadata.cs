@@ -245,8 +245,13 @@ namespace PdfSharp.Pdf
         /// <param name="xml"></param>
         public void SetMetadata(byte[] xml)
         {
-            //var bytes = PdfEncoders.RawEncoding.GetBytes(xml);
+            // The bytes are plain XML, so the filters of the old content do not apply to them; written under its
+            // /FlateDecode they could not be read. Saving gives the document's metadata the crypt filter that its
+            // encryption needs.
             Stream = null;
+            Elements.Remove(PdfStream.Keys.Filter);
+            Elements.Remove(PdfStream.Keys.DecodeParms);
+            Elements.Remove(PdfStream.Keys.DL);
             CreateStream(xml);
         }
 
@@ -533,7 +538,7 @@ namespace PdfSharp.Pdf
 
             public static byte[] GetBytes(string xml)
             {
-                if (!xml.StartsWith(header))
+                if (!xml.StartsWith(header, StringComparison.Ordinal))
                     throw new InvalidOperationException("An XMP metadata string must start with '" + header + "'.");
 
                 // The begin attribute is in single or double quotes (XMP Part 1, 7.3.2), and the header's other
@@ -549,10 +554,14 @@ namespace PdfSharp.Pdf
                 var bomTag = xml[leftPartLength..rightPartStart];
                 xml = xml[..leftPartLength] + xml[rightPartStart..];
                 MetadataEncodingType encoding = MetadataEncodingType.UTF8;
-                if (bomTag.Length > 0 && bomTag != "﻿")
+                if (bomTag.Length > 0 && bomTag != "\uFEFF")
                 {
-                    if (!Enum.TryParse<MetadataEncodingType>(bomTag, false, out encoding))
+                    // Only the names: Enum.TryParse also takes numbers and lists of names.
+                    if (!Enum.GetNames(typeof(MetadataEncodingType)).Contains(bomTag, StringComparer.Ordinal)
+                        || !Enum.TryParse<MetadataEncodingType>(bomTag, false, out encoding))
+                    {
                         throw new InvalidOperationException($"Unknown metadata encoding tag '{bomTag}'.");
+                    }
                 }
 
                 if (encoding != MetadataEncodingType.UTF8)

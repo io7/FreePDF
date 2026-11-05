@@ -592,14 +592,9 @@ namespace PdfSharp.Pdf.Security
             // Return if encryption shall be left unchanged.
             if (DoNotResetEncryption)
             {
-                // The document's metadata, which stays unencrypted with EncryptMetadata false, gets the Identity crypt
-                // filter as a reset encryption gives it. Some writers leave it out, and readers then decrypt the plain
-                // stream.
-                if (Elements.GetInteger(PdfSecurityHandler.Keys.V) >= 4 && !GetEncryption().EncryptMetadata
-                    && Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
-                {
-                    SetIdentityCryptFilter(metadata);
-                }
+                // Some writers leave the document's metadata unmarked; readers then decrypt the plain stream.
+                if (Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Metadata) is { Stream: not null } metadata)
+                    MarkUnencryptedDocumentMetadata(metadata);
                 return;
             }
 
@@ -934,6 +929,34 @@ namespace PdfSharp.Pdf.Security
 
                 ResetCryptFilter(dictionary);
             }
+        }
+
+        /// <summary>
+        /// Gives the document's metadata stream the Identity crypt filter when EncryptMetadata false leaves it
+        /// unencrypted (ISO 32000-1 Table 20), as a save that resets the encryption gives it. A stream that names
+        /// another crypt filter is encrypted with it and stays as it is, and so do files without crypt filters (V1 to 3).
+        /// </summary>
+        internal void MarkUnencryptedDocumentMetadata(PdfDictionary metadata)
+        {
+            if (!VersionSupportsCryptFilter() || GetEncryption().EncryptMetadata)
+                return;
+            if (FilterItems(metadata.Elements[PdfStream.Keys.Filter]).Any(IsCryptFilter)
+                && FilterItems(metadata.Elements[PdfStream.Keys.DecodeParms]).Any(NamesEncryptingCryptFilter))
+            {
+                return;
+            }
+            SetIdentityCryptFilter(metadata);
+        }
+
+        // Crypt filter parameters that name a filter other than Identity.
+        static bool NamesEncryptingCryptFilter(PdfItem parameters)
+        {
+            if (parameters is PdfReference reference)
+                parameters = reference.Value;
+            if (parameters is not PdfDictionary dictionary || !CryptFilterConstants.DecodeParmsPredicate(dictionary))
+                return false;
+            var name = dictionary.Elements.GetName(CryptFilterConstants.DecodeParmsNameKey);
+            return name.Length > 0 && name != CryptFilterConstants.IdentityFilterValue;
         }
 
         /// <summary>

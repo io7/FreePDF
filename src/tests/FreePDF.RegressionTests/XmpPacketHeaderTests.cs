@@ -32,8 +32,8 @@ public class XmpPacketHeaderTests
     [Theory]
     [InlineData('"', "")]
     [InlineData('\'', "")]
-    [InlineData('"', "﻿")]
-    [InlineData('\'', "﻿")]
+    [InlineData('"', "\uFEFF")]
+    [InlineData('\'', "\uFEFF")]
     [InlineData('\'', "UTF8")]
     public void A_valid_packet_header_is_accepted(char quote, string begin)
     {

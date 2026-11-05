@@ -257,14 +257,13 @@ namespace PdfSharp.Pdf.IO
 
             // The document's metadata stays unencrypted with EncryptMetadata false and needs the Identity crypt filter,
             // as a full save gives it, or readers decrypt the plain stream. Other metadata streams are encrypted
-            // (ISO 32000-1 Table 20).
-            if (handler != null && !handler.GetEncryption().EncryptMetadata
-                && document.Catalog.Elements[PdfCatalog.Keys.Metadata] is PdfReference documentMetadata)
+            // (ISO 32000-1 Table 20). Files without crypt filters (V1 to 3) have no such exemption.
+            if (handler != null && document.Catalog.Elements[PdfCatalog.Keys.Metadata] is PdfReference documentMetadata)
             {
                 foreach (var iref in written)
                 {
                     if (iref.ObjectID == documentMetadata.ObjectID && iref.Value is PdfDictionary { Stream: not null } metadata)
-                        handler.SetIdentityCryptFilter(metadata);
+                        handler.MarkUnencryptedDocumentMetadata(metadata);
                 }
             }
             stream.Write(_original, 0, _original.Length);
