@@ -1,8 +1,10 @@
 // MigraDoc documents that threw or never finished, found in the upstream PDFsharp triage of 2026-11-05. The fixtures
 // are our own. MIT, see LICENSE.
+using Microsoft.Extensions.Logging;
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.DocumentObjectModel.Shapes.Charts;
 using MigraDoc.Rendering;
+using PdfSharp.Logging;
 using PdfSharp.Pdf.Content;
 using PdfSharp.Pdf.Content.Objects;
 using Xunit;
@@ -72,6 +74,53 @@ public class MigraDocLayoutCrashTests
             }
         }
         Assert.Empty(failures);
+    }
+
+    sealed class CollectingLoggerFactory : ILoggerFactory, ILogger
+    {
+        public readonly System.Collections.Concurrent.ConcurrentQueue<string> Messages = new();
+        public ILogger CreateLogger(string categoryName) => this;
+        public void AddProvider(ILoggerProvider provider) { }
+        public void Dispose() { }
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => this;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Enqueue($"{logLevel}: {formatter(state, exception)}");
+    }
+
+    // Upstream #94: a row taller than a page is cut off at the page bottom. Splitting rows is a larger feature; until
+    // then the loss is logged as a warning instead of passing silently.
+    [Theory]
+    [InlineData(120, true)]
+    [InlineData(10, false)]
+    public void A_row_taller_than_a_page_logs_a_warning(int lines, bool expectWarning)
+    {
+        var document = NewDocument();
+        var table = document.AddSection().AddTable();
+        table.AddColumn(Unit.FromCentimeter(8));
+        table.AddRow().Cells[0].AddParagraph("Before");
+        var paragraph = table.AddRow().Cells[0].AddParagraph();
+        for (var index = 0; index < lines; index++)
+        {
+            paragraph.AddText($"line {index}");
+            paragraph.AddLineBreak();
+        }
+        var logs = new CollectingLoggerFactory();
+        LogHost.Factory = logs;
+        try
+        {
+            Render(document);
+        }
+        finally
+        {
+            LogHost.ResetLogging();
+        }
+
+        var warnings = logs.Messages.Where(message => message.Contains("Table rows 1 to 1")).ToArray();
+        if (expectWarning)
+            Assert.Contains(warnings, message => message.StartsWith("Warning: ") && message.Contains("cut off"));
+        else
+            Assert.Empty(warnings);
     }
 
     // Upstream #339: a justified list paragraph with soft hyphens never finished laying out at many left indents.
