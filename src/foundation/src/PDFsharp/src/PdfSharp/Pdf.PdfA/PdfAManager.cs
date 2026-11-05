@@ -79,6 +79,38 @@ namespace PdfSharp.Pdf.PdfA
         public PdfAFormat Format => new(Part, Level);
 
         /// <summary>
+        /// Prepares the pages of a PDF/A document of the given part (0: none) for a full save. PDF/A requires every
+        /// annotation to print (ISO 19005-1 6.5.3, ISO 19005-2 6.3.2); annotations of an opened file often lack the flag
+        /// (upstream #356). An annotation that is hidden cannot conform and stays hidden. PDF/A-1 forbids page
+        /// transparency groups (ISO 19005-1 6.4), which pages of an opened file may have. An incremental update leaves
+        /// existing pages alone.
+        /// </summary>
+        internal static void PrepareForSave(PdfDocument document, int part)
+        {
+            if (part == 0 || document.IncrementalUpdate != null)
+                return;
+            const int invisible = 1, hidden = 2, print = 4, noView = 32;
+            foreach (var page in document.Pages)
+            {
+                if (part == 1 && page.Elements.GetDictionary(PdfPage.Keys.Group) is { } group
+                    && group.Elements.GetName("/S") == "/Transparency")
+                {
+                    page.Elements.Remove(PdfPage.Keys.Group);
+                }
+                if (page.Elements.GetArray(PdfPage.Keys.Annots) is not { } annotations)
+                    continue;
+                for (int index = 0; index < annotations.Elements.Count; index++)
+                {
+                    if (annotations.Elements.GetDictionary(index) is not { } annotation)
+                        continue;
+                    int flags = annotation.Elements.GetInteger("/F");
+                    if ((flags & (invisible | hidden | noView)) == 0 && (flags & print) == 0)
+                        annotation.Elements.SetInteger("/F", flags | print);
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets or creates the PdfAManager for the specified document.
         /// </summary>
         public static PdfAManager ForDocument(PdfDocument document)
