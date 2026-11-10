@@ -309,7 +309,53 @@ namespace PdfSharp.Pdf.Signatures
             reference.Elements.SetName("/TransformMethod", "/FieldMDP");
             reference.Elements["/TransformParams"] = parameters;
             reference.Elements.SetObject("/Data", Document.Catalog);
-            signatureDictionary.Elements["/Reference"] = new PdfArray(Document, reference);
+            AddSignatureReference(signatureDictionary, reference);
+        }
+
+        /// <summary>
+        /// Appends a signature reference: a certification signature that signs a locked field carries both DocMDP and
+        /// FieldMDP references.
+        /// </summary>
+        void AddSignatureReference(PdfDictionary signatureDictionary, PdfDictionary reference)
+        {
+            var references = signatureDictionary.Elements.GetArray("/Reference");
+            if (references == null)
+                signatureDictionary.Elements["/Reference"] = new PdfArray(Document, reference);
+            else
+                references.Elements.Add(reference);
+        }
+
+        /// <summary>
+        /// Makes the signature a certification signature (ISO 32000-1 12.8.2.2): a DocMDP signature reference with the
+        /// permission level, and the catalog's /Perms /DocMDP pointing to the signature dictionary. Only the first
+        /// signature of a document can certify it.
+        /// </summary>
+        void AddCertification(PdfSignature signatureDictionary, PdfCertificationLevel level)
+        {
+            if (level is < PdfCertificationLevel.NoChanges or > PdfCertificationLevel.FormFillingAndAnnotations)
+                throw new ArgumentOutOfRangeException(nameof(DigitalSignatureOptions.Certification), "The certification level must be 1, 2 or 3.");
+            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
+            bool signed = Document.Catalog.GetAcroForm()?.Fields.GetAllFields()
+                .Any(field => field.Elements.GetName(PdfFormField.Keys.FT) == "/Sig" && field.Elements.ContainsKey(PdfFormField.Keys.V)) ?? false;
+            if (signed || perms?.Elements.ContainsKey("/DocMDP") == true)
+                throw new InvalidOperationException("Only the first signature can certify a document; this document is already signed.");
+
+            var parameters = new PdfDictionary(Document);
+            parameters.Elements.SetName("/Type", "/TransformParams");
+            parameters.Elements.SetInteger("/P", (int)level);
+            parameters.Elements.SetName("/V", "/1.2");
+            var reference = new PdfDictionary(Document);
+            reference.Elements.SetName("/Type", "/SigRef");
+            reference.Elements.SetName("/TransformMethod", "/DocMDP");
+            reference.Elements["/TransformParams"] = parameters;
+            AddSignatureReference(signatureDictionary, reference);
+
+            if (perms == null)
+            {
+                perms = new PdfDictionary(Document);
+                Document.Catalog.Elements[PdfCatalog.Keys.Perms] = perms;
+            }
+            perms.Elements["/DocMDP"] = signatureDictionary.Reference;
         }
 
         PdfFormSignatureField GetSignatureField(PdfSignature signatureDic) // #US321 TODO Use appropriate classes.
@@ -397,6 +443,9 @@ namespace PdfSharp.Pdf.Signatures
             signatureDic.Elements.Add(PdfSignature.Keys.ByteRange, byteRange);
             signatureDic.Elements.Add(PdfSignature.Keys.Reason, new PdfString(Options.Reason));
             signatureDic.Elements.Add(PdfSignature.Keys.Location, new PdfString(Options.Location));
+            // FreePDF: ContactInfo was an option that was never written.
+            if (!String.IsNullOrEmpty(Options.ContactInfo))
+                signatureDic.Elements["/ContactInfo"] = new PdfString(Options.ContactInfo);
 
             var properties = new PdfDictionary(Document);
             signatureDic.Elements.Add("/Prop_Build", properties);
@@ -406,6 +455,9 @@ namespace PdfSharp.Pdf.Signatures
             propertyItems.Elements.Add("/Name", PdfName.FromString(appName));
 
             Document.Internals.AddObject(signatureDic);
+
+            if (Options.Certification is { } level)
+                AddCertification(signatureDic, level);
 
             return signatureDic;
         }
