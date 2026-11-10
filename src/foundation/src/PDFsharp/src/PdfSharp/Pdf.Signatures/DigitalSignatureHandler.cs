@@ -49,6 +49,8 @@ namespace PdfSharp.Pdf.Signatures
                 // Mistakes surface here rather than when the document is saved.
                 CheckField(FindUnsignedSignatureField());
             }
+            if (options.Certification is { } level)
+                CheckCertification(level);
 
             // TODO_OLD in document: Set document version depending on digest type from options.  // TODO: what?
         }
@@ -332,13 +334,7 @@ namespace PdfSharp.Pdf.Signatures
         /// </summary>
         void AddCertification(PdfSignature signatureDictionary, PdfCertificationLevel level)
         {
-            if (level is < PdfCertificationLevel.NoChanges or > PdfCertificationLevel.FormFillingAndAnnotations)
-                throw new ArgumentOutOfRangeException(nameof(DigitalSignatureOptions.Certification), "The certification level must be 1, 2 or 3.");
-            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
-            bool signed = Document.Catalog.GetAcroForm()?.Fields.GetAllFields()
-                .Any(field => field.Elements.GetName(PdfFormField.Keys.FT) == "/Sig" && field.Elements.ContainsKey(PdfFormField.Keys.V)) ?? false;
-            if (signed || perms?.Elements.ContainsKey("/DocMDP") == true)
-                throw new InvalidOperationException("Only the first signature can certify a document; this document is already signed.");
+            CheckCertification(level);
 
             var parameters = new PdfDictionary(Document);
             parameters.Elements.SetName("/Type", "/TransformParams");
@@ -350,12 +346,57 @@ namespace PdfSharp.Pdf.Signatures
             reference.Elements["/TransformParams"] = parameters;
             AddSignatureReference(signatureDictionary, reference);
 
+            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
             if (perms == null)
             {
                 perms = new PdfDictionary(Document);
                 Document.Catalog.Elements[PdfCatalog.Keys.Perms] = perms;
             }
             perms.Elements["/DocMDP"] = signatureDictionary.Reference;
+        }
+
+        // Runs when the handler is made, so mistakes surface early, and again when the signature is written.
+        void CheckCertification(PdfCertificationLevel level)
+        {
+            if (level is < PdfCertificationLevel.NoChanges or > PdfCertificationLevel.FormFillingAndAnnotations)
+                throw new ArgumentOutOfRangeException(nameof(DigitalSignatureOptions.Certification), "The certification level must be 1, 2 or 3.");
+            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
+            if (perms?.Elements.ContainsKey("/DocMDP") == true || HasSignedField())
+                throw new InvalidOperationException("Only the first signature can certify a document; this document is already signed.");
+        }
+
+        /// <summary>
+        /// Tells whether any signature field of the form has a signature. Walks the field dictionaries themselves:
+        /// /FT and /V are inheritable (ISO 32000-1 Table 220), and only a dictionary value is a signature.
+        /// </summary>
+        bool HasSignedField()
+        {
+            var visited = new HashSet<PdfDictionary>();
+            var pending = new Stack<(PdfDictionary Field, string Type, bool Signed)>();
+            Push(Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.AcroForm)?.Elements.GetArray(PdfForm.Keys.Fields), "", false);
+            while (pending.Count != 0)
+            {
+                var (field, inheritedType, inheritedSigned) = pending.Pop();
+                if (!visited.Add(field))
+                    continue;
+                var type = field.Elements.ContainsKey(PdfFormField.Keys.FT) ? field.Elements.GetName(PdfFormField.Keys.FT) : inheritedType;
+                var signed = field.Elements.ContainsKey(PdfFormField.Keys.V)
+                    ? field.Elements.GetDictionary(PdfFormField.Keys.V) != null
+                    : inheritedSigned;
+                if (type == "/Sig" && signed)
+                    return true;
+                Push(field.Elements.GetArray(PdfFormField.Keys.Kids), type, signed);
+            }
+            return false;
+
+            void Push(PdfArray? fields, string type, bool signed)
+            {
+                for (var index = 0; index < (fields?.Elements.Count ?? 0); index++)
+                {
+                    if (fields!.Elements.GetDictionary(index) is { } field)
+                        pending.Push((field, type, signed));
+                }
+            }
         }
 
         PdfFormSignatureField GetSignatureField(PdfSignature signatureDic) // #US321 TODO Use appropriate classes.

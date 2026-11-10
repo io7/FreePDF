@@ -55,17 +55,24 @@ form.AddComboBox("country", page, new XRect(150, 190, 150, 22), new[] { "Norway"
 form.AddSignatureField("signature", page, new XRect(150, 240, 200, 50));
 document.Save("form.pdf");   // a fillable form
 
-// Later: fill it, then certify it so that only form filling keeps the signature valid.
-((PdfFormTextField)form.Fields["name"]!).Text = "Kari Nordmann";
-DigitalSignatureHandler.ForDocument(document, signer, new DigitalSignatureOptions
+// Later: fill it in and certify it, so that only form filling keeps the signature valid.
+using var filled = PdfReader.Open("form.pdf", PdfDocumentOpenMode.Modify);
+((PdfFormTextField)filled.Catalog.GetAcroForm()!.Fields["name"]!).Text = "Kari Nordmann";
+var signer = new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256);
+DigitalSignatureHandler.ForDocument(filled, signer, new DigitalSignatureOptions
 {
     FieldName = "signature",
     Certification = PdfCertificationLevel.FormFilling,
 });
+filled.Save("certified.pdf");   // the signature is made when the file is saved
 ```
 
 Rectangles are in drawing coordinates, as for `XGraphics`: points from the top
-left corner. `document.Flatten()` turns filled fields into page content.
+left corner of the visible page. `document.Flatten()` turns filled fields into
+page content. To fill in a signed or certified file without breaking its
+signature, open it with `PdfDocumentOpenMode.Append`. PDF/A documents take
+check boxes, radio buttons and signature fields, but not text and choice fields
+(their Helvetica is not embedded); PDF/UA documents take no new fields yet.
 
 ## Accessible PDF (PDF/UA-1)
 

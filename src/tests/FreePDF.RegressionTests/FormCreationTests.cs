@@ -82,7 +82,7 @@ public class FormCreationTests
     {
         using var reopened = SaveAndOpen(NewDocumentWithForm());
 
-        var rect = reopened.Catalog.GetAcroForm()!.Fields["name"]!.Elements.GetRectangle("/Rect");
+        var rect = reopened.Catalog.GetAcroForm()!.Fields["name"]!.Elements.GetRectangle("/Rect")!;
         Assert.Equal(100, rect.X1, 3);
         Assert.Equal(842 - 70, rect.Y1, 3);
         Assert.Equal(300, rect.X2, 3);
@@ -249,6 +249,111 @@ public class FormCreationTests
         form.AddCheckBox("agree", page, new XRect(10, 90, 12, 12));
         form.AddSignatureField("sign", page, new XRect(10, 110, 100, 40));
         Assert.Equal(2, form.Fields.Count);
+    }
+
+    // An opened PDF/A file is not marked as PDF/A in memory; its XMP claim is what refuses the text fields.
+    [Fact]
+    public void An_opened_pdf_a_file_refuses_text_fields()
+    {
+        var created = new PdfDocument();
+        created.SetPdfA(PdfAFormats.PdfA_2b);
+        created.AddPage();
+        using var document = SaveAndOpen(created);
+        var page = document.Pages[0];
+        var form = document.Catalog.GetOrCreateAcroForm();
+
+        Assert.Throws<InvalidOperationException>(() => form.AddTextField("name", page, new XRect(10, 10, 100, 20)));
+        Assert.Throws<InvalidOperationException>(() => form.AddComboBox("list", page, new XRect(10, 40, 100, 20), new[] { "A" }));
+        form.AddCheckBox("agree", page, new XRect(10, 90, 12, 12));
+        Assert.Equal(1, form.Fields.Count);
+    }
+
+    // PDF/UA needs tagged widgets, which the Add methods do not write: a tagged document and an opened file whose XMP
+    // claims PDF/UA refuse every field and stay unchanged.
+    [Fact]
+    public void A_pdf_ua_document_refuses_fields()
+    {
+        using var tagged = new PdfDocument();
+        var page = tagged.AddPage();
+        PdfSharp.UniversalAccessibility.UAManager.ForDocument(tagged);
+        var form = tagged.Catalog.GetOrCreateAcroForm();
+
+        Assert.Throws<InvalidOperationException>(() => form.AddCheckBox("agree", page, new XRect(10, 10, 12, 12)));
+        Assert.Throws<InvalidOperationException>(() => form.AddSignatureField("sign", page, new XRect(10, 40, 100, 40)));
+        Assert.Null(page.Elements.GetArray("/Annots"));
+        Assert.Equal(0, form.Fields.Count);
+
+        using var opened = PdfReader.Open(new MemoryStream(Save(tagged)), PdfDocumentOpenMode.Modify);
+        Assert.Throws<InvalidOperationException>(() =>
+            opened.Catalog.GetOrCreateAcroForm().AddCheckBox("agree", opened.Pages[0], new XRect(10, 10, 12, 12)));
+    }
+
+    // "Off" names the off state; a leading slash would turn the value into a different state name.
+    [Theory]
+    [InlineData("Off")]
+    [InlineData("/Yes")]
+    public void Radio_values_that_clash_with_state_names_are_refused(string value)
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        var form = document.Catalog.GetOrCreateAcroForm();
+
+        Assert.Throws<ArgumentException>(() => form.AddRadioButtonGroup("choice", page,
+            new[] { ("On", new XRect(10, 10, 12, 12)), (value, new XRect(30, 10, 12, 12)) }));
+    }
+
+    // Everything is checked before any object is made: a refused call leaves no field, widget or font behind.
+    [Fact]
+    public void A_refused_call_leaves_the_document_unchanged()
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        var form = document.Catalog.GetOrCreateAcroForm();
+        var good = new XRect(10, 10, 12, 12);
+
+        Assert.Throws<ArgumentException>(() => form.AddRadioButtonGroup("choice", page, new[] { ("A", good), ("B", new XRect(30, 10, 0, 12)) }));
+        Assert.Throws<ArgumentException>(() => form.AddTextField("name", page, new XRect(double.NaN, 10, 100, 20)));
+        Assert.Throws<ArgumentException>(() => form.AddTextField("name", page, new XRect(10, 10, double.PositiveInfinity, 20)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => form.AddTextField("name", page, good, new PdfFormFieldStyle { FontSize = -1 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => form.AddComboBox("list", page, good, new[] { "A" }, new PdfFormFieldStyle { FontSize = double.NaN }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => form.AddCheckBox("agree", page, good, new PdfFormFieldStyle { BorderWidth = -2 }));
+
+        Assert.Null(page.Elements.GetArray("/Annots"));
+        Assert.Equal(0, form.Fields.Count);
+        Assert.Null(form.Elements.GetDictionary("/DR"));
+    }
+
+    // Rectangles are measured from the top left of the crop box, which need not start at the origin.
+    [Fact]
+    public void The_rectangle_is_relative_to_the_crop_box()
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        page.MediaBox = new PdfRectangle(new XPoint(0, 0), new XPoint(600, 800));
+        page.CropBox = new PdfRectangle(new XPoint(550, 700), new XPoint(50, 100));
+        var form = document.Catalog.GetOrCreateAcroForm();
+
+        var rect = form.AddTextField("name", page, new XRect(10, 20, 100, 30)).Elements.GetRectangle("/Rect")!;
+
+        Assert.Equal(60, rect.X1, 3);
+        Assert.Equal(700 - 50, rect.Y1, 3);
+        Assert.Equal(160, rect.X2, 3);
+        Assert.Equal(700 - 20, rect.Y2, 3);
+    }
+
+    // Widget colors have no transparency: a fully transparent color means none.
+    [Fact]
+    public void A_transparent_color_means_no_border_or_background()
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        var form = document.Catalog.GetOrCreateAcroForm();
+
+        var field = form.AddCheckBox("agree", page, new XRect(10, 10, 12, 12),
+            new PdfFormFieldStyle { BorderColor = XColors.Transparent, BackgroundColor = XColor.FromArgb(0, 255, 0, 0) });
+
+        Assert.Null(field.Elements.GetDictionary("/MK"));
+        Assert.Equal(0, field.Elements.GetDictionary("/BS")!.Elements.GetReal("/W"));
     }
 
     static string AppearanceText(PdfDictionary widget)

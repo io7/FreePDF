@@ -24,12 +24,14 @@ namespace PdfSharp.Pdf.Forms
         public XColor TextColor { get; set; } = XColors.Black;
 
         /// <summary>
-        /// Gets or sets the border color. The default is black; <see cref="XColor.Empty"/> draws no border.
+        /// Gets or sets the border color. The default is black; <see cref="XColor.Empty"/> or a fully transparent
+        /// color draws no border. Field colors are opaque: other alpha values are ignored.
         /// </summary>
         public XColor BorderColor { get; set; } = XColors.Black;
 
         /// <summary>
-        /// Gets or sets the background color. The default, <see cref="XColor.Empty"/>, leaves the field transparent.
+        /// Gets or sets the background color. The default, <see cref="XColor.Empty"/>, leaves the field transparent,
+        /// as does a fully transparent color.
         /// </summary>
         public XColor BackgroundColor { get; set; } = XColor.Empty;
 
