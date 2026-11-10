@@ -98,6 +98,20 @@ namespace PdfSharp.Internal.Imaging.Png.BigGustave
                 return palette.GetPixel(indexActual);
             }
 
+            if (bitDepth < 8)
+            {
+                // FreePDF: grayscale with 1, 2 or 4 bits per sample. Samples are packed from the high bits, each row
+                // starts on a byte boundary after its filter byte; the sample is scaled to 0..255 (exact for these
+                // depths: 255, 85 and 17 times the sample).
+                var samplesPerByte = 8 / bitDepth;
+                var bytesInRow = 1 + (width + samplesPerByte - 1) / samplesPerByte;
+                var packed = data[1 + y * bytesInRow + x / samplesPerByte];
+                var shift = 8 - (x % samplesPerByte + 1) * bitDepth;
+                var maximum = (1 << bitDepth) - 1;
+                var gray = (byte)(((packed >> shift) & maximum) * 255 / maximum);
+                return new Pixel(gray, gray, gray, 255, true);
+            }
+
             var rowStartPixel = (rowOffset + (rowOffset * y)) + (bytesPerPixel * width * y);
 
             var pixelStartIndex = rowStartPixel + (bytesPerPixel * x);
