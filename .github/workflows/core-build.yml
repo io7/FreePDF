@@ -79,6 +79,35 @@ jobs:
           --configuration Release --framework ${{ matrix.framework }}
           --logger "trx;LogFileName=regressions.trx"
 
+  # The net10.0 build, as .NET 11 apps use it, on the .NET 11 runtime. LatestMajor picks 11 even where the runner
+  # image also has .NET 10; RuntimeTests fails unless the tests really ran on 11.
+  regressions-dotnet11:
+    name: Regressions / ${{ matrix.os }} / net10.0 on .NET 11
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      DOTNET_ROLL_FORWARD: LatestMajor
+      FREEPDF_EXPECT_RUNTIME_MAJOR: '11'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '11.0.x'
+      - name: Test synthetic regression cases on .NET 11
+        run: >-
+          dotnet test src/tests/FreePDF.RegressionTests/FreePDF.RegressionTests.csproj
+          --configuration Release --framework net10.0
+          --logger "trx;LogFileName=regressions.trx"
+
   windows-build:
     name: Windows GDI and WPF / ${{ matrix.framework }}
     runs-on: windows-2022

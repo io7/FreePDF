@@ -2,17 +2,22 @@
 
 ## Runtime and package scope
 
-Use a maintained, patched .NET 10 runtime for new applications. The portable
-packages contain `net8.0`, `net9.0`, `net10.0` and `netstandard2.0` assets.
-CI executes package consumers on Linux and Windows for .NET 8/9/10 and on
-Windows for Framework 4.6.2/4.7.2 targets. Framework execution uses the runner's
-maintained .NET Framework 4.8 runtime; this does not certify historical CLR
-installations. Prefer Framework 4.8/4.8.1 on an OS supported by Microsoft.
+Use a maintained, patched .NET 10 or .NET 11 runtime for new applications. The
+portable packages contain `net8.0`, `net9.0`, `net10.0` and `netstandard2.0`
+assets; .NET 11 applications use the `net10.0` assets. CI executes package
+consumers on Linux and Windows for .NET 8/9/10/11 and on Windows for Framework
+4.6.2/4.7.2 targets, and runs the regression tests of the `net10.0` build on the
+.NET 11 runtime. The .NET 11 consumers install the same candidate packages that
+are published; the packages are built with the .NET 10 SDK. Framework execution
+uses the runner's maintained .NET Framework 4.8 runtime; this does not certify
+historical CLR installations. Prefer Framework 4.8/4.8.1 on an OS supported by
+Microsoft.
 
-As checked on 2026-10-31, Microsoft ends .NET 8 and 9 support on 2026-11-10;
-.NET 10 is supported through 2028-11-14. The compatibility assets can remain
-available after runtime support ends, but FreePDF cannot provide security
-servicing for Microsoft's runtime. Consult the current policy before deployment:
+As checked on 2026-11-10, .NET 8 and 9 reached the end of Microsoft's support on
+2026-11-10; .NET 10 (LTS) and .NET 11 (STS, released 2026-11-10) are supported
+through 2028-11-14. The compatibility assets can remain available after runtime
+support ends, but FreePDF cannot provide security servicing for Microsoft's
+runtime. Consult the current policy before deployment:
 https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core
 
 Tested OS profiles are Ubuntu 24.04 and Windows Server 2022 in CI, plus a
@@ -22,7 +27,7 @@ trimming are not validated release profiles.
 The GDI and WPF packages (`io7.FreePDF.Gdi`, `io7.FreePDF.Layout.Gdi`,
 `io7.FreePDF.Wpf`, `io7.FreePDF.Layout.Wpf`) contain `net8.0-windows7.0`,
 `net9.0-windows7.0`, `net10.0-windows7.0` and `net462` assets. CI executes their
-package consumers on Windows for `net8.0-windows` and Framework 4.7.2, including
+package consumers on Windows for `net8.0-windows`, `net11.0-windows` and Framework 4.7.2, including
 an image drawn from the platform's own bitmap type. Their drawing results follow
 GDI+ or WPF on the host and are not covered by the cross-platform pixel comparisons.
 

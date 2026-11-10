@@ -1,5 +1,14 @@
 # FreePDF changelog
 
+## Unreleased
+
+- .NET 11: CI installs the candidate packages, the files that are published, in
+  .NET 11 applications (Linux and
+  Windows, including the GDI and WPF packages) and runs the regression tests on
+  the .NET 11 runtime. .NET 11 applications use the `net10.0` assets; the
+  packages are unchanged. The support policy notes that .NET 8 and 9 reached the
+  end of Microsoft's support on 2026-11-10.
+
 ## 7.9.0
 
 - QR codes: `CodeQR` draws QR codes (model 2, versions 1 to 40, error
