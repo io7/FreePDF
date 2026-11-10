@@ -50,6 +50,28 @@ public class MigraDocTabTests
         Assert.True(b.X >= Unit.FromCentimeter(2.5 + 1.25).Point - 0.1, $"b at {b.X}");
     }
 
+    // A justified line with a center tab is measured again when it is rendered. Skipping the ignored blank at the end of
+    // the line let that second probe run into the next line's first word, so the tab's gap collapsed and "L" touched
+    // "mmm". The gap must stay as formatting chose it.
+    [Fact]
+    public void A_center_tab_keeps_its_gap_when_a_justified_line_is_measured_again()
+    {
+        var document = NewDocument();
+        var paragraph = document.Sections[0]!.AddParagraph();
+        paragraph.Format.Alignment = ParagraphAlignment.Justify;
+        paragraph.Format.TabStops.AddTabStop(Unit.FromCentimeter(8), TabAlignment.Center);
+        paragraph.AddText("L");
+        paragraph.AddTab();
+        paragraph.AddText("mmm " + string.Concat(Enumerable.Repeat("abcde ", 20)).TrimEnd());
+
+        var texts = RenderTexts(document);
+
+        var l = texts.First(t => t.Text == "L");
+        var mmm = texts.First(t => t.Text.StartsWith("mmm", StringComparison.Ordinal));
+        Assert.Equal(l.Y, mmm.Y, 2);
+        Assert.True(mmm.X > l.X + 6 + 1, $"L at {l.X}, mmm at {mmm.X}");
+    }
+
     static Document NewDocument()
     {
         TestFonts.Initialize();

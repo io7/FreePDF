@@ -5,7 +5,8 @@
 - Text with characters beyond U+FFFF, such as emoji and mathematical letters,
   is extracted correctly: the ToUnicode map writes them as UTF-16 surrogate
   pairs instead of raw code points. Maps with more than 100 glyphs are split
-  into sections of at most 100, as CMaps require.
+  into sections of at most 100, as CMaps require. Colour emoji drawn with
+  `XPdfFontOptions.ColoredGlyphs` still extract as their layer glyphs.
 - MigraDoc: default tab stops reach the right edge of the text. They were
   dropped in the last part of each line as wide as the left margin, so a tab
   there broke the line.

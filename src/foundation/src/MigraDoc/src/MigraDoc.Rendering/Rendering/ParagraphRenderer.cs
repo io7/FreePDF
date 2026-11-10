@@ -707,9 +707,13 @@ namespace MigraDoc.Rendering
             {
                 FormatResult result = FormatElement(_currentLeaf.Current);
                 // FreePDF: an ignored element, such as the blank right after the tab, takes no room; probing stopped
-                // there and the tab forced a line break although the text fitted (upstream #405).
+                // there and the tab forced a line break although the text fitted (upstream #405). When a rendered line
+                // is measured again, its last element is ignored too, and the probe must stop there rather than take
+                // the next line's words into the tab's width.
                 if (result == FormatResult.Ignore)
                 {
+                    if (_endLeaf != null && _currentLeaf.Current == _endLeaf.Current)
+                        break;
                     _currentLeaf = _currentLeaf.GetNextLeaf();
                     continue;
                 }
