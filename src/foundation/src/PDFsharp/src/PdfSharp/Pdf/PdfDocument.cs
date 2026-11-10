@@ -273,11 +273,22 @@ namespace PdfSharp.Pdf
                 return;
             }
 
-            // We need ReadWrite when adding a signature. Write is sufficient if not adding a signature.
-            var fileAccess = DigitalSignatureHandler == null ? FileAccess.Write : FileAccess.ReadWrite;
+            if (DigitalSignatureHandler != null)
+            {
+                // FreePDF: a signature can fail after the file is written (a time-stamp authority, a signer), so a signed
+                // document is saved in memory first and only then written: a failed signature leaves an existing file as
+                // it was.
+                using var buffer = new MemoryStream();
+                await SaveAsync(buffer).ConfigureAwait(false);
+                // ReSharper disable once UseAwaitUsing because we need no DisposeAsync for a simple FileStream.
+                using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+                buffer.Position = 0;
+                await buffer.CopyToAsync(file).ConfigureAwait(false);
+                return;
+            }
 
             // ReSharper disable once UseAwaitUsing because we need no DisposeAsync for a simple FileStream.
-            using var stream = new FileStream(path, FileMode.Create, fileAccess, FileShare.None);
+            using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
             await SaveAsync(stream).ConfigureAwait(false);
         }
 

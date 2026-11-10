@@ -710,7 +710,7 @@ namespace PdfSharp.Pdf.IO
 
         static readonly HashSet<string> FieldKeys = new(StringComparer.Ordinal) { "/V", "/AS", "/AP", "/I" };
         static readonly HashSet<string> WidgetKeys = new(StringComparer.Ordinal) { "/AS", "/AP" };
-        static readonly HashSet<string> CatalogKeys = new(StringComparer.Ordinal) { "/AcroForm", "/Version", "/Metadata" };
+        static readonly HashSet<string> CatalogKeys = new(StringComparer.Ordinal) { "/AcroForm", "/Version", "/Metadata", "/Extensions" };
         static readonly HashSet<string> FormKeys = new(StringComparer.Ordinal) { "/Fields", "/SigFlags", "/DR", "/NeedAppearances" };
         static readonly HashSet<string> PageKeys = new(StringComparer.Ordinal) { "/Annots" };
 

@@ -189,8 +189,15 @@ signing-certificate-v2 attribute and has no signing-time attribute: the claimed
 time is the signature dictionary's /M. Without a time-stamp authority it is
 PAdES B-B; with one, the signature gets a signature time-stamp and is B-T.
 Set `TimeStampClient` to send the RFC 3161 request yourself, for example with
-authentication. Time-stamps need .NET 8 or later. The default format is still
-adbe.pkcs7.detached.
+authentication; `TimeStampReserve` (16384 bytes by default) is the room kept
+for the authority's token. Time-stamps need .NET 8 or later. PAdES needs
+SHA-256 or stronger. Below PDF 2.0 the catalog declares the ESIC extension.
+The default format is still adbe.pkcs7.detached.
+
+The signer calls the authority while the document is saved, so prefer
+`await document.SaveAsync(...)` in UI and ASP.NET code; `Save` blocks until
+the authority answers (at most 30 seconds over HTTP). A signed document saved
+to a path is written only once the signature is made.
 
 ## Project status
 

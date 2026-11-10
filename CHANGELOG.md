@@ -5,13 +5,28 @@
 - PAdES baseline signatures: `PdfSharpDefaultSigner` with
   `Format = PdfSignatureFormat.Pades` writes ETSI.CAdES.detached signatures
   with the signing-certificate-v2 attribute and no signing-time attribute
-  (ETSI EN 319 142-1): PAdES B-B, and B-T with a time-stamp authority. A signer
-  of your own reports its format through `IDigitalSignerFormat`. A signature
-  field whose seed value requires a /SubFilter is checked against the signer's
-  format.
+  (ETSI EN 319 142-1): PAdES B-B, and B-T with a time-stamp authority (B-T
+  needs .NET 8 or later). PAdES refuses SHA-1 with `ArgumentException`. Below
+  PDF 2.0 the catalog declares the ESIC extension that EN 319 142-1 asks for;
+  a document certified for form filling still accepts the signature. A signer
+  of your own reports its format through `IDigitalSignerFormat`, and a signer
+  that wraps another must forward it. A signature field whose seed value
+  requires a /SubFilter is checked against the signer's format.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use
-  a test authority (.NET 8 and later).
+  a test authority (.NET 8 and later; on .NET Framework and .NET Standard,
+  setting it throws `NotSupportedException`).
+- Signature time-stamps: the authority is asked once per signature. It was
+  asked twice, the first time only to size the signature's placeholder, which
+  then had 10 bytes to spare for a reply of another size. The placeholder now
+  reserves `TimeStampReserve` bytes (16384 by default) for the token, so a
+  time-stamped signature takes about 30 KB more (set a smaller reserve for an
+  authority whose tokens you know), and a larger token fails the save instead
+  of overflowing. The built-in HTTP request shares one client with a
+  30-second timeout.
+- Saving a signed document to a path writes the file only once the signature
+  is made. A signature that failed (a time-stamp authority that refused or
+  could not be reached) left a truncated file in place of an existing one.
 - `PdfSharpDefaultSigner` refuses a null certificate with
   `ArgumentNullException`; it failed later with `NullReferenceException`.
 - .NET 11: CI installs the candidate packages, the files that are published,

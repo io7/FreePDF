@@ -67,12 +67,17 @@ public class CertificationPermissionTests
     static readonly Action<PdfDocument> SetTitle = document => document.Info.Title = "New title";
     static readonly Action<PdfDocument> SetPageLayout = document => document.PageLayout = PdfPageLayout.TwoColumnLeft;
 
-    static void Sign(PdfDocument document)
+    static void Sign(PdfDocument document) => Sign(document, PdfSignatureFormat.Pkcs7Detached);
+
+    // A PAdES signature also declares the ESIC extension in the catalog's /Extensions.
+    static void SignPades(PdfDocument document) => Sign(document, PdfSignatureFormat.Pades);
+
+    static void Sign(PdfDocument document, PdfSignatureFormat format)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest("CN=FreePDF permission test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
-        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = format },
             new DigitalSignatureOptions { Rectangle = new XRect(250, 20, 120, 40), AppearanceHandler = new EmptyAppearance() });
     }
 
@@ -108,6 +113,7 @@ public class CertificationPermissionTests
         { "fill", 1, false }, { "fill", 2, true }, { "fill", 3, true },
         { "fill-kid", 1, false }, { "fill-kid", 2, true }, { "fill-kid", 3, true },
         { "sign", 1, false }, { "sign", 2, true }, { "sign", 3, true },
+        { "sign-pades", 1, false }, { "sign-pades", 2, true }, { "sign-pades", 3, true },
         { "title", 1, false }, { "title", 2, true }, { "title", 3, true },
         { "comment", 1, false }, { "comment", 2, false }, { "comment", 3, true },
         { "change-comment", 1, false }, { "change-comment", 2, false }, { "change-comment", 3, true },
@@ -122,6 +128,7 @@ public class CertificationPermissionTests
         "fill" => FillName,
         "fill-kid" => FillCity,
         "sign" => Sign,
+        "sign-pades" => SignPades,
         "title" => SetTitle,
         "comment" => Comment,
         "change-comment" => ChangeComment,

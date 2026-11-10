@@ -54,6 +54,49 @@ public class PadesSigningTests
         Array.Reverse(serial);
         Assert.Equal(serial, issuerSerial.ReadIntegerBytes().ToArray());
         Assert.False(certId.HasData);
+
+        // EN 319 142-1 6.3 c: the content-type attribute is id-data.
+        var contentType = signer.SignedAttributes.Cast<CryptographicAttributeObject>().Single(a => a.Oid.Value == ContentType).Values[0].RawData;
+        Assert.Equal("1.2.840.113549.1.7.1", new AsnReader(contentType, AsnEncodingRules.DER).ReadObjectIdentifier());
+        // EN 319 142-1 5.6: the ESIC extension is declared below PDF 2.0.
+        Assert.Matches(@"/ESIC\s*<<\s*/BaseVersion\s*/1\.7\s*/ExtensionLevel\s*2\s*>>", Text(pdf));
+    }
+
+    [Fact]
+    public void Pades_needs_sha256_or_stronger()
+        => Assert.Throws<ArgumentException>(() => new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA1) { Format = PdfSignatureFormat.Pades });
+
+    // A signer of its own reports its format through IDigitalSignerFormat.
+    [Fact]
+    public void A_custom_signer_reports_its_format()
+    {
+        var pdf = SignNew(new WrappingSigner(new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades }));
+
+        Assert.Equal("ETSI.CAdES.detached", ReadSignature(pdf).SubFilter);
+    }
+
+    // A certificate whose serial number has a redundant leading byte (non-conforming, but loaded by .NET and Windows).
+    [Fact]
+    public void A_serial_number_with_a_redundant_leading_byte_is_written_as_its_value()
+    {
+        using var caKey = RSA.Create(2048);
+        var caRequest = new CertificateRequest("CN=FreePDF test CA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var ca = caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF odd serial", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var issued = request.Create(ca, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1), new byte[] { 0x00, 0x01 });
+        using var certificate = issued.CopyWithPrivateKey(key);
+
+        var pdf = SignNew(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+
+        var signer = ReadSignature(pdf).Cms.SignerInfos[0];
+        var value = signer.SignedAttributes.Cast<CryptographicAttributeObject>().Single(a => a.Oid.Value == SigningCertificateV2).Values[0].RawData;
+        var certId = new AsnReader(value, AsnEncodingRules.DER).ReadSequence().ReadSequence().ReadSequence();
+        certId.ReadOctetString();
+        var issuerSerial = certId.ReadSequence();
+        issuerSerial.ReadSequence();
+        Assert.Equal(System.Numerics.BigInteger.One, issuerSerial.ReadInteger());
     }
 
     [Fact]
@@ -66,8 +109,19 @@ public class PadesSigningTests
         Assert.Equal("adbe.pkcs7.detached", subFilter);
         var signer = cms.SignerInfos[0];
         Assert.Contains(SigningTime, signer.UnsignedAttributes.Cast<CryptographicAttributeObject>().Select(a => a.Oid.Value));
-        Assert.DoesNotContain(SigningCertificateV2, signer.SignedAttributes.Cast<CryptographicAttributeObject>().Select(a => a.Oid.Value));
+        Assert.Equal(0, signer.SignedAttributes.Count);
+        Assert.DoesNotContain("/ESIC", Text(pdf));
     }
+
+#if !NET8_0_OR_GREATER
+    // The RFC 3161 types are missing here, so a time-stamp client is refused when the signer is made.
+    [Fact]
+    public void A_time_stamp_client_needs_net8()
+        => Assert.Throws<NotSupportedException>(() => new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256)
+        {
+            TimeStampClient = request => Task.FromResult(request),
+        });
+#endif
 
 #if NET8_0_OR_GREATER
     // B-T: a signature time-stamp over the signature value, from the time-stamp client instead of HTTP.
@@ -92,21 +146,65 @@ public class PadesSigningTests
         Assert.True(token!.VerifySignatureForSignerInfo(signer, out var tsaCertificate));
         Assert.Equal(authority.Certificate.Thumbprint, tsaCertificate!.Thumbprint);
         Assert.Equal(authority.Time, token.TokenInfo.Timestamp);
-        // One request sizes the placeholder, one stamps the real signature.
-        Assert.Equal(2, authority.Requests);
+        // Only the real signature is time-stamped; the placeholder reserves room for the token.
+        Assert.Equal(1, authority.Requests);
     }
 
+    // A TimeStampResp with PKIStatusInfo status 2 (rejection) fails the save, and an existing file is left as it was.
     [Fact]
-    public void A_refused_time_stamp_fails_the_signature()
+    public void A_rejected_time_stamp_fails_the_save_and_keeps_the_file()
     {
-        var pdfDocument = NewDocument();
-        DigitalSignatureHandler.ForDocument(pdfDocument, new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256)
+        var path = Path.Combine(Path.GetTempPath(), $"freepdf-rejected-{Guid.NewGuid():N}.pdf");
+        File.WriteAllBytes(path, new byte[] { 1, 2, 3 });
+        try
+        {
+            var document = NewDocument();
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256)
+            {
+                Format = PdfSignatureFormat.Pades,
+                TimeStampClient = _ => Task.FromResult(new byte[] { 0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x02 }),
+            }, new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Reason = "Test" });
+
+            var refused = Assert.ThrowsAny<CryptographicException>(() => document.Save(path));
+            Assert.Contains("Rejection", refused.Message);
+            Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // A token larger than the reserve fails the save instead of being cut.
+    [Fact]
+    public void A_token_larger_than_the_reserve_fails_the_save()
+    {
+        using var authority = new TestTimeStampAuthority(new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero));
+        var document = NewDocument();
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256)
         {
             Format = PdfSignatureFormat.Pades,
-            TimeStampClient = _ => Task.FromResult(new byte[] { 0x30, 0x03, 0x02, 0x01, 0x02 }),   // status 2: rejection
+            TimeStampClient = authority.RespondAsync,
+            TimeStampReserve = 64,
         }, new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Reason = "Test" });
 
-        Assert.ThrowsAny<CryptographicException>(() => pdfDocument.Save(new MemoryStream()));
+        Assert.ThrowsAny<Exception>(() => document.Save(new MemoryStream()));
+    }
+
+    // The built-in HTTP client posts application/timestamp-query and reads application/timestamp-reply.
+    [Fact]
+    public async Task The_time_stamp_authority_uri_is_posted_to()
+    {
+        using var authority = new TestTimeStampAuthority(new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero));
+        using var server = new TestHttpTimeStampServer(authority);
+        var serving = server.ServeOnceAsync();
+
+        var pdf = SignNew(new PdfSharpDefaultSigner(Certificate, PdfMessageDigestType.SHA256, server.Uri) { Format = PdfSignatureFormat.Pades });
+        await serving;
+
+        Assert.Equal("application/timestamp-query", server.ContentType);
+        var signer = ReadSignature(pdf).Cms.SignerInfos[0];
+        Assert.Contains(SignatureTimeStamp, signer.UnsignedAttributes.Cast<CryptographicAttributeObject>().Select(a => a.Oid.Value));
     }
 #endif
 
@@ -177,6 +275,16 @@ public class PadesSigningTests
         cms.CheckSignature(verifySignatureOnly: true);
         var subFilter = Regex.Matches(text, @"/SubFilter\s*/([A-Za-z0-9.]+)").Cast<Match>().Last().Groups[1].Value;
         return (cms, subFilter);
+    }
+
+    static string Text(byte[] pdf) => new(pdf.Select(b => (char)b).ToArray());
+
+    sealed class WrappingSigner(PdfSharpDefaultSigner inner) : IDigitalSigner, IDigitalSignerFormat
+    {
+        public string CertificateName => inner.CertificateName;
+        public Task<int> GetSignatureSizeAsync() => inner.GetSignatureSizeAsync();
+        public Task<byte[]> GetSignatureAsync(Stream stream) => inner.GetSignatureAsync(stream);
+        public PdfSignatureFormat Format => inner.Format;
     }
 
     static byte[] SHA256Hash(byte[] data)

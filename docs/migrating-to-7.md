@@ -210,7 +210,10 @@ DigitalSignatureHandler.ForDocument(approved, signer,
   where the field allows none (no reasons or a single "." listed), and
   requirements FreePDF cannot meet or check (a signing certificate, a digest
   method, a timestamp, a certification, revocation information, locking the
-  document, a named appearance) make `ForDocument` throw `NotSupportedException`. A field that is
+  document, a named appearance) make `ForDocument` throw `NotSupportedException`.
+  Since 7.10, a required /SubFilter is checked against the signer's format
+  (`PdfSharpDefaultSigner.Format`, or `IDigitalSignerFormat` for a signer of
+  your own), and a format the field does not list is refused the same way. A field that is
   already signed cannot be signed again, and one that an earlier signature locks
   is refused when saving. It works in `Modify` mode too.
 - A save that would change more than the document's signatures permit throws

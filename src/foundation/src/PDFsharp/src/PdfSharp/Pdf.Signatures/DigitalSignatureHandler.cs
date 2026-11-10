@@ -192,6 +192,8 @@ namespace PdfSharp.Pdf.Signatures
             var signatureSize = await Signer.GetSignatureSizeAsync().ConfigureAwait(false);
             _contentsPlaceholder = new(2 * signatureSize + 2);
             _byteRangePlaceholder = new(ByteRangePlaceholderLength);
+            if ((Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades)
+                DeclareEsicExtension();
 
             if (Options.FieldName != null)
             {
@@ -212,6 +214,28 @@ namespace PdfSharp.Pdf.Signatures
             var acroForm = Document.Catalog.GetOrCreateAcroForm();
             SetSignatureFlags(acroForm);
             acroForm.Fields.Elements.Add(signatureField);
+        }
+
+        /// <summary>
+        /// ETSI EN 319 142-1 5.6: a document below PDF 2.0 that uses an ETSI /SubFilter should declare the ESIC developer
+        /// extension (BaseVersion 1.7, ExtensionLevel 2) in the catalog's /Extensions (ISO 32000-1 7.12).
+        /// </summary>
+        void DeclareEsicExtension()
+        {
+            if (Document.Version >= 20)
+                return;
+            var extensions = Document.Catalog.Elements.GetDictionary("/Extensions");
+            if (extensions?.Elements.GetDictionary("/ESIC") is { } declared && declared.Elements.GetInteger("/ExtensionLevel") >= 2)
+                return;
+            if (extensions == null)
+            {
+                extensions = new PdfDictionary(Document);
+                Document.Catalog.Elements["/Extensions"] = extensions;
+            }
+            var esic = new PdfDictionary(Document);
+            esic.Elements.SetName("/BaseVersion", "/1.7");
+            esic.Elements.SetInteger("/ExtensionLevel", 2);
+            extensions.Elements["/ESIC"] = esic;
         }
 
         // SignaturesExist and AppendOnly (ISO 32000-1 Table 219).

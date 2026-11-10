@@ -168,10 +168,14 @@ Since 7.10.0, `PdfSharpDefaultSigner` writes PAdES B-B and B-T signatures
 (ETSI.CAdES.detached) on request. Regression tests check the CMS attributes
 (content-type, message-digest, signing-certificate-v2 with the certificate's
 hash, issuer and serial number, no signing-time) and the signature time-stamp
-against an offline test authority, and pyHanko and poppler's pdfsig validated
-FreePDF's B-B and B-T files, SHA-256 and SHA-512, also countersigned in Append
-mode, as valid with valid time-stamps. Signature time-stamps need .NET 8 or
-later. Long-term validation data (B-LT, B-LTA) is not written yet.
+against an offline test authority. pyHanko validated FreePDF's B-B and B-T
+files, SHA-256 and SHA-512, also countersigned in Append mode and countersigned
+after a certification for form filling (the update that adds the ESIC extension
+is rated "form filling"), as valid with valid time-stamps; poppler's pdfsig
+judged the same signatures valid but does not report time-stamps. These checks
+cover CMS validity and the attributes above, not full ETSI profile conformance:
+no conformance checker was run. Signature time-stamps need .NET 8 or later.
+Long-term validation data (B-LT, B-LTA) is not written yet.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the

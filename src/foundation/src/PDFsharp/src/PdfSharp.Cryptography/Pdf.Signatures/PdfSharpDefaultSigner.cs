@@ -2,8 +2,10 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Formats.Asn1;
+#if NET8_0_OR_GREATER
 using System.Net.Http;
 using System.Net.Http.Headers;
+#endif
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
@@ -47,19 +49,57 @@ namespace PdfSharp.Pdf.Signatures
         public string CertificateName => Certificate.GetNameInfo(X509NameType.SimpleName, false) ?? "(undefined)";
 
         /// <summary>
-        /// Gets or sets the format of the signatures. The default, <see cref="PdfSignatureFormat.Pkcs7Detached"/>, writes
-        /// the CMS as before 7.10. <see cref="PdfSignatureFormat.Pades"/> writes a PAdES baseline signature
-        /// (ETSI.CAdES.detached): B-B, or B-T with a time-stamp authority.
+        /// Gets the format of the signatures; set it when creating the signer. The default,
+        /// <see cref="PdfSignatureFormat.Pkcs7Detached"/>, writes the CMS as before 7.10.
+        /// <see cref="PdfSignatureFormat.Pades"/> writes a PAdES baseline signature (ETSI.CAdES.detached): B-B, or B-T
+        /// with a time-stamp authority. PAdES needs SHA-256 or a stronger digest.
         /// </summary>
-        public PdfSignatureFormat Format { get; init; } = PdfSignatureFormat.Pkcs7Detached;
+        public PdfSignatureFormat Format
+        {
+            get => _format;
+            init
+            {
+                if (value is not (PdfSignatureFormat.Pkcs7Detached or PdfSignatureFormat.Pades))
+                    throw new ArgumentOutOfRangeException(nameof(value), "This signer writes adbe.pkcs7.detached or PAdES signatures.");
+                if (value == PdfSignatureFormat.Pades && DigestType == PdfMessageDigestType.SHA1)
+                    throw new ArgumentException("PAdES signatures need SHA-256 or a stronger digest; validators reject SHA-1.", nameof(value));
+                _format = value;
+            }
+        }
+        readonly PdfSignatureFormat _format = PdfSignatureFormat.Pkcs7Detached;
 
         /// <summary>
-        /// Gets or sets the function that sends an RFC 3161 time-stamp request (a DER-encoded TimeStampReq) to a
-        /// time-stamp authority and returns its reply (a DER-encoded TimeStampResp). When it is set, the signature gets
-        /// a signature time-stamp from it instead of an HTTP POST to the URI given to the constructor, for example to
-        /// add authentication or to use a test authority. Time-stamps need .NET 8 or later.
+        /// Gets the function that sends an RFC 3161 time-stamp request (a DER-encoded TimeStampReq) to a time-stamp
+        /// authority and returns its reply (a DER-encoded TimeStampResp); set it when creating the signer. When it is
+        /// set, the signature gets a signature time-stamp from it instead of an HTTP POST to the URI given to the
+        /// constructor, for example to add authentication or to use a test authority. It is called once per signature.
+        /// Time-stamps need .NET 8 or later. The synchronous <c>Save</c> waits for it: use <c>SaveAsync</c>, or
+        /// <c>ConfigureAwait(false)</c> inside it, in applications with a synchronization context (WinForms, WPF).
         /// </summary>
-        public Func<byte[], Task<byte[]>>? TimeStampClient { get; init; }
+        public Func<byte[], Task<byte[]>>? TimeStampClient
+        {
+            get => _timeStampClient;
+            init
+            {
+#if !NET8_0_OR_GREATER
+                if (value != null)
+                    throw new NotSupportedException("Signature time-stamps need .NET 8 or later.");
+#endif
+                _timeStampClient = value;
+            }
+        }
+        readonly Func<byte[], Task<byte[]>>? _timeStampClient;
+
+        /// <summary>
+        /// Gets the number of bytes reserved for the signature time-stamp token; set it when creating the signer. The
+        /// default, 16384, holds a token with its authority's certificate chain. Saving fails if a token is larger.
+        /// </summary>
+        public int TimeStampReserve
+        {
+            get => _timeStampReserve;
+            init => _timeStampReserve = value > 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
+        }
+        readonly int _timeStampReserve = 16384;
 
         /// <summary>
         /// Determines the size of the contents to be reserved in the PDF file for the signature.
@@ -68,22 +108,14 @@ namespace PdfSharp.Pdf.Signatures
         {
             if (_signatureSize == 0)
             {
-                // The signature size varies depending on the length of the digest
-                // and the size of the certificate.
-                // We simply calculate it once by signing an empty stream.
-                _signatureSize = (await GetSignatureAsync(new MemoryStream([0])).ConfigureAwait(false)).Length;
-                if (MustAddTimeStamp)
-                {
-                    // Add arbitrary padding because TSA timestamp response’s length seems to vary from one call to another by 1 byte.
-                    _signatureSize += 10; // 2 was found to be too small. Make it 10 to allow for some DSA variation.
-                }
-                else
-                {
-                    // With DSA, signature size varies without timestamp. A variation of 2 bytes was observed. Make it 4 to allow more variation.
-                    _signatureSize += 4;
-                }
+                // The signature size varies with the digest and the certificate: sign an empty stream once, without a
+                // time-stamp, so the authority is asked only for the real signature.
+                _signatureSize = (await SignAsync([0], timeStamp: false).ConfigureAwait(false)).Length;
+                // With DSA, signature size varies without timestamp. A variation of 2 bytes was observed. Make it 4 to allow more variation.
+                _signatureSize += 4;
             }
-            return _signatureSize;
+            // The token is unsigned data: its size depends on the authority, so a fixed reserve is added.
+            return MustAddTimeStamp ? _signatureSize + TimeStampReserve : _signatureSize;
         }
         int _signatureSize;
 
@@ -107,7 +139,11 @@ namespace PdfSharp.Pdf.Signatures
                     throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
                 read += count;
             }
+            return await SignAsync(content, MustAddTimeStamp).ConfigureAwait(false);
+        }
 
+        async Task<byte[]> SignAsync(byte[] content, bool timeStamp)
+        {
             // Sign the byte range.
             var contentInfo = new ContentInfo(content);
             var signedCms = new SignedCms(contentInfo, true);
@@ -126,7 +162,7 @@ namespace PdfSharp.Pdf.Signatures
 
             signedCms.ComputeSignature(signer, true);
 
-            if (MustAddTimeStamp)
+            if (timeStamp)
                 await AddTimeStampAsync(signedCms).ConfigureAwait(false);
             return signedCms.Encode();
         }
@@ -166,8 +202,9 @@ namespace PdfSharp.Pdf.Signatures
             byte[] hash;
             using (var sha256 = SHA256.Create())
                 hash = sha256.ComputeHash(certificate.RawData);
-            var serial = certificate.GetSerialNumber();
-            Array.Reverse(serial);
+            // GetSerialNumber is little-endian two's complement; a BigInteger also takes serials that a non-conforming
+            // CA encoded with redundant leading bytes, which the DER writer would refuse as raw bytes.
+            var serial = new System.Numerics.BigInteger(certificate.GetSerialNumber());
 
             var writer = new AsnWriter(AsnEncodingRules.DER);
             using (writer.PushSequence())           // SigningCertificateV2
@@ -223,12 +260,15 @@ namespace PdfSharp.Pdf.Signatures
 #endif
         }
 
+#if NET8_0_OR_GREATER
+        // One client for all requests: no new connection per signature, and a bounded wait for the authority.
+        static readonly HttpClient TimeStampHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
+
         async Task<byte[]> PostToAuthorityAsync(byte[] request)
         {
-            using var client = new HttpClient();
             using var content = new ByteArrayContent(request);
             content.Headers.ContentType = new MediaTypeHeaderValue(TimestampQueryContentType);
-            using var response = await client.PostAsync(TimeStampAuthorityUri, content).ConfigureAwait(false);
+            using var response = await TimeStampHttp.PostAsync(TimeStampAuthorityUri, content).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -240,5 +280,6 @@ namespace PdfSharp.Pdf.Signatures
 
             return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
         }
+#endif
     }
 }
