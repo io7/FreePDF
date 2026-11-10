@@ -491,12 +491,18 @@ namespace PdfSharp.Pdf.IO
                 return true;
             if (Resolve(widget.Elements["/Rect"]) is not PdfArray rect || rect.Elements.Count != 4)
                 return true;
+            // Numbers may be indirect objects; anything that is not a number counts as visible, to be safe.
             var numbers = rect.Elements.Select(e => Resolve(e) switch
             {
-                PdfInteger i => (double)i.Value,
+                PdfInteger i => (double?)i.Value,
+                PdfIntegerObject i => i.Value,
                 PdfReal r => r.Value,
-                _ => 0,
+                PdfRealObject r => r.Value,
+                PdfLongInteger l => l.Value,
+                _ => null,
             }).ToArray();
+            if (numbers.Any(n => n == null))
+                return false;
             return numbers[0] == numbers[2] || numbers[1] == numbers[3];
         }
 

@@ -162,6 +162,19 @@ namespace PdfSharp.Pdf.Signatures
 
             // Earlier revisions read on their own, whose dictionaries the results may still use; disposed at the end.
             internal List<PdfDocument> Revisions { get; } = [];
+            readonly Dictionary<int, PdfDocument> _revisionsByEnd = new();
+
+            // The file up to the end of a revision, read on its own once.
+            internal PdfDocument Revision(int end)
+            {
+                if (!_revisionsByEnd.TryGetValue(end, out var revision))
+                {
+                    revision = Open(File, end, Options.Password);
+                    _revisionsByEnd[end] = revision;
+                    Revisions.Add(revision);
+                }
+                return revision;
+            }
 
             // Where the objects of the file start, sorted, for the signature dictionary's boundary check.
             internal long[] ObjectPositions => _objectPositions ??= Document.IrefTable.AllReferences
@@ -488,12 +501,36 @@ namespace PdfSharp.Pdf.Signatures
                 problem = "The byte range's gap is not inside the signature dictionary's object.";
                 return false;
             }
-            if (signature.Field is not { Position: > 0 } field || field.Position >= end)
+            if (!FieldIsSigned(context, signature.Field, end))
             {
                 problem = "The signature field was added or redefined after the signed bytes.";
                 return false;
             }
             return true;
+        }
+
+        // The field is the signed revision's: written there (its position inside the revision), or, when it sits in an
+        // object stream, the same object as in the revision read on its own.
+        static bool FieldIsSigned(Context context, PdfReference? field, int end)
+        {
+            if (field == null)
+                return false;
+            if (field.Position > 0)
+                return field.Position < end;
+            if (end >= TrimmedLength(context.File))
+                return true;
+            try
+            {
+                if (context.Revision(end).Internals.GetObject(field.ObjectID) is not { } old || field.Value is not { } now)
+                    return false;
+                var before = PdfIncrementalUpdate.TryHash(context.Revision(end), old);
+                var after = PdfIncrementalUpdate.TryHash(context.Document, now);
+                return before != null && after != null && PdfIncrementalUpdate.Same(before, after);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return false;
+            }
         }
 
         // "n g obj" at the position, with any white space between the tokens (ISO 32000-1 7.3.10).
@@ -679,9 +716,11 @@ namespace PdfSharp.Pdf.Signatures
 
         enum CertificateBinding { Absent, Matches, Mismatch, Unreadable }
 
-        // signing-certificate-v2 (RFC 5035) or signing-certificate (RFC 2634): the first ESSCertID must be the signer's.
+        // signing-certificate-v2 (RFC 5035) and signing-certificate (RFC 2634): the first ESSCertID of each must be the
+        // signer's; one that names another certificate makes the binding a mismatch whatever the others say.
         static CertificateBinding SigningCertificateBinding(SignerInfo signerInfo, X509Certificate2 signer, PdfSignatureVerification result)
         {
+            var binding = CertificateBinding.Absent;
             foreach (CryptographicAttributeObject attribute in signerInfo.SignedAttributes)
             {
                 bool v2 = attribute.Oid.Value == "1.2.840.113549.1.9.16.2.47";
@@ -704,10 +743,12 @@ namespace PdfSharp.Pdf.Signatures
                         result._reasons.Add("The signing-certificate attribute uses an unknown hash.");
                         return CertificateBinding.Unreadable;
                     }
-                    if (Hash(hash, signer.RawData).AsSpan().SequenceEqual(certId.ReadOctetString()))
-                        return CertificateBinding.Matches;
-                    result._reasons.Add("The signing-certificate attribute names another certificate than the signer's.");
-                    return CertificateBinding.Mismatch;
+                    if (!Hash(hash, signer.RawData).AsSpan().SequenceEqual(certId.ReadOctetString()))
+                    {
+                        result._reasons.Add("The signing-certificate attribute names another certificate than the signer's.");
+                        return CertificateBinding.Mismatch;
+                    }
+                    binding = CertificateBinding.Matches;
                 }
                 catch (AsnContentException)
                 {
@@ -715,7 +756,7 @@ namespace PdfSharp.Pdf.Signatures
                     return CertificateBinding.Unreadable;
                 }
             }
-            return CertificateBinding.Absent;
+            return binding;
         }
 
         // ===== Certificates =====
@@ -869,8 +910,9 @@ namespace PdfSharp.Pdf.Signatures
         }
 
         // Revocation reasons (RFC 5280 5.3.1) that do not put a time-stamp authority's earlier tokens in doubt (RFC 3161 4):
-        // affiliationChanged, superseded, cessationOfOperation.
-        static readonly int[] RetirementReasons = [3, 4, 5];
+        // unspecified (given explicitly), affiliationChanged, superseded, cessationOfOperation. No reason at all counts as
+        // compromise.
+        static readonly int[] RetirementReasons = [0, 3, 4, 5];
 
         // The status of one certificate from every verified OCSP response and CRL about it: revoked at or before the best
         // signature time wins; otherwise good when one shows the certificate not revoked then. Data shows that when it
@@ -885,7 +927,7 @@ namespace PdfSharp.Pdf.Signatures
             foreach (var response in ocspResponses)
             {
                 if (Ocsp.Check(response, certificate, issuer) is { } answer)
-                    answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "OCSP", null));
+                    answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "OCSP", answer.ArchiveCutoff));
             }
             foreach (var crl in crls)
             {
@@ -928,13 +970,12 @@ namespace PdfSharp.Pdf.Signatures
             PdfDocument revision;
             try
             {
-                revision = Open(revisionBytes, revisionBytes.Length, context.Options.Password);
+                revision = context.Revision(end);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 return (null, null, $"The signed revision cannot be read on its own: {ex.Message}");
             }
-            using (revision)
             {
                 var permissions = PdfModificationPermissions.Read(revision);
                 if (permissions == null)
@@ -973,6 +1014,12 @@ namespace PdfSharp.Pdf.Signatures
                     return (change, null, null);
                 if (!permissions.LimitsChanges && Refusal(permissions.AtMost(2)) is { } unexpected)
                     return (null, unexpected, null);
+                // Adding an empty signature field is permitted, but one that shows something can cover what was signed.
+                foreach (var iref in written)
+                {
+                    if (iref.Value is PdfDictionary widget && IsVisibleEmptySignatureWidget(widget))
+                        return (null, $"adding a visible signature field without a signature (object {iref.ObjectNumber})", null);
+                }
                 return (null, null, null);
 
                 string? Refusal(PdfModificationPermissions rules)
@@ -989,6 +1036,44 @@ namespace PdfSharp.Pdf.Signatures
                 }
             }
         }
+
+        // A signature field's widget (the field itself, or a kid of one) with no signature value that shows something: an
+        // appearance or a background colour, on a rectangle with area, not hidden.
+        static bool IsVisibleEmptySignatureWidget(PdfDictionary widget)
+        {
+            if (NameOf(widget, "/Subtype") != "/Widget")
+                return false;
+            var field = NameOf(widget, "/FT") == "/Sig" ? widget : Resolve(widget.Elements["/Parent"]) as PdfDictionary;
+            if (field == null || NameOf(field, "/FT") != "/Sig" || Resolve(field.Elements["/V"]) is PdfDictionary)
+                return false;
+            int flags = Resolve(widget.Elements["/F"]) is PdfInteger f ? f.Value : 0;
+            if ((flags & 2) != 0)
+                return false;
+            bool shows = widget.Elements.ContainsKey("/AP")
+                         || (Resolve(widget.Elements["/MK"]) as PdfDictionary)?.Elements.ContainsKey("/BG") == true;
+            return shows && HasArea(widget);
+        }
+
+        // A widget's /Rect with area; any entry that is not a number counts as area, to be safe.
+        static bool HasArea(PdfDictionary widget)
+        {
+            if (Resolve(widget.Elements["/Rect"]) is not PdfArray rect || rect.Elements.Count != 4)
+                return false;
+            var numbers = rect.Elements.Select(e => Number(Resolve(e))).ToArray();
+            if (numbers.Any(n => n == null))
+                return true;
+            return numbers[0] != numbers[2] && numbers[1] != numbers[3];
+        }
+
+        static double? Number(PdfItem? item) => item switch
+        {
+            PdfInteger i => i.Value,
+            PdfIntegerObject i => i.Value,
+            PdfReal r => r.Value,
+            PdfRealObject r => r.Value,
+            PdfLongInteger l => l.Value,
+            _ => null,
+        };
 
         // A trailer entry is the same object (by reference) or the same direct dictionary (by its written form).
         static bool SameTrailerEntry(PdfDocument revision, PdfDocument document, string key)
@@ -1023,8 +1108,7 @@ namespace PdfSharp.Pdf.Signatures
                     continue;
                 try
                 {
-                    var revision = Open(context.File, end, context.Options.Password);
-                    context.Revisions.Add(revision);
+                    var revision = context.Revision(end);
                     foreach (var signature in Signatures(revision))
                     {
                         if (known.Add(Key(signature)))
@@ -1175,7 +1259,13 @@ namespace PdfSharp.Pdf.Signatures
                 return raw.Length <= limit ? raw : null;
             bool flate = filter is PdfName { Value: "/FlateDecode" }
                          || filter is PdfArray { Elements.Count: 1 } single && Resolve(single.Elements[0]) is PdfName { Value: "/FlateDecode" };
-            if (!flate || stream.Elements.ContainsKey("/DecodeParms") || raw.Length < 2)
+            // Parameters that change nothing (an empty dictionary, predictor 1) are plain Flate; predictors are not read.
+            if (Resolve(stream.Elements["/DecodeParms"]) is PdfDictionary parameters
+                && parameters.Elements.Keys.Any(k => k != "/Predictor" || Number(Resolve(parameters.Elements[k])) != 1))
+            {
+                return null;
+            }
+            if (!flate || stream.Elements["/DecodeParms"] is not (null or PdfDictionary or PdfReference) || raw.Length < 2)
                 return null;
             try
             {
@@ -1291,8 +1381,8 @@ namespace PdfSharp.Pdf.Signatures
         {
             // The answer of a verified response about the certificate, or null if the response is not about it, not
             // successful, says unknown, or is not signed by the issuer or a responder the issuer authorized.
-            internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate)? Check(byte[] der,
-                X509Certificate2 certificate, X509Certificate2 issuer)
+            internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate,
+                DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer)
             {
                 try
                 {
@@ -1358,7 +1448,27 @@ namespace PdfSharp.Pdf.Signatures
                     {
                         return null;
                     }
-                    return answer;
+                    // responseExtensions [1]: archiveCutoff (RFC 6960 4.4.4), the responder keeps the status of
+                    // certificates that expired at or after it.
+                    DateTimeOffset? archiveCutoff = null;
+                    while (responses.HasData)
+                        responses.ReadEncodedValue();
+                    if (data.HasData && data.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)))
+                    {
+                        var extensions = data.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence();
+                        while (extensions.HasData)
+                        {
+                            var extension = extensions.ReadSequence();
+                            var oid = extension.ReadObjectIdentifier();
+                            if (extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
+                                extension.ReadBoolean();
+                            var value = extension.ReadOctetString();
+                            if (oid == "1.3.6.1.5.5.7.48.1.6")
+                                archiveCutoff = new AsnReader(value, AsnEncodingRules.DER).ReadGeneralizedTime();
+                        }
+                    }
+                    var found = answer.Value;
+                    return (found.Item1, found.Item2, found.Item3, found.Item4, archiveCutoff);
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {

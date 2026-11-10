@@ -176,6 +176,7 @@ public class CertificationPermissionTests
     [InlineData("/ETSI.RFC3161", "", 400, true, 36, false)]   // NoView still prints
     [InlineData("/ETSI.RFC3161", "", 400, true, 2, true)]     // Hidden
     [InlineData("/ETSI.RFC3161", "", 0, false, 132, false)]
+    [InlineData("/ETSI.RFC3161", "", -400, true, 132, false)]  // a page-sized rectangle of indirect numbers
     public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, int size, bool byteRange, int flags, bool allowed)
     {
         Action<PdfDocument> addField = document =>
@@ -195,7 +196,15 @@ public class CertificationPermissionTests
             field.Elements.SetName("/Type", "/Annot");
             field.Elements.SetName("/Subtype", "/Widget");
             // A rectangle with area could hold an appearance that covers the page.
-            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(size), new PdfInteger(size));
+            if (size < 0)
+            {
+                var corner = new PdfIntegerObject(document, -size);   // registers itself as an indirect object
+                field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), corner.Reference!, corner.Reference!);
+            }
+            else
+            {
+                field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(size), new PdfInteger(size));
+            }
             field.Elements["/P"] = document.Pages[0].Reference;
             field.Elements.SetInteger("/F", flags);
             if (fieldEntries.Length > 0)

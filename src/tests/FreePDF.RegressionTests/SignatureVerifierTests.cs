@@ -636,14 +636,19 @@ public class SignatureVerifierTests
     }
 
     // RFC 3161 4: a time-stamp authority revoked for compromise, or for no stated reason, voids its tokens even when the
-    // revocation came after them; the expired signer is then not rescued.
-    [Fact]
-    public async Task A_time_stamp_authority_revoked_later_without_a_retirement_reason_voids_its_tokens()
+    // revocation came after them, so the expired signer is not rescued; one retired for another reason keeps them.
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(X509RevocationReason.KeyCompromise, false)]
+    [InlineData(X509RevocationReason.Unspecified, true)]
+    [InlineData(X509RevocationReason.Superseded, true)]
+    public async Task A_time_stamp_authority_revoked_later_keeps_its_tokens_only_when_retired(X509RevocationReason? reason, bool kept)
     {
         using var pki = new TestPki();
         var bt = SignBT(pki);
         pki.Revoked.Add(pki.TimeStampAuthority.SerialNumberBytes.ToArray());
         pki.RevocationTime = DateTimeOffset.UtcNow.AddMinutes(5);
+        pki.RevocationReason = reason;
         using var client = pki.CreateClient();
         byte[] withData;
         using (var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append))
@@ -661,9 +666,64 @@ public class SignatureVerifierTests
             ValidationTime = new DateTimeOffset(pki.Signer.NotAfter.ToUniversalTime()).AddDays(2),
         }));
 
-        Assert.Null(result.TimeStampTime);
-        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
-        Assert.Contains(result.Reasons, r => r.Contains("tokens cannot be trusted"));
+        if (kept)
+        {
+            Assert.NotNull(result.TimeStampTime);
+            Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+        }
+        else
+        {
+            Assert.Null(result.TimeStampTime);
+            Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+            Assert.Contains(result.Reasons, r => r.Contains("tokens cannot be trusted"));
+        }
+    }
+
+    // An empty signature field added later that shows something (here a page-sized appearance) may cover what was signed.
+    [Fact]
+    public async Task A_visible_empty_signature_field_added_later_is_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var updated = Update(signed, document =>
+        {
+            var appearance = new PdfDictionary(document);
+            appearance.Elements.SetName("/Type", "/XObject");
+            appearance.Elements.SetName("/Subtype", "/Form");
+            appearance.Elements["/BBox"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+            appearance.CreateStream("1 1 1 rg 0 0 595 842 re f"u8.ToArray());
+            document.Internals.AddObject(appearance);
+            var field = new PdfDictionary(document);
+            field.Elements.SetName("/FT", "/Sig");
+            field.Elements.SetString("/T", "Cover");
+            field.Elements.SetName("/Type", "/Annot");
+            field.Elements.SetName("/Subtype", "/Widget");
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+            field.Elements["/AP"] = new PdfDictionary(document) { Elements = { ["/N"] = appearance.Reference! } };
+            field.Elements["/P"] = document.Pages[0].Reference;
+            field.Elements.SetInteger("/F", 4);
+            document.Internals.AddObject(field);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(field.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(field.Reference!);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.Contains("visible signature field", result.UnexpectedChange);
+    }
+
+    // Every signing-certificate attribute must name the signer: a matching v1 does not cover a v2 for another certificate.
+    [Fact]
+    public async Task A_second_signing_certificate_attribute_for_another_certificate_is_invalid()
+    {
+        using var certificate = SelfSigned();
+        using var other = SelfSigned();
+        var pdf = Sign(new BoundToOtherSigner(certificate, other, matchingV1: true));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
     }
 
     // "endobj" inside a signed string is text, not the end of the signature dictionary's object.
@@ -711,7 +771,7 @@ public class SignatureVerifierTests
     }
 
     // A PAdES signer whose signing-certificate-v2 attribute names another certificate.
-    sealed class BoundToOtherSigner(X509Certificate2 certificate, X509Certificate2 named) : IDigitalSigner, IDigitalSignerFormat
+    sealed class BoundToOtherSigner(X509Certificate2 certificate, X509Certificate2 named, bool matchingV1 = false) : IDigitalSigner, IDigitalSignerFormat
     {
         public string CertificateName => certificate.Subject;
         public PdfSignatureFormat Format => PdfSignatureFormat.Pades;
@@ -724,6 +784,16 @@ public class SignatureVerifierTests
             stream.ReadExactly(content);
             var cms = new System.Security.Cryptography.Pkcs.SignedCms(new System.Security.Cryptography.Pkcs.ContentInfo(content), detached: true);
             var signer = new System.Security.Cryptography.Pkcs.CmsSigner(certificate) { DigestAlgorithm = new Oid("2.16.840.1.101.3.4.2.1") };
+            if (matchingV1)
+            {
+                // RFC 2634 signing-certificate: ESSCertID with the SHA-1 hash of the signer's own certificate.
+                var v1 = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+                using (v1.PushSequence())
+                using (v1.PushSequence())
+                using (v1.PushSequence())
+                    v1.WriteOctetString(SHA1.HashData(certificate.RawData));
+                signer.SignedAttributes.Add(new AsnEncodedData("1.2.840.113549.1.9.16.2.12", v1.Encode()));
+            }
             var writer = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
             using (writer.PushSequence())
             using (writer.PushSequence())
