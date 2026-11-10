@@ -209,9 +209,15 @@ untrusted authority (its time is not used, so it cannot rescue an expired
 signer), a forged delegated OCSP responder (the responder certificate must be
 signed by the CA, carry id-kp-OCSPSigning and id-pkix-ocsp-nocheck, and be valid
 when the response was produced), a later trailer that points at another
-catalog, changed page content after an approval signature, a malformed
-signature dictionary, and a certificate not meant for signatures. The verifier
-is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
+catalog, changed page content or a page-covering comment after an approval
+signature, a visible "document time-stamp" field after a "no changes"
+certification, a later signature field without an intact signature, a
+signature dictionary copied into a later update, a signing-certificate
+attribute for another certificate, a signature removed from the form, "revoked"
+in the DSS next to an older "good", a CRL issued after the certificate expired,
+a decompression bomb in the DSS, a malformed signature dictionary, and a
+certificate not meant for signatures. Three review rounds (two by Claude
+agents, one by Codex) found these. The verifier is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
 signature in /Contents, delta and partitioned CRLs and unknown critical CRL
 extensions make a result Indeterminate or are not used, and a PAdES level is
 reported only for valid signatures. It is a technical check: EU trusted lists,

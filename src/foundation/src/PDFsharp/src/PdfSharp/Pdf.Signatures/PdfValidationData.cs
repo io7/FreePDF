@@ -278,7 +278,7 @@ namespace PdfSharp.Pdf.Signatures
         {
             internal List<string> Problems { get; } = [];
 
-            readonly HttpClient _http = options.HttpClient ?? DefaultClient;
+            readonly HttpClient _http = options.HttpClient ?? (options.AllowPrivateNetworks ? AnyAddressClient.Value : PublicAddressClient.Value);
             // A client of the caller's decides where it goes; the default one only goes to public addresses unless allowed.
             readonly bool _checkAddresses = options.HttpClient == null && !options.AllowPrivateNetworks;
 
@@ -335,33 +335,49 @@ namespace PdfSharp.Pdf.Signatures
                 return result;
             }
 
-            // A POST of an OCSP request, or a GET; the body, or null after noting the problem.
+            // A POST of an OCSP request, or a GET; the body, or null after noting the problem. The whole exchange, body
+            // included, has 30 seconds. A GET follows up to three redirects, each address checked like the first; a POST
+            // follows none.
             async Task<byte[]?> SendAsync(Uri url, byte[]? ocspRequest, X509Certificate2 certificate, string what)
             {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                var target = url;
                 try
                 {
-                    if (_checkAddresses && !await IsPublicAsync(url).ConfigureAwait(false))
+                    for (int hop = 0; ; hop++)
                     {
-                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' was not made: it is not a public address " +
-                            "(set AllowPrivateNetworks, or pass an HttpClient, to reach it).");
-                        return null;
+                        if (_checkAddresses && !await IsPublicAsync(target).ConfigureAwait(false))
+                        {
+                            Problems.Add($"The {what} to {target} for '{certificate.Subject}' was not made: it is not a public address " +
+                                "(set AllowPrivateNetworks, or pass an HttpClient, to reach it).");
+                            return null;
+                        }
+                        using var message = new HttpRequestMessage(ocspRequest == null ? HttpMethod.Get : HttpMethod.Post, target);
+                        if (ocspRequest != null)
+                        {
+                            message.Content = new ByteArrayContent(ocspRequest);
+                            message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/ocsp-request");
+                        }
+                        using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+                        int status = (int)response.StatusCode;
+                        if (status is 301 or 302 or 303 or 307 or 308 && ocspRequest == null && hop < 3
+                            && response.Headers.Location is { } location
+                            && Uri.TryCreate(target, location, out var next) && next.Scheme is "http" or "https")
+                        {
+                            target = next;
+                            continue;
+                        }
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Problems.Add($"The {what} to {target} for '{certificate.Subject}' was answered with {status}.");
+                            return null;
+                        }
+                        var body = await ReadLimitedAsync(response.Content, options.MaxResponseSize, timeout.Token).ConfigureAwait(false);
+                        if (body == null)
+                            Problems.Add($"The {what} to {target} for '{certificate.Subject}' returned more than {options.MaxResponseSize} bytes.");
+                        return body;
                     }
-                    using var message = new HttpRequestMessage(ocspRequest == null ? HttpMethod.Get : HttpMethod.Post, url);
-                    if (ocspRequest != null)
-                    {
-                        message.Content = new ByteArrayContent(ocspRequest);
-                        message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/ocsp-request");
-                    }
-                    using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' was answered with {(int)response.StatusCode}.");
-                        return null;
-                    }
-                    var body = await ReadLimitedAsync(response.Content, options.MaxResponseSize).ConfigureAwait(false);
-                    if (body == null)
-                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' returned more than {options.MaxResponseSize} bytes.");
-                    return body;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -370,12 +386,13 @@ namespace PdfSharp.Pdf.Signatures
                 catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException
                                                or IOException or SocketException)
                 {
-                    Problems.Add($"The {what} to {url} for '{certificate.Subject}' failed: {ex.Message}");
+                    Problems.Add($"The {what} to {target} for '{certificate.Subject}' failed: " +
+                        (ex is OperationCanceledException ? "no complete answer within 30 seconds." : ex.Message));
                     return null;
                 }
             }
 
-            async Task<byte[]?> ReadLimitedAsync(HttpContent content, int limit)
+            static async Task<byte[]?> ReadLimitedAsync(HttpContent content, int limit, CancellationToken token)
             {
                 if (content.Headers.ContentLength > limit)
                     return null;
@@ -383,7 +400,7 @@ namespace PdfSharp.Pdf.Signatures
                 using var buffer = new MemoryStream();
                 var chunk = new byte[81920];
                 int read;
-                while ((read = await stream.ReadAsync(chunk, 0, chunk.Length, cancellationToken).ConfigureAwait(false)) > 0)
+                while ((read = await stream.ReadAsync(chunk, 0, chunk.Length, token).ConfigureAwait(false)) > 0)
                 {
                     if (buffer.Length + read > limit)
                         return null;
@@ -427,8 +444,42 @@ namespace PdfSharp.Pdf.Signatures
             return false;
         }
 
-        // One client for all calls: no new connection per request, and a bounded wait.
-        static readonly HttpClient DefaultClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+        // Shared clients that follow no redirects by themselves (SendAsync checks each hop). The public one also checks the
+        // address it connects to (.NET 5 and later), so that a host name cannot resolve to a public address for the check
+        // and a private one for the connection; it does not use a proxy, through which that cannot be seen.
+        static readonly Lazy<HttpClient> PublicAddressClient = new(() => CreateClient(publicOnly: true));
+        static readonly Lazy<HttpClient> AnyAddressClient = new(() => CreateClient(publicOnly: false));
+
+        static HttpClient CreateClient(bool publicOnly)
+        {
+#if NET5_0_OR_GREATER
+            var handler = new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(15) };
+            if (publicOnly)
+            {
+                handler.UseProxy = false;
+                handler.ConnectCallback = async (context, token) =>
+                {
+                    var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token).ConfigureAwait(false);
+                    var address = addresses.FirstOrDefault(IsPublicAddress)
+                                  ?? throw new HttpRequestException($"{context.DnsEndPoint.Host} has no public address.");
+                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                    try
+                    {
+                        await socket.ConnectAsync(address, context.DnsEndPoint.Port, token).ConfigureAwait(false);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                };
+            }
+#else
+            var handler = new HttpClientHandler { AllowAutoRedirect = false };
+#endif
+            return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        }
 
         // The HTTP locations of an access method in the authority information access extension (RFC 5280 4.2.2.1).
         static List<Uri> AccessLocations(X509Certificate2 certificate, string accessMethod)

@@ -165,13 +165,16 @@ public class CertificationPermissionTests
         Assert.DoesNotContain("/Producer", update);
     }
 
-    // A field that calls its value a document time-stamp must be one: /ETSI.RFC3161, and no lock or action.
+    // A field that calls its value a document time-stamp must be one: /ETSI.RFC3161, a byte range, no lock or action,
+    // and an invisible widget, so that it cannot cover the page.
     [Theory]
-    [InlineData("/ETSI.RFC3161", "", true)]
-    [InlineData("/adbe.pkcs7.detached", "", false)]
-    [InlineData("/ETSI.CAdES.detached", "", false)]
-    [InlineData("/ETSI.RFC3161", "/Lock << /Type /SigFieldLock /Action /All >>", false)]
-    public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, bool allowed)
+    [InlineData("/ETSI.RFC3161", "", 0, true, true)]
+    [InlineData("/adbe.pkcs7.detached", "", 0, true, false)]
+    [InlineData("/ETSI.CAdES.detached", "", 0, true, false)]
+    [InlineData("/ETSI.RFC3161", "/Lock << /Type /SigFieldLock /Action /All >>", 0, true, false)]
+    [InlineData("/ETSI.RFC3161", "", 400, true, false)]
+    [InlineData("/ETSI.RFC3161", "", 0, false, false)]
+    public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, int size, bool byteRange, bool allowed)
     {
         Action<PdfDocument> addField = document =>
         {
@@ -179,7 +182,8 @@ public class CertificationPermissionTests
             value.Elements.SetName("/Type", "/DocTimeStamp");
             value.Elements.SetName("/Filter", "/Adobe.PPKLite");
             value.Elements.SetName("/SubFilter", subFilter);
-            value.Elements["/ByteRange"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
+            if (byteRange)
+                value.Elements["/ByteRange"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
             value.Elements["/Contents"] = new PdfString("0");   // Not a real token: the permission check reads the structure.
             document.Internals.AddObject(value);
             var field = new PdfDictionary(document);
@@ -188,7 +192,8 @@ public class CertificationPermissionTests
             field.Elements["/V"] = value.Reference;
             field.Elements.SetName("/Type", "/Annot");
             field.Elements.SetName("/Subtype", "/Widget");
-            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
+            // A rectangle with area could hold an appearance that covers the page.
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(size), new PdfInteger(size));
             field.Elements["/P"] = document.Pages[0].Reference;
             field.Elements.SetInteger("/F", 132);
             if (fieldEntries.Length > 0)

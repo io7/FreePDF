@@ -444,22 +444,59 @@ namespace PdfSharp.Pdf.IO
             return false;
         }
 
-        // A new signature field (or its widget) whose value is a document time-stamp (ISO 32000-2 12.8.5).
         // A new signature field holding a document time-stamp (ISO 32000-2 12.8.5): /Type /DocTimeStamp with
-        // /SubFilter /ETSI.RFC3161, and nothing that changes permissions or acts: no transform /Reference, no field
-        // lock and no action.
+        // /SubFilter /ETSI.RFC3161, a /ByteRange and /Contents, nothing that changes permissions or acts (no transform
+        // /Reference, field lock or action), and no visible widget, so that it cannot cover the page.
         static bool IsDocumentTimeStamp(Snapshot now, PdfItem item)
         {
             if (item is not PdfReference reference || !now.Fields.TryGetValue(reference.ObjectID, out var field))
                 return false;
             if (field.Type != "/Sig" || Resolve(field.Dictionary.Elements["/V"]) is not PdfDictionary value)
                 return false;
-            return value.Elements.GetName("/Type") == "/DocTimeStamp"
-                && value.Elements.GetName("/SubFilter") == "/ETSI.RFC3161"
+            return NameOf(value, "/Type") == "/DocTimeStamp"
+                && NameOf(value, "/SubFilter") == "/ETSI.RFC3161"
+                // While FreePDF saves its own, these are still placeholders for the values.
+                && value.Elements.ContainsKey("/ByteRange")
+                && value.Elements.ContainsKey("/Contents")
                 && !value.Elements.ContainsKey("/Reference")
                 && !field.Dictionary.Elements.ContainsKey("/Lock")
                 && !field.Dictionary.Elements.ContainsKey("/A")
-                && !field.Dictionary.Elements.ContainsKey("/AA");
+                && !field.Dictionary.Elements.ContainsKey("/AA")
+                && Widgets(field.Dictionary).All(IsInvisible);
+        }
+
+        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+
+        // The field itself when it is its own widget, and its kids.
+        static IEnumerable<PdfDictionary> Widgets(PdfDictionary field)
+        {
+            if (NameOf(field, "/Subtype") == "/Widget")
+                yield return field;
+            if (Resolve(field.Elements["/Kids"]) is PdfArray kids)
+            {
+                foreach (var kid in kids.Elements)
+                {
+                    if (Resolve(kid) is PdfDictionary widget)
+                        yield return widget;
+                }
+            }
+        }
+
+        // A widget that shows nothing: Hidden or NoView, or a rectangle without area.
+        static bool IsInvisible(PdfDictionary widget)
+        {
+            int flags = Resolve(widget.Elements["/F"]) is PdfInteger f ? f.Value : 0;
+            if ((flags & (2 | 32)) != 0)
+                return true;
+            if (Resolve(widget.Elements["/Rect"]) is not PdfArray rect || rect.Elements.Count != 4)
+                return true;
+            var numbers = rect.Elements.Select(e => Resolve(e) switch
+            {
+                PdfInteger i => (double)i.Value,
+                PdfReal r => r.Value,
+                _ => 0,
+            }).ToArray();
+            return numbers[0] == numbers[2] || numbers[1] == numbers[3];
         }
 
         void CheckKeys(Snapshot old, Snapshot now, PdfObject oldObject, PdfObject newObject, string description, HashSet<string> allowed)

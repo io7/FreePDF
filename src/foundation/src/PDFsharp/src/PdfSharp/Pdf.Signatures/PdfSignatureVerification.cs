@@ -194,9 +194,10 @@ namespace PdfSharp.Pdf.Signatures
         public string? ForbiddenChange { get; internal set; }
 
         /// <summary>
-        /// Gets the first later change beyond filling in forms, signing, annotating and adding validation data, after a
-        /// signature that permits it (an approval signature without locks), or null. ISO 32000 permits such a change,
-        /// but the document no longer shows what was signed, so the status is at best Indeterminate.
+        /// Gets the first later change beyond filling in forms, signing and adding validation data, after a signature
+        /// that does not forbid it (an approval signature without locks), or null. ISO 32000 permits such a change, and
+        /// it may be harmless (a comment, for example), but the document may no longer show what was signed, so the
+        /// status is at best Indeterminate.
         /// </summary>
         public string? UnexpectedChange { get; internal set; }
 
@@ -211,6 +212,6 @@ namespace PdfSharp.Pdf.Signatures
         // For the B-LTA check once all results are known: where the signed revision ends, the chains whose validation
         // data a document time-stamp must cover, and the times their revocation data must cover.
         internal int End;
-        internal List<(List<X509Certificate2> Chain, DateTimeOffset Time)> LongTermChains = [];
+        internal List<(List<X509Certificate2> Chain, DateTimeOffset Time, bool Proven)> LongTermChains = [];
     }
 }

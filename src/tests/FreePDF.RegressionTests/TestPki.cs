@@ -102,7 +102,7 @@ public sealed class TestPki : IDisposable
         return serial;
     }
 
-    byte[] Crl(X509Certificate2 issuer)
+    public byte[] Crl(X509Certificate2 issuer)
     {
         var builder = new CertificateRevocationListBuilder();
         foreach (var serial in Revoked)

@@ -41,8 +41,9 @@
   level from B-B to B-LTA. Only time-stamps from trusted time-stamp
   authorities count, delegated OCSP responders must be signed by the CA, and a
   later update that replaces the catalog or, after an approval signature,
-  changes more than form fields, signatures, annotations and validation data
-  is reported. Each result has a status (Valid, Invalid, Indeterminate) and its
+  changes more than form fields, signatures and validation data is reported.
+  `AddValidationDataAsync`'s default client checks every redirect and the
+  address it connects to, uses no proxy, and gives each request 30 seconds. Each result has a status (Valid, Invalid, Indeterminate) and its
   reasons. Time-stamps are checked on .NET 8 and later.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use

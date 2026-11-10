@@ -406,6 +406,233 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, results[1].Status);
     }
 
+    // ===== Second review round =====
+
+    // After an approval signature, a comment is outside form filling and signing: it might cover what was signed.
+    [Fact]
+    public async Task A_comment_after_an_approval_signature_is_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var commented = Update(signed, document => document.Pages[0].Annotations.Add(new PdfSharp.Pdf.Annotations.PdfTextAnnotation(document)
+        {
+            Contents = "Covering note",
+            Rectangle = new PdfRectangle(new XRect(0, 0, 595, 842)),
+        }));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(commented, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.Contains("annotation", result.UnexpectedChange);
+    }
+
+    // A later signature field whose value is not an intact signature (here no /ByteRange) is reported, and the earlier
+    // signature is no longer Valid.
+    [Fact]
+    public async Task A_later_field_without_an_intact_signature_is_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var updated = Update(signed, document =>
+        {
+            var value = new PdfDictionary(document);
+            value.Elements.SetName("/Type", "/Sig");
+            value.Elements.SetName("/SubFilter", "/ETSI.CAdES.detached");
+            document.Internals.AddObject(value);
+            var field = new PdfDictionary(document);
+            field.Elements.SetName("/FT", "/Sig");
+            field.Elements.SetString("/T", "Overlay");
+            field.Elements["/V"] = value.Reference;
+            field.Elements.SetName("/Type", "/Annot");
+            field.Elements.SetName("/Subtype", "/Widget");
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+            field.Elements["/P"] = document.Pages[0].Reference;
+            document.Internals.AddObject(field);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(field.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(field.Reference!);
+        });
+
+        var results = await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] });
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(PdfSignatureStatus.Invalid, results[1].Status);
+        Assert.NotEqual(PdfSignatureStatus.Valid, results[0].Status);
+    }
+
+    // Revocation data in the DSS that says "revoked before the signature" wins over an earlier "good" answer.
+    [Fact]
+    public async Task A_revocation_in_the_dss_wins_over_a_good_answer()
+    {
+        using var pki = new TestPki();
+        var lta = await SignLta(pki);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        var withCrl = Update(lta, document => PdfDocumentSecurityStore.Add(document, crls: [pki.Crl(pki.Intermediate)]));
+
+        var signature = (await PdfSignatureVerifier.VerifyAsync(withCrl, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0];
+
+        Assert.Equal(PdfRevocationStatus.Revoked, signature.Revocation);
+        Assert.Equal(PdfSignatureStatus.Invalid, signature.Status);
+    }
+
+    // A later update that takes the signed field out of the form does not make the signature disappear.
+    [Fact]
+    public async Task A_signature_removed_from_the_form_is_still_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var form = int.Parse(Regex.Matches(Latin1(signed), @"/AcroForm\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value);
+        var emptied = AppendUpdate(signed, [(form, "<< /Fields [] >>")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(emptied, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("removed"));
+    }
+
+    // A DSS stream that inflates to more than the limit is not read, and the check goes on.
+    [Fact]
+    public async Task A_dss_stream_that_inflates_without_limit_is_not_read()
+    {
+        using var pki = new TestPki();
+        var lta = await SignLta(pki);
+        byte[] bomb;
+        using (var buffer = new MemoryStream())
+        {
+            using (var zlib = new System.IO.Compression.ZLibStream(buffer, System.IO.Compression.CompressionLevel.SmallestSize, leaveOpen: true))
+                zlib.Write(new byte[64 * 1024 * 1024]);
+            bomb = buffer.ToArray();
+        }
+        var updated = Update(lta, document =>
+        {
+            var stream = new PdfDictionary(document);
+            stream.CreateStream(bomb);
+            stream.Elements.SetName("/Filter", "/FlateDecode");
+            document.Internals.AddObject(stream);
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            dss.Elements.GetArray("/Certs")!.Elements.Add(stream.Reference!);
+        });
+
+        var results = await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] });
+
+        Assert.Equal(PdfSignatureStatus.Valid, results[0].Status);
+    }
+
+    // ===== Codex review =====
+
+    // A later update adds a field whose new signature dictionary copies another signature's /ByteRange and /Contents:
+    // its own entries are not signed, so it is not a signature.
+    [Fact]
+    public async Task A_copied_signature_dictionary_is_not_a_signature()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var updated = Update(signed, document =>
+        {
+            var original = (PdfDictionary)((PdfSharp.Pdf.Advanced.PdfReference)document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!
+                .Elements.Select(f => ((PdfSharp.Pdf.Advanced.PdfReference)f).Value).Cast<PdfDictionary>().First().Elements["/V"]!).Value;
+            var clone = new PdfDictionary(document);
+            clone.Elements.SetName("/Type", "/Sig");
+            clone.Elements.SetName("/Filter", "/Adobe.PPKLite");
+            clone.Elements.SetName("/SubFilter", "/ETSI.CAdES.detached");
+            clone.Elements.SetString("/Reason", "Approved by the board");
+            var range = original.Elements.GetArray("/ByteRange")!;
+            clone.Elements["/ByteRange"] = new PdfArray(document, range.Elements.Select(e => (PdfItem)new PdfInteger(((PdfInteger)e).Value)).ToArray());
+            clone.Elements["/Contents"] = original.Elements["/Contents"]!;
+            document.Internals.AddObject(clone);
+            var field = new PdfDictionary(document);
+            field.Elements.SetName("/FT", "/Sig");
+            field.Elements.SetString("/T", "Board");
+            field.Elements["/V"] = clone.Reference;
+            field.Elements.SetName("/Type", "/Annot");
+            field.Elements.SetName("/Subtype", "/Widget");
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
+            field.Elements["/P"] = document.Pages[0].Reference;
+            document.Internals.AddObject(field);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(field.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(field.Reference!);
+        });
+
+        var results = await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] });
+
+        var copy = Assert.Single(results, r => r.FieldName == "Board");
+        Assert.Equal(PdfSignatureStatus.Invalid, copy.Status);
+        Assert.False(copy.Intact);
+    }
+
+    // RFC 5035: the signing-certificate attribute must name the signer's certificate.
+    [Fact]
+    public async Task A_signing_certificate_attribute_for_another_certificate_is_invalid()
+    {
+        using var certificate = SelfSigned();
+        using var other = SelfSigned();
+        var pdf = Sign(new BoundToOtherSigner(certificate, other));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.True(result.Intact);
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("another certificate"));
+    }
+
+    // A CA may drop an expired certificate from its CRLs, so a CRL issued after the signer's certificate expired does not
+    // show that it was not revoked; one issued before does.
+    [Theory]
+    [InlineData(false, PdfSignatureStatus.Valid)]
+    [InlineData(true, PdfSignatureStatus.Indeterminate)]
+    public async Task A_crl_issued_after_the_certificate_expired_shows_nothing(bool afterExpiry, PdfSignatureStatus status)
+    {
+        using var pki = new TestPki();
+        var bt = SignBT(pki);
+        var issued = afterExpiry ? new DateTimeOffset(pki.Signer.NotAfter.ToUniversalTime()).AddDays(1) : DateTimeOffset.UtcNow;
+        var crl = new CertificateRevocationListBuilder().Build(pki.Intermediate, 7, issued.AddDays(30), HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1, issued);
+        var withData = Update(bt, document => PdfDocumentSecurityStore.Add(document,
+            [pki.Root.RawData, pki.Intermediate.RawData, pki.Signer.RawData, pki.TimeStampAuthority.RawData],
+            crls: [crl, pki.Crl(pki.Root)]));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withData, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            ValidationTime = new DateTimeOffset(pki.Signer.NotAfter.ToUniversalTime()).AddDays(2),
+        }));
+
+        Assert.Equal(status, result.Status);
+    }
+
+    // A PAdES signer whose signing-certificate-v2 attribute names another certificate.
+    sealed class BoundToOtherSigner(X509Certificate2 certificate, X509Certificate2 named) : IDigitalSigner, IDigitalSignerFormat
+    {
+        public string CertificateName => certificate.Subject;
+        public PdfSignatureFormat Format => PdfSignatureFormat.Pades;
+        public async Task<int> GetSignatureSizeAsync() => (await GetSignatureAsync(new MemoryStream([0]))).Length + 64;
+
+        public Task<byte[]> GetSignatureAsync(Stream stream)
+        {
+            var content = new byte[stream.Length];
+            stream.Position = 0;
+            stream.ReadExactly(content);
+            var cms = new System.Security.Cryptography.Pkcs.SignedCms(new System.Security.Cryptography.Pkcs.ContentInfo(content), detached: true);
+            var signer = new System.Security.Cryptography.Pkcs.CmsSigner(certificate) { DigestAlgorithm = new Oid("2.16.840.1.101.3.4.2.1") };
+            var writer = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+            using (writer.PushSequence())
+            using (writer.PushSequence())
+            using (writer.PushSequence())
+                writer.WriteOctetString(SHA256.HashData(named.RawData));
+            signer.SignedAttributes.Add(new AsnEncodedData("1.2.840.113549.1.9.16.2.47", writer.Encode()));
+            cms.ComputeSignature(signer, true);
+            return Task.FromResult(cms.Encode());
+        }
+    }
+
+    static byte[] Update(byte[] pdf, Action<PdfDocument> change)
+    {
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Append);
+        change(document);
+        using var output = new MemoryStream();
+        document.Save(output);
+        return output.ToArray();
+    }
+
     // ===== Helpers =====
 
     static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
