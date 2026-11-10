@@ -178,7 +178,7 @@ namespace PdfSharp.Drawing.BarCodes
 
             foreach (char ch in text)
             {
-                if ("0123456789ABCDEFGHIJKLMNOP'QRSTUVWXYZ-. $/+%*".IndexOf(ch.ToString(), StringComparison.Ordinal) < 0)
+                if ("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%*".IndexOf(ch.ToString(), StringComparison.Ordinal) < 0)
                     throw new ArgumentException(BcgSR.Invalid3Of9Code(text));
             }
         }

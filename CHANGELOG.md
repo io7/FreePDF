@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- QR codes: `CodeQR` draws QR codes (model 2, versions 1 to 40, error
+  correction levels L, M, Q and H) as one vector path. The smallest version
+  that fits is chosen unless `Version` is set; digits and upper-case text use
+  the compact numeric and alphanumeric modes; text that is not ASCII is UTF-8,
+  marked with ECI 26 unless `Utf8Eci` is false; a lone surrogate is refused.
+  `GetModules()` returns the module matrix for custom drawing.
+- Code 128: `Code128` picks code sets A, B and C for the shortest code and
+  supports GS1-128 through `Code128.Fnc1`, a private-use character (U+E0F1)
+  that real text does not contain.
+- EAN-13, EAN-8 and UPC-A: `Ean13`, `Ean8` and `UpcA` add or check the check
+  digit and draw the digits under the bars with long guard bars. `CodeType` and
+  `BarCode.FromType` know the new linear codes.
+- MigraDoc renders barcodes. `Barcode` elements were silently left out of the
+  PDF before; they now draw Interleaved 2 of 5, Code 39, Code 128 and the new
+  `BarcodeType` values Ean13, Ean8, UpcA and QRCode, horizontally or rotated by
+  `Orientation`, with text in the Normal style's font when `Text` is set. The
+  code fills the shape inside its border, and the shape's size includes the
+  quiet zones for every type (10 narrow bars on each side for Code 128,
+  Code 39 and 2 of 5). `BearerBars`, `NarrowLineWidth` and `LineHeight` are not
+  used. `Section`, `Cell`, `TextFrame` and `HeaderFooter` get `AddBarcode()`.
+  Because barcodes are now drawn, a document whose barcode code is invalid for
+  its type now makes rendering throw, and with `TaggedPdf` a barcode needs
+  `AlternativeText` or `Decorative`, as images and charts do.
+- The RTF renderer leaves barcodes out with a warning; it threw "Unsupported
+  type in RendererFactory".
+- Saving a document as DDL escapes quotes, backslashes and line breaks in a
+  barcode's code; such codes were cut short or could not be read back.
+- Data Matrix: `CodeDataMatrix` has a new ECC 200 encoder written from
+  ISO/IEC 16022 and draws vector modules in every build. Before, the Core
+  build drew nothing ("'XImage' must not be null"), C40, Text and X12 lost the
+  last one or two characters when the text did not fill a triplet, and
+  EDIFACT symbols could not be read. All sizes, square and rectangular, are
+  supported; rows and columns 0 pick the smallest square that fits. Text is
+  written in ASCII encodation (digit pairs; text that is not ASCII as UTF-8
+  after ECI 26; FNC1 for GS1 DataMatrix) or Base256 where the encoding
+  asks for it; C40, Text, X12 and EDIFACT requests are written in ASCII, so a
+  symbol can need a larger size than before. `GetModules()` returns the matrix,
+  and MigraDoc's `BarcodeType.DataMatrix` draws one. The inherited encoder,
+  which appears to derive from the GPL-licensed iec16022 library, is removed.
+- PNG images with 1-, 2- or 4-bit grayscale and 2-bit palettes load in the
+  Core build; they threw "Unsupported bit depth". QR code generators often
+  write 1-bit grayscale. Interlaced low-bit grayscale PNGs are still refused.
+- Code 39 refuses an apostrophe, which has no bar pattern; it was accepted and
+  drawing then failed with `IndexOutOfRangeException`.
+- Text with characters beyond U+FFFF, such as emoji and mathematical letters,
+  is extracted correctly: the ToUnicode map writes them as UTF-16 surrogate
+  pairs instead of raw code points. Maps with more than 100 glyphs are split
+  into sections of at most 100, as CMaps require. Colour emoji drawn with
+  `XPdfFontOptions.ColoredGlyphs` still extract as their layer glyphs.
+- MigraDoc: default tab stops reach the right edge of the text. They were
+  dropped in the last part of each line as wide as the left margin, so a tab
+  there broke the line.
+- MigraDoc: a blank right after a tab no longer makes the tab break the line
+  when the following text fits.
 - Creating form fields: `PdfForm.AddTextField`, `AddCheckBox`,
   `AddRadioButtonGroup`, `AddComboBox`, `AddListBox` and `AddSignatureField`
   place a field on a page (rectangle in drawing coordinates, top left origin)

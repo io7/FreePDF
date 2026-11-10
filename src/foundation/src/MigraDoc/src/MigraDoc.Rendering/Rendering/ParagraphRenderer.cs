@@ -706,6 +706,17 @@ namespace MigraDoc.Rendering
             while (_currentLeaf != null && !IsLineBreak(_currentLeaf.Current) && !IsTab(_currentLeaf.Current))
             {
                 FormatResult result = FormatElement(_currentLeaf.Current);
+                // FreePDF: an ignored element, such as the blank right after the tab, takes no room; probing stopped
+                // there and the tab forced a line break although the text fitted (upstream #405). When a rendered line
+                // is measured again, its last element is ignored too, and the probe must stop there rather than take
+                // the next line's words into the tab's width.
+                if (result == FormatResult.Ignore)
+                {
+                    if (_endLeaf != null && _currentLeaf.Current == _endLeaf.Current)
+                        break;
+                    _currentLeaf = _currentLeaf.GetNextLeaf();
+                    continue;
+                }
                 if (result != FormatResult.Continue)
                     break;
 
@@ -756,8 +767,11 @@ namespace MigraDoc.Rendering
             if (!_paragraph.Document.Values.DefaultTabStop.IsValueNullOrEmpty())
                 defaultTabStop = _paragraph.Document.DefaultTabStop.Point;
 
+            // FreePDF: tab positions are relative to the formatting area, like its width (upstream #404). Comparing the
+            // absolute position dropped the default tab stops in the last formatting-area-X points of every line,
+            // the left margin's width for body text.
             var currTabPos = defaultTabStop;
-            while (currTabPos + _formattingArea.X <= _formattingArea.Width - RightIndent)
+            while (currTabPos <= _formattingArea.Width - RightIndent + Tolerance)
             {
                 if (currTabPos > lastPosition && currTabPos + _formattingArea.X > _currentXPosition + Tolerance)
                     return new TabStop(currTabPos.Point);

@@ -69,8 +69,14 @@ namespace MigraDoc.DocumentObjectModel.Shapes
         /// <summary>
         /// Adds a new chart to the text frame.
         /// </summary>
-        public Chart AddChart() 
+        public Chart AddChart()
             => Elements.AddChart();
+
+        /// <summary>
+        /// Adds a new barcode to the text frame.
+        /// </summary>
+        public Barcode AddBarcode()
+            => Elements.AddBarcode();
 
         /// <summary>
         /// Adds a new table to the text frame.

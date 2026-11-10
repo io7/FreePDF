@@ -15,6 +15,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets/synthetic.ttf" />
     <EmbeddedResource Include="Assets/composite.ttf" />
+    <EmbeddedResource Include="Assets/supplementary.ttf" />
     <None Update="Assets/SystemFonts/**/*.ttf;Assets/SystemFonts/**/*.otf" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../../lab/Shared/PdfFixtureData.cs" Link="Fixtures/PdfFixtureData.cs" />
     <Compile Include="../../../lab/Shared/PalettePng.cs" Link="Fixtures/PalettePng.cs" />
@@ -25,5 +26,6 @@
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp.Cryptography/PdfSharp.Cryptography.csproj" />
     <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj" />
+    <ProjectReference Include="../../foundation/src/MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfRendering.csproj" />
   </ItemGroup>
 </Project>
