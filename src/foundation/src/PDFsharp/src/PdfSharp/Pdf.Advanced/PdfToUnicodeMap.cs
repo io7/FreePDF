@@ -79,28 +79,21 @@ namespace PdfSharp.Pdf.Advanced
             wrt.WriteLine(Invariant($"<{lowIndex:X4}><{hiIndex:X4}>"));
             wrt.WriteLine("endcodespacerange");
 
-            // Sorting seems not necessary. The limit is 100 entries, we will see.
-            //wrt.WriteLine(String.Format(CultureInfo.InvariantCulture, "{0} beginbfrange", glyphIndexToCharacter.Count));
-            wrt.WriteLine(Invariant($"{glyphIndexToCharacter.Count} beginbfrange"));
+            // FreePDF: a CMap section holds at most 100 mappings (Adobe technical note #5099, PDF 32000-1 9.10.3),
+            // and the destination is UTF-16BE, so code points beyond U+FFFF are written as a surrogate pair.
             var array = glyphIndexToCharacter.Keys.ToArray();
             Array.Sort(array);
-
-            //foreach (var item in glyphIndexToCharacter)
-            for (int idx = 0; idx < array.Length; idx++)
+            for (int start = 0; start < array.Length; start += 100)
             {
-                var key = array[idx];
-                var value = glyphIndexToCharacter[key];
-#if DEBUG
-                PdfSharpLogHost.Logger.LogDebug($"Glyph index: {key,-7} {(value /*& 0xFFFF_0000*/) >>> 16,4:X4}-{value & 0xFFFF,4:X4}");
-#endif
-                //wrt.WriteLine(String.Format(CultureInfo.InvariantCulture, "<{0:X4}><{0:X4}><{1:X4}>", item.Key, (int)item.Value));
-                if ((value & 0xFFFF_0000) == 0)
+                int count = Math.Min(100, array.Length - start);
+                wrt.WriteLine(Invariant($"{count} beginbfrange"));
+                for (int idx = start; idx < start + count; idx++)
                 {
-                    // TODO_OLD: handle surrogate pairs here.
+                    var key = array[idx];
+                    wrt.WriteLine(Invariant($"<{key:X4}><{key:X4}><{Utf16BigEndianHex(glyphIndexToCharacter[key])}>"));
                 }
-                wrt.WriteLine(Invariant($"<{key:X4}><{key:X4}><{(uint)value:X4}>"));
+                wrt.WriteLine("endbfrange");
             }
-            wrt.WriteLine("endbfrange");
             wrt.Write(suffix);
             wrt.Close();
 
@@ -126,6 +119,18 @@ namespace PdfSharp.Pdf.Advanced
                 Stream.Value = bytes;
                 Elements.SetInteger(PdfStream.Keys.Length, Stream.Length);
             }
+        }
+
+        /// <summary>
+        /// The code point as UTF-16BE hex digits: four for the Basic Multilingual Plane, eight (a surrogate pair)
+        /// beyond it.
+        /// </summary>
+        static string Utf16BigEndianHex(int codePoint)
+        {
+            if (codePoint <= 0xFFFF)
+                return Invariant($"{codePoint:X4}");
+            int offset = codePoint - 0x10000;
+            return Invariant($"{0xD800 + (offset >> 10):X4}{0xDC00 + (offset & 0x3FF):X4}");
         }
 
         public sealed class Keys : PdfStream.Keys
