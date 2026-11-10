@@ -29,5 +29,25 @@ namespace PdfSharp.Drawing.BarCodes
         /// The data matrix code.
         /// </summary>
         DataMatrix,
+
+        /// <summary>
+        /// The Code 128 bar code.
+        /// </summary>
+        Code128,
+
+        /// <summary>
+        /// The EAN-13 bar code.
+        /// </summary>
+        Ean13,
+
+        /// <summary>
+        /// The EAN-8 bar code.
+        /// </summary>
+        Ean8,
+
+        /// <summary>
+        /// The UPC-A bar code.
+        /// </summary>
+        UpcA,
     }
 }
