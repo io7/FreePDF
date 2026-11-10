@@ -202,11 +202,14 @@ to a path is written only once the signature is made.
 ### Long-term signatures (B-LT, B-LTA)
 
 ```csharp
-// B-LT: the validation data (DER certificates, OCSP responses, CRLs) for the signer's and the authority's chains.
+// B-LT: the chains of the signatures and time-stamps, with an OCSP response or the CRLs for each certificate.
 using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
 {
-    PdfDocumentSecurityStore.Add(document, certificates: chain, ocspResponses: ocsps, crls: crls);
-    document.Save("signed.pdf");
+    var report = await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+        new PdfValidationDataOptions { ExtraCertificates = [intermediate, root] });
+    if (report.Problems.Count > 0)
+        Console.WriteLine(string.Join(Environment.NewLine, report.Problems));
+    await document.SaveAsync("signed.pdf");
 }
 // B-LTA: a document time-stamp over the document and its validation data.
 using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
@@ -216,11 +219,15 @@ using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
 }
 ```
 
-Both are updates that leave the signed bytes as they are, and both are
-permitted under every certification level, "no changes" included. A document
-time-stamp is an invisible field; it needs .NET 8 or later. FreePDF does not
-fetch OCSP responses or CRLs yet: get them from the certificates' responders
-and distribution points.
+`AddValidationDataAsync` asks the OCSP responders the certificates name and
+falls back to their CRL distribution points; give it intermediate and root
+certificates the signatures do not carry, and an `HttpClient` of your own for
+a proxy. It does not judge the answers: `Problems` lists what it could not get
+and certificates OCSP reports as revoked. To add data you fetched yourself, use
+`PdfDocumentSecurityStore.Add`. Both kinds of update leave the signed bytes as
+they are and are permitted under every certification level, "no changes"
+included. A document time-stamp is an invisible field; it needs .NET 8 or
+later.
 
 ## Project status
 

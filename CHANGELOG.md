@@ -20,8 +20,14 @@
   12.8.5; .NET 8 and later, SHA-256 or stronger). Both are permitted under
   every certification level: a document certified with "no changes" (P=1),
   which took no update before, now takes these two and nothing else, and such
-  an update leaves the document information as it was. The validation data
-  itself is yours to fetch for now.
+  an update leaves the document information as it was.
+- `PdfDocumentSecurityStore.AddValidationDataAsync` collects the validation
+  data itself: the chains of the document's signatures, signature time-stamps
+  and document time-stamps, and for each certificate below a root an OCSP
+  response (RFC 6960) from the responder it names, or else its CRLs (RFC 5280),
+  through an `HttpClient` you can supply. Its report lists what it could not
+  get. The core assembly now references System.Security.Cryptography.Pkcs,
+  which every FreePDF package already depended on.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use
   a test authority (.NET 8 and later; on .NET Framework and .NET Standard,

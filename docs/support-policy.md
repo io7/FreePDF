@@ -182,10 +182,16 @@ signed bytes stay as they were, the document time-stamp token against the covere
 bytes, and the permission rules at P=1. pyHanko 0.38.1 rated the DSS and document
 time-stamp updates as LTA updates (also after a P=1 certification), judged the
 document time-stamps valid and trusted, and its AdES LTA validation (EN 319 102-1
-5.6.3) passed offline with the test certificates as trust anchors. That check
-has no revocation data to weigh, so it does not show validation after a
-certificate expires or is revoked; poppler's pdfsig does not recognise document
-time-stamps. FreePDF does not fetch OCSP responses or CRLs yet.
+5.6.3) passed offline with the test certificates as trust anchors.
+`AddValidationDataAsync` was tested against a test PKI (root, intermediate,
+signer, time-stamp authority) whose OCSP responder and CRLs answer in-process:
+chains, OCSP responses, the CRL fallback, revoked and unreachable cases. With
+only that PKI's root trusted, revocation data required and online fetching off,
+pyHanko judged the B-LT file VALID from the DSS alone, and its AdES LTA
+validation of the B-LTA file passed now and when simulated 30 days later, after
+the signer's 2-day certificate had expired; the B-T file without a DSS found no
+chain. Real CAs' responders, delegated OCSP responders and partitioned or delta
+CRLs were not tested. poppler's pdfsig does not recognise document time-stamps.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the

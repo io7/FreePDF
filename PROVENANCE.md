@@ -377,12 +377,14 @@ docstrings) of pyHanko's validation API was consulted to call it.
 
 ## PAdES long-term validation data (2026-11-10)
 
-The document security store writer `PdfDocumentSecurityStore.cs`, the document time-stamp signer
+The document security store writer `PdfDocumentSecurityStore.cs`, the validation data collector
+`PdfValidationData.cs` (chains, OCSP requests and responses, CRL distribution points), the test PKI `TestPki.cs`
+with its in-process OCSP responder and CRLs, the document time-stamp signer
 `PdfTimeStampSigner.cs` and its HTTP helper `TimeStampAuthority.cs`, the document time-stamp dictionary in
 `DigitalSignatureHandler.cs`, the rules for validation data and document time-stamps in
 `PdfModificationPermissions.cs` and `PdfIncrementalUpdate.cs`, and the tests in `PadesLongTermTests.cs` are original
 FreePDF code. Their inputs were ISO 32000-2 12.8.2.2 (DocMDP), 12.8.4.3 (document security store) and 12.8.5
-(document time-stamps), ETSI EN 319 142-1 (B-LT and B-LTA), RFC 3161, RFC 5280 and RFC 6960, and the documentation
+(document time-stamps), ETSI EN 319 142-1 (B-LT and B-LTA), RFC 3161, RFC 5280, RFC 6960 and RFC 5019, and the documentation
 of .NET's System.Security.Cryptography.Pkcs types. No source of iText, PDFBox, pyHanko, EU DSS or other signing
 libraries was read; pyHanko 0.38.1 and poppler's pdfsig were used only as external validators, and only the
 documentation (signatures and docstrings) of pyHanko's validation API was consulted to call it.
