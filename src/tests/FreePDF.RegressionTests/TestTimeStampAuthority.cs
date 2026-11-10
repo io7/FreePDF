@@ -15,9 +15,18 @@ sealed class TestTimeStampAuthority : IDisposable
     static readonly Oid Policy = new("1.3.6.1.4.1.99999.1");
     long _serial = 1;
 
-    public TestTimeStampAuthority(DateTimeOffset? time = null)
+    /// <param name="time">The time in the tokens; now when null.</param>
+    /// <param name="certificate">The authority's certificate with its key, for example from a TestPki; a self-signed
+    /// one when null.</param>
+    public TestTimeStampAuthority(DateTimeOffset? time = null, X509Certificate2? certificate = null)
     {
         Time = time;
+        if (certificate != null)
+        {
+            Certificate = certificate;
+            _ownsCertificate = false;
+            return;
+        }
         using var key = RSA.Create(2048);
         var request = new CertificateRequest("CN=FreePDF test time-stamp authority", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
@@ -69,6 +78,12 @@ sealed class TestTimeStampAuthority : IDisposable
         return new AsnEncodedData(new Oid("1.2.840.113549.1.9.16.2.47"), writer.Encode());
     }
 
-    public void Dispose() => Certificate.Dispose();
+    readonly bool _ownsCertificate = true;
+
+    public void Dispose()
+    {
+        if (_ownsCertificate)
+            Certificate.Dispose();
+    }
 }
 #endif

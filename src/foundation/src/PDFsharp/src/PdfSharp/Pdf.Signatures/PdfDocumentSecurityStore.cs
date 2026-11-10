@@ -14,7 +14,7 @@ namespace PdfSharp.Pdf.Signatures
     /// Open a signed document with <see cref="IO.PdfDocumentOpenMode.Append"/>, add the data and save: the update leaves
     /// the signed bytes as they are. Adding validation data is permitted at every certification level.
     /// </remarks>
-    public static class PdfDocumentSecurityStore
+    public static partial class PdfDocumentSecurityStore
     {
         /// <summary>
         /// Adds validation data to the document's DSS, creating the DSS if the document has none. Each item is
