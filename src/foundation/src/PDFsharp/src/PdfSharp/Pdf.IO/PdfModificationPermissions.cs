@@ -137,6 +137,9 @@ namespace PdfSharp.Pdf.IO
             // Signed signature fields and locked fields cannot change at all: the field, the fields above it, its
             // widgets and their appearances. Nor can they be removed from the form or their pages.
             var protectedObjects = ProtectedObjects(old, out var protectedNodes);
+            // The trailer is reached by no object: a new or replaced document information dictionary is checked here.
+            if (Restricted && now.Info != old.Info)
+                Need(2, "adding or replacing the document information");
             foreach (var iref in written)
             {
                 // A new object is reached only through changes to objects of the file, which are checked here.
@@ -267,8 +270,18 @@ namespace PdfSharp.Pdf.IO
                 return;
             }
 
-            if (id == old.Info || id == old.Metadata)
+            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
+            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
+            if (id == old.Info)
+            {
+                Need(2, "changing the document information");
                 return;
+            }
+            if (id == old.Metadata)
+            {
+                Need(2, "changing the document metadata (XMP)");
+                return;
+            }
             if (id == old.Catalog)
             {
                 CheckKeys(old, now, oldObject, newObject, "the document catalog", _permission == 1 ? CatalogKeysAtP1 : CatalogKeys);
@@ -468,6 +481,12 @@ namespace PdfSharp.Pdf.IO
         }
 
         bool Restricted => _permission != Unrestricted;
+
+        /// <summary>
+        /// Gets a value indicating whether the signatures permit no changes but validation data and document
+        /// time-stamps (P=1), so that a save must not update the document information by itself.
+        /// </summary>
+        internal bool PermitsOnlyValidationData => _permission == 1;
 
         bool IsLocked(string fieldName) => _locks.Any(fieldLock => fieldLock.Locks(fieldName));
 

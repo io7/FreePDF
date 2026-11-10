@@ -231,12 +231,21 @@ namespace PdfSharp.Pdf.IO
                 stream.Write(_original, 0, _original.Length);
                 return;
             }
-            if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
-                document.Info.ModificationDate = DateTimeOffset.Now;
-            if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
+            // FreePDF: where the signatures permit no changes but validation data (P=1), the document information keeps
+            // its modification date and producer unless the application changed it, which the permission check refuses.
+            if (Permissions is { PermitsOnlyValidationData: true } && !_documentInformationChanged)
             {
-                written.Add(info);
-                written.Sort(PdfReference.Comparer);
+                written.RemoveAll(iref => info != null && iref.ObjectID == info.ObjectID);
+            }
+            else
+            {
+                if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
+                    document.Info.ModificationDate = DateTimeOffset.Now;
+                if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
+                {
+                    written.Add(info);
+                    written.Sort(PdfReference.Comparer);
+                }
             }
 
             // The encryption dictionary of an encrypted file stays as it is: the update is encrypted with it.
