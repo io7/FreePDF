@@ -224,8 +224,10 @@ falls back to their CRL distribution points; give it intermediate and root
 certificates the signatures do not carry, and an `HttpClient` of your own for
 a proxy. The addresses come from the certificates, which whoever signed the
 document chose: the default client reaches only public addresses (set
-`AllowPrivateNetworks` for an internal CA), checks every redirect, uses no
-proxy (pass your own `HttpClient` behind one), takes at most
+`AllowPrivateNetworks` for an internal CA), checks every redirect and the
+address it connects to (on .NET Framework and .NET Standard it does so for
+HTTP addresses only, the usual case for OCSP and CRLs), uses no proxy (pass
+your own `HttpClient` behind one), takes at most
 `MaxResponseSize` bytes per answer (32 MiB) and 30 seconds per request, and
 stops at the cancellation token. It does not
 judge the answers: `Problems` lists what it could not get and certificates

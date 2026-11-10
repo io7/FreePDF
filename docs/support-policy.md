@@ -216,8 +216,11 @@ signature dictionary copied into a later update, a signing-certificate
 attribute for another certificate, a signature removed from the form, "revoked"
 in the DSS next to an older "good", a CRL issued after the certificate expired,
 a decompression bomb in the DSS, a malformed signature dictionary, and a
-certificate not meant for signatures. Three review rounds (two by Claude
-agents, one by Codex) found these. The verifier is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
+certificate not meant for signatures, a later field that points at a signed
+dictionary, a time-stamp authority revoked later for compromise, and a
+"document time-stamp" widget that is NoView but prints. Four review rounds (two
+by Claude agents, two by Codex) found these. Files signed and countersigned by
+pyHanko 0.38.1 verify as Valid. The verifier is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
 signature in /Contents, delta and partitioned CRLs and unknown critical CRL
 extensions make a result Indeterminate or are not used, and a PAdES level is
 reported only for valid signatures. It is a technical check: EU trusted lists,
