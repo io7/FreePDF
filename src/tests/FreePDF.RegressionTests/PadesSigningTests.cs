@@ -76,16 +76,14 @@ public class PadesSigningTests
     }
 
     // A certificate whose serial number has a redundant leading byte (non-conforming, but loaded by .NET and Windows).
+    // It is self-signed, as .NET Framework's CmsSigner must build the signer's chain.
     [Fact]
     public void A_serial_number_with_a_redundant_leading_byte_is_written_as_its_value()
     {
-        using var caKey = RSA.Create(2048);
-        var caRequest = new CertificateRequest("CN=FreePDF test CA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-        using var ca = caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
         using var key = RSA.Create(2048);
         var request = new CertificateRequest("CN=FreePDF odd serial", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        using var issued = request.Create(ca, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1), new byte[] { 0x00, 0x01 });
+        using var issued = request.Create(request.SubjectName, X509SignatureGenerator.CreateForRSA(key, RSASignaturePadding.Pkcs1),
+            DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1), new byte[] { 0x00, 0x01 });
         using var certificate = issued.CopyWithPrivateKey(key);
 
         var pdf = SignNew(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
