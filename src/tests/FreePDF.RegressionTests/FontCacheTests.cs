@@ -22,10 +22,14 @@ static class TestFonts
 
     sealed class SyntheticResolver : IFontResolver
     {
-        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new("synthetic", bold, italic);
+        // "FreePDF Supplementary" has glyphs beyond U+FFFF and 150 distinct Latin Extended glyphs; any other family
+        // is the synthetic box font.
+        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic)
+            => new(familyName == "FreePDF Supplementary" ? "supplementary" : "synthetic", bold, italic);
+
         public byte[] GetFont(string faceName)
         {
-            using var input = typeof(TestFonts).Assembly.GetManifestResourceStream("FreePDF.RegressionTests.Assets.synthetic.ttf")!;
+            using var input = typeof(TestFonts).Assembly.GetManifestResourceStream($"FreePDF.RegressionTests.Assets.{faceName}.ttf")!;
             using var output = new MemoryStream();
             input.CopyTo(output);
             return output.ToArray();
