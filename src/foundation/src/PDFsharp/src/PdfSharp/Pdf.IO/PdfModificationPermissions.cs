@@ -482,11 +482,12 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        // A widget that shows nothing: Hidden or NoView, or a rectangle without area.
+        // A widget that shows nothing on screen or on paper: Hidden (ISO 32000-1 Table 165; NoView alone still prints and
+        // can be toggled), or a rectangle without area.
         static bool IsInvisible(PdfDictionary widget)
         {
             int flags = Resolve(widget.Elements["/F"]) is PdfInteger f ? f.Value : 0;
-            if ((flags & (2 | 32)) != 0)
+            if ((flags & 2) != 0)
                 return true;
             if (Resolve(widget.Elements["/Rect"]) is not PdfArray rect || rect.Elements.Count != 4)
                 return true;

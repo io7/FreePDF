@@ -489,9 +489,12 @@ public class SignatureVerifierTests
         Assert.Contains(result.Reasons, r => r.Contains("removed"));
     }
 
-    // A DSS stream that inflates to more than the limit is not read, and the check goes on.
-    [Fact]
-    public async Task A_dss_stream_that_inflates_without_limit_is_not_read()
+    // A DSS stream that inflates to more than the limit is not read (also with /DecodeParms, which sends other readers
+    // through an unlimited decoder), and the check goes on.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_dss_stream_that_inflates_without_limit_is_not_read(bool decodeParms)
     {
         using var pki = new TestPki();
         var lta = await SignLta(pki);
@@ -507,6 +510,8 @@ public class SignatureVerifierTests
             var stream = new PdfDictionary(document);
             stream.CreateStream(bomb);
             stream.Elements.SetName("/Filter", "/FlateDecode");
+            if (decodeParms)
+                stream.Elements["/DecodeParms"] = new PdfDictionary(document);
             document.Internals.AddObject(stream);
             var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
             dss.Elements.GetArray("/Certs")!.Elements.Add(stream.Reference!);
@@ -597,6 +602,112 @@ public class SignatureVerifierTests
         }));
 
         Assert.Equal(status, result.Status);
+    }
+
+    // ===== Codex re-check =====
+
+    // A field added later that points at the signed dictionary itself (with a page-sized widget) is not that signature.
+    [Fact]
+    public async Task A_later_field_pointing_at_a_signed_dictionary_is_not_a_signature()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var updated = Update(signed, document =>
+        {
+            var original = (PdfSharp.Pdf.Advanced.PdfReference)((PdfDictionary)((PdfSharp.Pdf.Advanced.PdfReference)document.Catalog.GetAcroForm()!
+                .Elements.GetArray("/Fields")!.Elements[0]).Value).Elements["/V"]!;
+            var field = new PdfDictionary(document);
+            field.Elements.SetName("/FT", "/Sig");
+            field.Elements.SetString("/T", "Again");
+            field.Elements["/V"] = original;
+            field.Elements.SetName("/Type", "/Annot");
+            field.Elements.SetName("/Subtype", "/Widget");
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+            field.Elements["/P"] = document.Pages[0].Reference;
+            document.Internals.AddObject(field);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(field.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(field.Reference!);
+        });
+
+        var results = await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] });
+
+        Assert.Equal(PdfSignatureStatus.Invalid, Assert.Single(results, r => r.FieldName == "Again").Status);
+        Assert.NotEqual(PdfSignatureStatus.Valid, Assert.Single(results, r => r.FieldName != "Again").Status);
+    }
+
+    // RFC 3161 4: a time-stamp authority revoked for compromise, or for no stated reason, voids its tokens even when the
+    // revocation came after them; the expired signer is then not rescued.
+    [Fact]
+    public async Task A_time_stamp_authority_revoked_later_without_a_retirement_reason_voids_its_tokens()
+    {
+        using var pki = new TestPki();
+        var bt = SignBT(pki);
+        pki.Revoked.Add(pki.TimeStampAuthority.SerialNumberBytes.ToArray());
+        pki.RevocationTime = DateTimeOffset.UtcNow.AddMinutes(5);
+        using var client = pki.CreateClient();
+        byte[] withData;
+        using (var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append))
+        {
+            await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+                new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
+            using var output = new MemoryStream();
+            await document.SaveAsync(output);
+            withData = output.ToArray();
+        }
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withData, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            ValidationTime = new DateTimeOffset(pki.Signer.NotAfter.ToUniversalTime()).AddDays(2),
+        }));
+
+        Assert.Null(result.TimeStampTime);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("tokens cannot be trusted"));
+    }
+
+    // "endobj" inside a signed string is text, not the end of the signature dictionary's object.
+    [Fact]
+    public async Task A_signed_string_that_contains_endobj_does_not_confuse_the_check()
+    {
+        using var certificate = SelfSigned();
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        using (var gfx = XGraphics.FromPdfPage(page))
+            gfx.DrawString("PAdES verifier test", new XFont("FreePDF Synthetic", 12), XBrushes.Black, 36, 100);
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades },
+            new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), ContactInfo = "endobj@example.test", Reason = "endobj 3 0 obj" });
+        using var output = new MemoryStream();
+        document.Save(output);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(output.ToArray(), new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A page without a transparency group (as pyHanko and most producers write them) whose /Annots a countersignature
+    // changes: comparing the page must not add the group FreePDF writes on full saves and then call that a change.
+    [Fact]
+    public async Task A_countersignature_on_a_page_without_a_transparency_group_keeps_the_first_valid()
+    {
+        using var certificate = SelfSigned();
+        var plain = TestPdf.Create([
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>",
+            "<< /Length 20 >>\nstream\n0 0 1 rg 0 0 9 9 re f\nendstream",
+        ]);
+        byte[] SignOnto(byte[] pdf, string reason)
+            => Update(pdf, document => DigitalSignatureHandler.ForDocument(document,
+                new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades },
+                new DigitalSignatureOptions { Reason = reason }));
+        var twice = SignOnto(SignOnto(plain, "First"), "Second");
+        Assert.DoesNotContain("/Group", Latin1(twice));
+
+        var results = await PdfSignatureVerifier.VerifyAsync(twice, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] });
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Equal(PdfSignatureStatus.Valid, r.Status));
     }
 
     // A PAdES signer whose signing-certificate-v2 attribute names another certificate.

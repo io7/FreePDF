@@ -281,6 +281,7 @@ namespace PdfSharp.Pdf.Signatures
             readonly HttpClient _http = options.HttpClient ?? (options.AllowPrivateNetworks ? AnyAddressClient.Value : PublicAddressClient.Value);
             // A client of the caller's decides where it goes; the default one only goes to public addresses unless allowed.
             readonly bool _checkAddresses = options.HttpClient == null && !options.AllowPrivateNetworks;
+            readonly Dictionary<string, byte[]> _crls = new(StringComparer.Ordinal);
 
             internal async Task<(byte[] Response, List<X509Certificate2> ResponderCertificates)?> OcspAsync(X509Certificate2 certificate,
                 X509Certificate2 issuer)
@@ -320,7 +321,13 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     foreach (var url in point.Urls)
                     {
-                        var bytes = await SendAsync(url, null, certificate, "CRL download").ConfigureAwait(false);
+                        // Certificates of one issuer usually share their CRL: it is fetched once per call.
+                        if (!_crls.TryGetValue(url.AbsoluteUri, out var bytes))
+                        {
+                            bytes = await SendAsync(url, null, certificate, "CRL download").ConfigureAwait(false);
+                            if (bytes != null)
+                                _crls[url.AbsoluteUri] = bytes;
+                        }
                         if (bytes == null)
                             continue;
                         if (!IsCrl(bytes, point.IndirectIssuer ? null : certificate.IssuerName.RawData))
@@ -347,13 +354,31 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     for (int hop = 0; ; hop++)
                     {
-                        if (_checkAddresses && !await IsPublicAsync(target).ConfigureAwait(false))
+                        var connectTo = target;
+                        if (_checkAddresses)
                         {
-                            Problems.Add($"The {what} to {target} for '{certificate.Subject}' was not made: it is not a public address " +
-                                "(set AllowPrivateNetworks, or pass an HttpClient, to reach it).");
-                            return null;
+                            var address = await PublicAddressAsync(target).ConfigureAwait(false);
+                            if (address == null)
+                            {
+                                Problems.Add($"The {what} to {target} for '{certificate.Subject}' was not made: it is not a public address " +
+                                    "(set AllowPrivateNetworks, or pass an HttpClient, to reach it).");
+                                return null;
+                            }
+#if !NET5_0_OR_GREATER
+                            // Without a connection callback, the request goes to the address just checked, so that the host
+                            // name cannot resolve to another one when the connection is made. HTTPS cannot be pinned so.
+                            if (target.Scheme != "http")
+                            {
+                                Problems.Add($"The {what} to {target} for '{certificate.Subject}' was not made: on .NET Framework and .NET " +
+                                    "Standard the default client checks addresses for HTTP only (set AllowPrivateNetworks, or pass an HttpClient).");
+                                return null;
+                            }
+                            connectTo = new UriBuilder(target) { Host = address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address}]" : address.ToString() }.Uri;
+#endif
                         }
-                        using var message = new HttpRequestMessage(ocspRequest == null ? HttpMethod.Get : HttpMethod.Post, target);
+                        using var message = new HttpRequestMessage(ocspRequest == null ? HttpMethod.Get : HttpMethod.Post, connectTo);
+                        if (!ReferenceEquals(connectTo, target))
+                            message.Headers.Host = target.IsDefaultPort ? target.IdnHost : $"{target.IdnHost}:{target.Port}";
                         if (ocspRequest != null)
                         {
                             message.Content = new ByteArrayContent(ocspRequest);
@@ -410,13 +435,13 @@ namespace PdfSharp.Pdf.Signatures
             }
 
             // Every address the host has must be public: not loopback, link-local, private, shared, multicast or
-            // reserved.
-            async Task<bool> IsPublicAsync(Uri url)
+            // reserved. The first one, or null.
+            static async Task<IPAddress?> PublicAddressAsync(Uri url)
             {
                 var addresses = IPAddress.TryParse(url.DnsSafeHost, out var literal)
                     ? [literal]
                     : await Dns.GetHostAddressesAsync(url.IdnHost).ConfigureAwait(false);
-                return addresses.Length > 0 && addresses.All(IsPublicAddress);
+                return addresses.Length > 0 && addresses.All(IsPublicAddress) ? addresses[0] : null;
             }
         }
 
@@ -459,24 +484,36 @@ namespace PdfSharp.Pdf.Signatures
                 handler.UseProxy = false;
                 handler.ConnectCallback = async (context, token) =>
                 {
-                    var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token).ConfigureAwait(false);
-                    var address = addresses.FirstOrDefault(IsPublicAddress)
-                                  ?? throw new HttpRequestException($"{context.DnsEndPoint.Host} has no public address.");
-                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                    try
+                    var addresses = (await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token).ConfigureAwait(false))
+                        .Where(IsPublicAddress).ToList();
+                    if (addresses.Count == 0)
+                        throw new HttpRequestException($"{context.DnsEndPoint.Host} has no public address.");
+                    // Each public address in turn, as a normal connection would.
+                    Exception? last = null;
+                    foreach (var address in addresses)
                     {
-                        await socket.ConnectAsync(address, context.DnsEndPoint.Port, token).ConfigureAwait(false);
-                        return new NetworkStream(socket, ownsSocket: true);
+                        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                        try
+                        {
+                            await socket.ConnectAsync(address, context.DnsEndPoint.Port, token).ConfigureAwait(false);
+                            return new NetworkStream(socket, ownsSocket: true);
+                        }
+                        catch (SocketException ex)
+                        {
+                            socket.Dispose();
+                            last = ex;
+                        }
+                        catch
+                        {
+                            socket.Dispose();
+                            throw;
+                        }
                     }
-                    catch
-                    {
-                        socket.Dispose();
-                        throw;
-                    }
+                    throw new HttpRequestException($"No public address of {context.DnsEndPoint.Host} could be reached.", last);
                 };
             }
 #else
-            var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = !publicOnly };
 #endif
             return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         }

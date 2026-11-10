@@ -212,6 +212,6 @@ namespace PdfSharp.Pdf.Signatures
         // For the B-LTA check once all results are known: where the signed revision ends, the chains whose validation
         // data a document time-stamp must cover, and the times their revocation data must cover.
         internal int End;
-        internal List<(List<X509Certificate2> Chain, DateTimeOffset Time, bool Proven)> LongTermChains = [];
+        internal List<(List<X509Certificate2> Chain, DateTimeOffset Time, bool Proven, bool Authority)> LongTermChains = [];
     }
 }

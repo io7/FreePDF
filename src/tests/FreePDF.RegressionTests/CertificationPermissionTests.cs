@@ -168,13 +168,15 @@ public class CertificationPermissionTests
     // A field that calls its value a document time-stamp must be one: /ETSI.RFC3161, a byte range, no lock or action,
     // and an invisible widget, so that it cannot cover the page.
     [Theory]
-    [InlineData("/ETSI.RFC3161", "", 0, true, true)]
-    [InlineData("/adbe.pkcs7.detached", "", 0, true, false)]
-    [InlineData("/ETSI.CAdES.detached", "", 0, true, false)]
-    [InlineData("/ETSI.RFC3161", "/Lock << /Type /SigFieldLock /Action /All >>", 0, true, false)]
-    [InlineData("/ETSI.RFC3161", "", 400, true, false)]
-    [InlineData("/ETSI.RFC3161", "", 0, false, false)]
-    public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, int size, bool byteRange, bool allowed)
+    [InlineData("/ETSI.RFC3161", "", 0, true, 132, true)]
+    [InlineData("/adbe.pkcs7.detached", "", 0, true, 132, false)]
+    [InlineData("/ETSI.CAdES.detached", "", 0, true, 132, false)]
+    [InlineData("/ETSI.RFC3161", "/Lock << /Type /SigFieldLock /Action /All >>", 0, true, 132, false)]
+    [InlineData("/ETSI.RFC3161", "", 400, true, 132, false)]
+    [InlineData("/ETSI.RFC3161", "", 400, true, 36, false)]   // NoView still prints
+    [InlineData("/ETSI.RFC3161", "", 400, true, 2, true)]     // Hidden
+    [InlineData("/ETSI.RFC3161", "", 0, false, 132, false)]
+    public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, int size, bool byteRange, int flags, bool allowed)
     {
         Action<PdfDocument> addField = document =>
         {
@@ -195,7 +197,7 @@ public class CertificationPermissionTests
             // A rectangle with area could hold an appearance that covers the page.
             field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(size), new PdfInteger(size));
             field.Elements["/P"] = document.Pages[0].Reference;
-            field.Elements.SetInteger("/F", 132);
+            field.Elements.SetInteger("/F", flags);
             if (fieldEntries.Length > 0)
             {
                 var fieldLock = new PdfDictionary(document);

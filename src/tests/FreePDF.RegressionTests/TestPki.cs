@@ -39,6 +39,9 @@ public sealed class TestPki : IDisposable
     /// <summary>Serial numbers (big-endian, as in the certificate) that the OCSP responder and the CRLs list as revoked.</summary>
     public List<byte[]> Revoked { get; } = [];
 
+    /// <summary>When the revoked certificates were revoked; ten minutes ago when null. OCSP gives no reason, CRLs keyCompromise.</summary>
+    public DateTimeOffset? RevocationTime { get; set; }
+
     /// <summary>HTTP status for OCSP requests; 200 answers them.</summary>
     public HttpStatusCode OcspStatus { get; set; } = HttpStatusCode.OK;
 
@@ -106,7 +109,7 @@ public sealed class TestPki : IDisposable
     {
         var builder = new CertificateRevocationListBuilder();
         foreach (var serial in Revoked)
-            builder.AddEntry(serial, DateTimeOffset.UtcNow.AddMinutes(-10), X509RevocationReason.KeyCompromise);
+            builder.AddEntry(serial, RevocationTime ?? DateTimeOffset.UtcNow.AddMinutes(-10), X509RevocationReason.KeyCompromise);
         return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
     }
 
@@ -162,7 +165,7 @@ public sealed class TestPki : IDisposable
                 else if (Revoked.Any(r => r.AsSpan().SequenceEqual(serial)))
                 {
                     using (data.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))  // revoked
-                        data.WriteGeneralizedTime(now.AddMinutes(-10), omitFractionalSeconds: true);
+                        data.WriteGeneralizedTime(RevocationTime ?? now.AddMinutes(-10), omitFractionalSeconds: true);
                 }
                 else
                 {
