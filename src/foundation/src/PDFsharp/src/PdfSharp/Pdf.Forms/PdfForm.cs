@@ -7,7 +7,7 @@
 
 namespace PdfSharp.Pdf.Forms
 {
-    public sealed class PdfForm : PdfDictionary
+    public sealed partial class PdfForm : PdfDictionary
     {
         // Reference 2.0: 12.7.3  Interactive form dictionary / Page 529
 

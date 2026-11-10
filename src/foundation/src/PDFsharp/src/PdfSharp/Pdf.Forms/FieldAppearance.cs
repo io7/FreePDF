@@ -283,7 +283,7 @@ namespace PdfSharp.Pdf.Forms
             return 0;
         }
 
-        static string? ColorOperator(PdfArray? components, bool fill)
+        internal static string? ColorOperator(PdfArray? components, bool fill)
         {
             if (components == null || components.Elements.Count == 0)
                 return null;
@@ -309,7 +309,7 @@ namespace PdfSharp.Pdf.Forms
             return String.Join(" ", values) + " " + op;
         }
 
-        static double BorderWidth(PdfDictionary widget, bool hasBorderColor)
+        internal static double BorderWidth(PdfDictionary widget, bool hasBorderColor)
         {
             var bs = widget.Elements.GetDictionary("/BS");
             if (bs != null && bs.Elements.TryGetReal("/W", out var width))
