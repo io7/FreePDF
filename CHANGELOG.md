@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.9.0
 
 - QR codes: `CodeQR` draws QR codes (model 2, versions 1 to 40, error
   correction levels L, M, Q and H) as one vector path. The smallest version

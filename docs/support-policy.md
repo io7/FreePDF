@@ -157,7 +157,7 @@ PDF-format operations and checksums, never as the recommended signature digest.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
-layout engine, arbitrary PDF/A conversion and complex script shaping are not promised in 7.6. Placeholder inherited types are not
+layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.9. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security
