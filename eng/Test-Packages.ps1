@@ -4,7 +4,10 @@ param(
     [string[]]$Frameworks = @('net10.0'),
     # GDI and WPF package consumers run on Windows only; the packages are built and inspected everywhere.
     [string[]]$WindowsFrameworks = @('net8.0-windows','net472'),
-    [switch]$StableRehearsal
+    [switch]$StableRehearsal,
+    # Tests these already built packages (for example another job's candidate artifact) instead of building them,
+    # so a newer SDK can consume the exact files without building them.
+    [string]$PackageDirectory
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/..").Path
@@ -19,14 +22,21 @@ $settings = $versionProps.Project.PropertyGroup
 $version = "$($settings.FreePDFVersionMajor).$($settings.FreePDFVersionMinor).$($settings.FreePDFVersionPatch)"
 if (!$StableRehearsal -and $settings.FreePDFVersionLabel) { $version += "-$($settings.FreePDFVersionLabel)" }
 [string[]]$versionProperties = if ($StableRehearsal) { @('-p:FreePDFVersionLabel=') } else { @() }
-foreach ($project in @('FreePDF','Layout','FreePDF.Gdi','Layout.Gdi','FreePDF.Wpf','Layout.Wpf')) {
-    & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
-    if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
-}
-& "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/packages/FreePDF/obj/project.assets.json" -OutputDirectory "$output/library-dependencies"
-& "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
-foreach ($variant in @('Gdi','Wpf')) {
-    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF.$variant/FreePDF.$variant.csproj" -OutputPath "$output/library-advisories-$($variant.ToLowerInvariant()).json"
+if ($PackageDirectory) {
+    if ($StableRehearsal) { throw 'A stable rehearsal builds its own packages; it cannot test existing ones.' }
+    $existing = @(Get-ChildItem $PackageDirectory -Filter "*.$version.nupkg")
+    if ($existing.Count -ne 6) { throw "Expected the six $version packages in $PackageDirectory, found $($existing.Count)." }
+    $existing | Copy-Item -Destination $output
+} else {
+    foreach ($project in @('FreePDF','Layout','FreePDF.Gdi','Layout.Gdi','FreePDF.Wpf','Layout.Wpf')) {
+        & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
+        if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
+    }
+    & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/packages/FreePDF/obj/project.assets.json" -OutputDirectory "$output/library-dependencies"
+    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
+    foreach ($variant in @('Gdi','Wpf')) {
+        & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF.$variant/FreePDF.$variant.csproj" -OutputPath "$output/library-advisories-$($variant.ToLowerInvariant()).json"
+    }
 }
 $portable = @('net8.0','net9.0','net10.0','netstandard2.0')
 $windows = @('net8.0-windows7.0','net9.0-windows7.0','net10.0-windows7.0','net462')
@@ -111,4 +121,7 @@ if ((& git -C $repo rev-parse HEAD).Trim() -ne $revision) { throw 'Source revisi
 $endedDirty = @(& git -C $repo status --porcelain).Count -ne 0
 if ($env:CI -eq 'true' -and $endedDirty) { throw 'CI source checkout changed during package checks.' }
 if ($startedDirty -or $endedDirty) { $revision += '+worktree' }
-@{ sourceRevision=$revision; version=$version; consumers=$results; packages=@(Get-ChildItem $output -Filter '*.nupkg' | ForEach-Object { @{ file=$_.Name; sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) } | ConvertTo-Json -Depth 6 | Set-Content "$output/validation.json" -Encoding utf8
+$receipt = @{ sourceRevision=$revision; version=$version; consumers=$results; packages=@(Get-ChildItem $output -Filter '*.nupkg' | ForEach-Object { @{ file=$_.Name; sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) }
+# The packages were built elsewhere; this receipt records consumers, not a build of $revision.
+if ($PackageDirectory) { $receipt.testedExistingPackages = $true }
+$receipt | ConvertTo-Json -Depth 6 | Set-Content "$output/validation.json" -Encoding utf8

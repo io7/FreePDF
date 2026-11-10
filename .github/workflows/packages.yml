@@ -104,3 +104,36 @@ jobs:
             ${{ runner.temp }}/freepdf-stable-independent/**
           retention-days: 14
           if-no-files-found: warn
+
+  # The packages have no net11.0 assets; .NET 11 apps use the net10.0 ones. This job installs the exact candidate
+  # packages (the Linux artifact, which publishing uploads) in .NET 11 consumers, built with the .NET 11 SDK only.
+  # The packages themselves stay built by the job above.
+  dotnet11:
+    name: Package install on .NET 11 / ${{ matrix.os }}
+    needs: packages
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '11.0.x'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-packages-ubuntu-24.04
+          path: ${{ runner.temp }}/candidate
+      - name: Install the candidate packages in .NET 11 consumers
+        shell: pwsh
+        run: |
+          $windowsFrameworks = if ($IsWindows) { @('net11.0-windows') } else { @() }
+          ./eng/Test-Packages.ps1 -OutputDirectory "$env:RUNNER_TEMP/freepdf-dotnet11" -PackageDirectory "$env:RUNNER_TEMP/candidate" -Frameworks @('net11.0') -WindowsFrameworks $windowsFrameworks
