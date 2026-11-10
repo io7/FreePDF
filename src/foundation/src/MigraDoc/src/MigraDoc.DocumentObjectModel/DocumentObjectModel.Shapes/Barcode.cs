@@ -1,10 +1,14 @@
 // MigraDoc - Creating Documents on the Fly
 // See the LICENSE file in the solution root for more information.
 
+using System.Text;
+
 namespace MigraDoc.DocumentObjectModel.Shapes
 {
     /// <summary>
-    /// Represents a barcode in the document or paragraph. !!!Still under Construction!!!
+    /// Represents a barcode in the document or paragraph. The PDF renderer draws it to fill the shape, quiet zones
+    /// included; the RTF renderer leaves it out with a warning. BearerBars, NarrowLineWidth and LineHeight are not
+    /// used by the renderer.
     /// </summary>
     public class Barcode : Shape
     {
@@ -102,6 +106,24 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             set => Values.NarrowLineWidth = value;
         }
 
+        static string EscapeForDdl(string text)
+        {
+            var result = new StringBuilder(text.Length + 8);
+            foreach (char ch in text)
+            {
+                result.Append(ch switch
+                {
+                    '\\' => "\\\\",
+                    '"' => "\\\"",
+                    '\n' => "\\n",
+                    '\r' => "\\r",
+                    '\t' => "\\t",
+                    _ => ch.ToString(),
+                });
+            }
+            return result.ToString();
+        }
+
         /// <summary>
         /// Converts Barcode into DDL.
         /// </summary>
@@ -110,7 +132,9 @@ namespace MigraDoc.DocumentObjectModel.Shapes
             if (String.IsNullOrEmpty(Values.Code))
                 throw new InvalidOperationException(MdDomMsgs.MissingObligatoryProperty(nameof(Code), nameof(Barcode)).Message);
 
-            serializer.WriteLine("\\barcode(\"" + Code + "\")");
+            // FreePDF: escape the code as the DDL scanner reads string literals; QR payloads often hold quotes,
+            // backslashes and line breaks.
+            serializer.WriteLine("\\barcode(\"" + EscapeForDdl(Code) + "\")");
 
             int pos = serializer.BeginAttributes();
 

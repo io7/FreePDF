@@ -32,7 +32,31 @@ namespace PdfSharp.Drawing.BarCodes
 
         internal static string OmrAlreadyInitialized => "Mark descriptions cannot be set when marks have already been set on OMR.";
 
-        internal static string DataMatrixTooBig => "The given data and encoding combination is too big for the matrix size.";
+        internal static string InvalidCode128(string code)
+            => $"'{code}' cannot be encoded as Code 128: it must not be empty and may hold only ASCII characters and Code128.Fnc1.";
+
+        internal static string InvalidEanUpcCode(string code, string symbology, int dataDigits)
+            => $"'{code}' is not a valid {symbology} code: it must be {dataDigits} digits, or {dataDigits + 1} with the check digit.";
+
+        internal static string WrongEanUpcCheckDigit(string code, string symbology, char expected)
+            => $"The check digit of the {symbology} code '{code}' is wrong; it should be {expected}.";
+
+        internal static string BarsTooLow => "The bar code is not high enough for its bars and the text beside them.";
+
+        internal static string QRTextTooLong(int version, QRErrorCorrectionLevel level)
+            => version == 0
+                ? $"The text is too long for a QR code with error correction level {level}."
+                : $"The text is too long for a version {version} QR code with error correction level {level}.";
+
+        internal static string Gs1DataMatrixNotAscii => "GS1 data (text that starts with FNC1) may hold only ASCII characters.";
+
+        internal static string QREmptyText => "A QR code needs at least one character; readers do not report empty codes.";
+
+        internal static string QRVersionOutOfRange => "The QR code version must be 0 (the smallest that fits) or 1 to 40.";
+
+        internal static string QRQuietZoneNegative => "The quiet zone must not be negative.";
+
+        internal static string DataMatrixTooBig =>"The given data and encoding combination is too big for the matrix size.";
 
         internal static string DataMatrixNotSupported => "Zero sizes, odd sizes and other than ecc200 coded DataMatrix is not supported.";
 

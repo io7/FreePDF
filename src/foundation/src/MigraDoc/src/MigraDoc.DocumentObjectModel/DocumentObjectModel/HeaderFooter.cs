@@ -87,6 +87,12 @@ namespace MigraDoc.DocumentObjectModel
         }
 
         /// <summary>
+        /// Adds a new barcode to the header or footer.
+        /// </summary>
+        public Barcode AddBarcode()
+            => Elements.AddBarcode();
+
+        /// <summary>
         /// Adds a new table to the header or footer.
         /// </summary>
         public Table AddTable()

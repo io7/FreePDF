@@ -38,6 +38,18 @@ namespace PdfSharp.Drawing.BarCodes
                 case CodeType.Code3of9Standard:
                     return new Code3of9Standard(text, size, direction);
 
+                case CodeType.Code128:
+                    return new Code128(text, size, direction);
+
+                case CodeType.Ean13:
+                    return new Ean13(text, size) { Direction = direction };
+
+                case CodeType.Ean8:
+                    return new Ean8(text, size) { Direction = direction };
+
+                case CodeType.UpcA:
+                    return new UpcA(text, size) { Direction = direction };
+
                 default:
                     throw new InvalidEnumArgumentException(nameof(type), (int)type, typeof(CodeType));
             }
