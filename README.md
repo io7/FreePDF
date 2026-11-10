@@ -44,6 +44,36 @@ well-formed Cross Industry Invoice; checking its content against EN 16931 and
 the profile's business rules is up to your invoicing software. CI validates
 the generated PDF/A-3 file with veraPDF.
 
+## Fillable forms: create, fill, flatten, sign, certify
+
+```csharp
+var form = document.Catalog.GetOrCreateAcroForm();
+form.AddTextField("name", page, new XRect(150, 70, 220, 22));
+form.AddCheckBox("agree", page, new XRect(150, 110, 14, 14));
+form.AddRadioButtonGroup("size", page, new[] { ("S", new XRect(150, 150, 14, 14)), ("M", new XRect(190, 150, 14, 14)) });
+form.AddComboBox("country", page, new XRect(150, 190, 150, 22), new[] { "Norway", "Sweden", "Denmark" });
+form.AddSignatureField("signature", page, new XRect(150, 240, 200, 50));
+document.Save("form.pdf");   // a fillable form
+
+// Later: fill it in and certify it, so that only form filling keeps the signature valid.
+using var filled = PdfReader.Open("form.pdf", PdfDocumentOpenMode.Modify);
+((PdfFormTextField)filled.Catalog.GetAcroForm()!.Fields["name"]!).Text = "Kari Nordmann";
+var signer = new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256);
+DigitalSignatureHandler.ForDocument(filled, signer, new DigitalSignatureOptions
+{
+    FieldName = "signature",
+    Certification = PdfCertificationLevel.FormFilling,
+});
+filled.Save("certified.pdf");   // the signature is made when the file is saved
+```
+
+Rectangles are in drawing coordinates, as for `XGraphics`: points from the top
+left corner of the visible page. `document.Flatten()` turns filled fields into
+page content. To fill in a signed or certified file without breaking its
+signature, open it with `PdfDocumentOpenMode.Append`. PDF/A documents take
+check boxes, radio buttons and signature fields, but not text and choice fields
+(their Helvetica is not embedded); PDF/UA documents take no new fields yet.
+
 ## QR codes and bar codes
 
 QR codes, Data Matrix, Code 128 (including GS1-128), EAN-13, EAN-8 and UPC-A

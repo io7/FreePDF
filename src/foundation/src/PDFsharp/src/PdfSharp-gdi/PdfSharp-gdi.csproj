@@ -292,6 +292,9 @@
     <Compile Include="..\PdfSharp\Pdf.Forms\enums\PdfFormSignatureFlags.cs" Link="Pdf.Forms\enums\PdfFormSignatureFlags.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\Design.cs" Link="Pdf.Forms\Design.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\FieldAppearance.cs" Link="Pdf.Forms\FieldAppearance.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Forms\ButtonAppearance.cs" Link="Pdf.Forms\ButtonAppearance.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Forms\PdfFormCreation.cs" Link="Pdf.Forms\PdfFormCreation.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Forms\PdfFormFieldStyle.cs" Link="Pdf.Forms\PdfFormFieldStyle.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\StandardFontWidths.cs" Link="Pdf.Forms\StandardFontWidths.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\FormFlattener.cs" Link="Pdf.Forms\FormFlattener.cs" />
     <Compile Include="..\PdfSharp\Pdf.Forms\FieldName.cs" Link="Pdf.Forms\FieldName.cs" />

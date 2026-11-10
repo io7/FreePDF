@@ -45,8 +45,8 @@ namespace PdfSharp.Pdf.Signatures
                 missing.Add("a named signature appearance (AppearanceFilter)");
             if (seedValues.Elements.GetDictionary("/Cert") is { } certificate && certificate.Elements.GetInteger("/Ff") != 0)
                 missing.Add("constraints on the signing certificate (Cert), which the signer does not report");
-            if (seedValues.Elements.GetDictionary("/MDP") is { } mdp && mdp.Elements.GetInteger("/P") > 0)
-                missing.Add("a certification signature (MDP)");
+            if (seedValues.Elements.GetDictionary("/MDP") is { } mdp && mdp.Elements.GetInteger("/P") is < 0 or > 3)
+                missing.Add($"an unknown signature type (MDP /P {mdp.Elements.GetInteger("/P")})");
             if (seedValues.Elements.GetDictionary("/TimeStamp") is { } timeStamp && timeStamp.Elements.GetInteger("/Ff") == 1)
                 missing.Add("a timestamp (TimeStamp), which the signer does not report");
             if (missing.Count > 0)
@@ -54,6 +54,7 @@ namespace PdfSharp.Pdf.Signatures
                 throw new NotSupportedException($"The signature field '{name}' requires {string.Join(", ", missing)}; " +
                     "FreePDF cannot sign it.");
             }
+            CheckSignatureType(seedValues, options);
 
             if (!Required(ReasonsBit))
                 return;
@@ -69,6 +70,27 @@ namespace PdfSharp.Pdf.Signatures
             {
                 throw new ArgumentException($"The signature field '{name}' requires one of these reasons: " +
                     string.Join(", ", allowed.Select(value => $"'{value}'")) + ".", nameof(options));
+            }
+        }
+
+        /// <summary>
+        /// A seed /MDP /P says which signature the field takes, whatever /Ff says: 0 an approval signature, 1 to 3 a
+        /// certification with that permission level. Without /P there is no rule.
+        /// </summary>
+        static void CheckSignatureType(PdfDictionary seedValues, DigitalSignatureOptions options)
+        {
+            if (seedValues.Elements.GetDictionary("/MDP") is not { } mdp || !mdp.Elements.ContainsKey("/P"))
+                return;
+            var required = mdp.Elements.GetInteger("/P");
+            if (required == 0 && options.Certification != null)
+            {
+                throw new ArgumentException($"The signature field '{options.FieldName}' takes an approval signature, " +
+                    "so Certification must be left unset.", nameof(options));
+            }
+            if (required > 0 && (int?)options.Certification != required)
+            {
+                throw new ArgumentException($"The signature field '{options.FieldName}' takes a certification signature " +
+                    $"with permission level {required}; set Certification to {(PdfCertificationLevel)required}.", nameof(options));
             }
         }
 

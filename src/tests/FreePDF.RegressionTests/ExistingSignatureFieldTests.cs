@@ -284,7 +284,7 @@ public class ExistingSignatureFieldTests
     [Theory]
     [InlineData("/SubFilter [/ETSI.CAdES.detached] /Ff 2")]
     [InlineData("/DigestMethod [/SHA512] /Ff 64")]
-    [InlineData("/MDP << /P 2 >>")]
+    [InlineData("/MDP << /P 4 >>")]
     [InlineData("/TimeStamp << /URL (http://tsa.example) /Ff 1 >>")]
     [InlineData("/Cert << /Ff 1 /Subject [] >>")]
     public void Required_seed_values_that_cannot_be_met_are_refused(string seedValues)
@@ -329,6 +329,48 @@ public class ExistingSignatureFieldTests
     public void Optional_or_met_seed_values_do_not_stop_signing(string seedValues)
     {
         AssertLastSignatureCoversTheFile(Save(Fixture($"/SV << /Type /SV {seedValues} >>"), SignField("approval")));
+    }
+
+    // A seed /MDP /P names the signature the field takes (ISO 32000-2 Table 237), whatever /Ff says: 0 an approval
+    // signature, 1 to 3 a certification with that permission level. Mistakes surface when the handler is made.
+    [Theory]
+    [InlineData(0, null, true)]
+    [InlineData(0, PdfCertificationLevel.FormFilling, false)]
+    [InlineData(2, PdfCertificationLevel.FormFilling, true)]
+    [InlineData(2, null, false)]
+    [InlineData(2, PdfCertificationLevel.NoChanges, false)]
+    public void A_seed_MDP_decides_between_approval_and_certification(int p, PdfCertificationLevel? level, bool allowed)
+    {
+        var original = Fixture($"/SV << /Type /SV /MDP << /P {p} >> >>");
+        var options = new DigitalSignatureOptions { FieldName = "approval", Certification = level };
+        if (!allowed)
+        {
+            using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Append);
+            Assert.Throws<ArgumentException>(() => Sign(document, options));
+            return;
+        }
+
+        var signed = Save(original, document => Sign(document, options));
+
+        AssertLastSignatureCoversTheFile(signed);
+        using var result = Open(signed);
+        Assert.Equal(level != null, result.Catalog.Elements.GetDictionary("/Perms")?.Elements.ContainsKey("/DocMDP") == true);
+    }
+
+    // /FT and /V are inheritable: a signed signature field whose type sits on its parent still makes the document
+    // signed, so it cannot be certified any more.
+    [Fact]
+    public void A_signature_below_a_parent_field_stops_certification()
+    {
+        var original = Fixture(moreFields: "13 0 R", moreAnnots: "14 0 R", more: new[] {
+            /* 13 */ "<< /FT /Sig /T (parent) /Kids [14 0 R] >>",
+            /* 14 */ "<< /Parent 13 0 R /T (child) /V 15 0 R /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 3 0 R /F 132 >>",
+            /* 15 */ "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 0 0 0] /Contents <00> >>",
+        });
+        using var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Append);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            Sign(document, new DigitalSignatureOptions { FieldName = "approval", Certification = PdfCertificationLevel.FormFilling }));
     }
 
     [Fact]

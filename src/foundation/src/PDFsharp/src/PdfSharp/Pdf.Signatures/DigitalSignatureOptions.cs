@@ -58,5 +58,34 @@ namespace PdfSharp.Pdf.Signatures
         /// must be met. When null, a new signature field is added.
         /// </summary>
         public string? FieldName { get; init; }
+
+        /// <summary>
+        /// Gets or sets whether this signature certifies the document, and which later changes keep the certification
+        /// valid (a certification or author signature with DocMDP, ISO 32000-1 12.8.2.2). Only the first signature of a
+        /// document can certify it. When null, the default, the signature is an ordinary approval signature.
+        /// </summary>
+        public PdfCertificationLevel? Certification { get; init; }
+    }
+
+    /// <summary>
+    /// The changes a certified document permits after its certification signature (the DocMDP permission /P).
+    /// Signing empty signature fields is always permitted.
+    /// </summary>
+    public enum PdfCertificationLevel
+    {
+        /// <summary>
+        /// No changes: any change invalidates the certification (P = 1).
+        /// </summary>
+        NoChanges = 1,
+
+        /// <summary>
+        /// Filling in forms and signing (P = 2).
+        /// </summary>
+        FormFilling = 2,
+
+        /// <summary>
+        /// Filling in forms, signing, and adding, changing or deleting comments (P = 3).
+        /// </summary>
+        FormFillingAndAnnotations = 3,
     }
 }

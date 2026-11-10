@@ -56,6 +56,30 @@
   there broke the line.
 - MigraDoc: a blank right after a tab no longer makes the tab break the line
   when the following text fits.
+- Creating form fields: `PdfForm.AddTextField`, `AddCheckBox`,
+  `AddRadioButtonGroup`, `AddComboBox`, `AddListBox` and `AddSignatureField`
+  place a field on a page (rectangle in drawing coordinates, top left origin)
+  with an appearance every viewer shows. `PdfFormFieldStyle` sets the font size,
+  colors, border, alignment and tool tip. Text and choice fields use Helvetica
+  from the form's default resources, so PDF/A documents refuse them, also
+  opened files whose XMP claims PDF/A; check boxes, radio buttons and signature
+  fields are drawn as vectors and work in PDF/A too. Fields are not tagged yet,
+  so tagged (PDF/UA) documents refuse all of them. A refused call leaves the
+  document unchanged. Created fields can be filled, flattened, merged and
+  signed like fields read from a file.
+- Certifying a document: `DigitalSignatureOptions.Certification` makes the
+  signature a certification signature (DocMDP) that permits no changes, form
+  filling, or form filling and comments. Only the first signature of a
+  document can certify it. pyHanko validates such files and accepts form
+  filling after certification at levels 2 and 3.
+- A signature field whose seed value names the signature type (/MDP) can now be
+  signed: an approval signature where /P is 0, a certification at the named
+  level where /P is 1 to 3. Other options are refused with an
+  `ArgumentException` when the handler is made; such fields were refused before.
+- `DigitalSignatureOptions.ContactInfo` is written into the signature; it was
+  ignored.
+- A signature into a locked field that also certifies keeps both signature
+  references (DocMDP and FieldMDP); the lock's reference replaced the list.
 
 ## 7.8.0
 

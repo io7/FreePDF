@@ -49,6 +49,8 @@ namespace PdfSharp.Pdf.Signatures
                 // Mistakes surface here rather than when the document is saved.
                 CheckField(FindUnsignedSignatureField());
             }
+            if (options.Certification is { } level)
+                CheckCertification(level);
 
             // TODO_OLD in document: Set document version depending on digest type from options.  // TODO: what?
         }
@@ -309,7 +311,92 @@ namespace PdfSharp.Pdf.Signatures
             reference.Elements.SetName("/TransformMethod", "/FieldMDP");
             reference.Elements["/TransformParams"] = parameters;
             reference.Elements.SetObject("/Data", Document.Catalog);
-            signatureDictionary.Elements["/Reference"] = new PdfArray(Document, reference);
+            AddSignatureReference(signatureDictionary, reference);
+        }
+
+        /// <summary>
+        /// Appends a signature reference: a certification signature that signs a locked field carries both DocMDP and
+        /// FieldMDP references.
+        /// </summary>
+        void AddSignatureReference(PdfDictionary signatureDictionary, PdfDictionary reference)
+        {
+            var references = signatureDictionary.Elements.GetArray("/Reference");
+            if (references == null)
+                signatureDictionary.Elements["/Reference"] = new PdfArray(Document, reference);
+            else
+                references.Elements.Add(reference);
+        }
+
+        /// <summary>
+        /// Makes the signature a certification signature (ISO 32000-1 12.8.2.2): a DocMDP signature reference with the
+        /// permission level, and the catalog's /Perms /DocMDP pointing to the signature dictionary. Only the first
+        /// signature of a document can certify it.
+        /// </summary>
+        void AddCertification(PdfSignature signatureDictionary, PdfCertificationLevel level)
+        {
+            CheckCertification(level);
+
+            var parameters = new PdfDictionary(Document);
+            parameters.Elements.SetName("/Type", "/TransformParams");
+            parameters.Elements.SetInteger("/P", (int)level);
+            parameters.Elements.SetName("/V", "/1.2");
+            var reference = new PdfDictionary(Document);
+            reference.Elements.SetName("/Type", "/SigRef");
+            reference.Elements.SetName("/TransformMethod", "/DocMDP");
+            reference.Elements["/TransformParams"] = parameters;
+            AddSignatureReference(signatureDictionary, reference);
+
+            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
+            if (perms == null)
+            {
+                perms = new PdfDictionary(Document);
+                Document.Catalog.Elements[PdfCatalog.Keys.Perms] = perms;
+            }
+            perms.Elements["/DocMDP"] = signatureDictionary.Reference;
+        }
+
+        // Runs when the handler is made, so mistakes surface early, and again when the signature is written.
+        void CheckCertification(PdfCertificationLevel level)
+        {
+            if (level is < PdfCertificationLevel.NoChanges or > PdfCertificationLevel.FormFillingAndAnnotations)
+                throw new ArgumentOutOfRangeException(nameof(DigitalSignatureOptions.Certification), "The certification level must be 1, 2 or 3.");
+            var perms = Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.Perms);
+            if (perms?.Elements.ContainsKey("/DocMDP") == true || HasSignedField())
+                throw new InvalidOperationException("Only the first signature can certify a document; this document is already signed.");
+        }
+
+        /// <summary>
+        /// Tells whether any signature field of the form has a signature. Walks the field dictionaries themselves:
+        /// /FT and /V are inheritable (ISO 32000-1 Table 220), and only a dictionary value is a signature.
+        /// </summary>
+        bool HasSignedField()
+        {
+            var visited = new HashSet<PdfDictionary>();
+            var pending = new Stack<(PdfDictionary Field, string Type, bool Signed)>();
+            Push(Document.Catalog.Elements.GetDictionary(PdfCatalog.Keys.AcroForm)?.Elements.GetArray(PdfForm.Keys.Fields), "", false);
+            while (pending.Count != 0)
+            {
+                var (field, inheritedType, inheritedSigned) = pending.Pop();
+                if (!visited.Add(field))
+                    continue;
+                var type = field.Elements.ContainsKey(PdfFormField.Keys.FT) ? field.Elements.GetName(PdfFormField.Keys.FT) : inheritedType;
+                var signed = field.Elements.ContainsKey(PdfFormField.Keys.V)
+                    ? field.Elements.GetDictionary(PdfFormField.Keys.V) != null
+                    : inheritedSigned;
+                if (type == "/Sig" && signed)
+                    return true;
+                Push(field.Elements.GetArray(PdfFormField.Keys.Kids), type, signed);
+            }
+            return false;
+
+            void Push(PdfArray? fields, string type, bool signed)
+            {
+                for (var index = 0; index < (fields?.Elements.Count ?? 0); index++)
+                {
+                    if (fields!.Elements.GetDictionary(index) is { } field)
+                        pending.Push((field, type, signed));
+                }
+            }
         }
 
         PdfFormSignatureField GetSignatureField(PdfSignature signatureDic) // #US321 TODO Use appropriate classes.
@@ -397,6 +484,9 @@ namespace PdfSharp.Pdf.Signatures
             signatureDic.Elements.Add(PdfSignature.Keys.ByteRange, byteRange);
             signatureDic.Elements.Add(PdfSignature.Keys.Reason, new PdfString(Options.Reason));
             signatureDic.Elements.Add(PdfSignature.Keys.Location, new PdfString(Options.Location));
+            // FreePDF: ContactInfo was an option that was never written.
+            if (!String.IsNullOrEmpty(Options.ContactInfo))
+                signatureDic.Elements["/ContactInfo"] = new PdfString(Options.ContactInfo);
 
             var properties = new PdfDictionary(Document);
             signatureDic.Elements.Add("/Prop_Build", properties);
@@ -406,6 +496,9 @@ namespace PdfSharp.Pdf.Signatures
             propertyItems.Elements.Add("/Name", PdfName.FromString(appName));
 
             Document.Internals.AddObject(signatureDic);
+
+            if (Options.Certification is { } level)
+                AddCertification(signatureDic, level);
 
             return signatureDic;
         }

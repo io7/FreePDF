@@ -80,10 +80,12 @@ difference analysis was run on forms that pyHanko certified (P=1, 2, 3) or signe
 with and without a field lock, also with nested fields, and that FreePDF then
 changed: every change FreePDF saved for which pyHanko has a rule was accepted, and
 every change FreePDF refused was rejected by pyHanko too. pyHanko's default policy
-is stricter than the permissions in four places, which FreePDF follows the
+is stricter than the permissions in five places, which FreePDF follows the
 permissions in: added comments, new visible signature fields after a
-certification, any change to pages after an ordinary signature, and new signature
-fields after a signature that locks all fields.
+certification, any change to pages after an ordinary signature, new signature
+fields after a signature that locks all fields, and new fields other than
+signature fields after an ordinary signature (checked with 7.9.0's `PdfForm.Add…`
+methods).
 
 Since 7.6.0, `DigitalSignatureOptions.FieldName` signs an existing, empty signature
 field. Regression tests cover a field that is its own widget, one with a separate
@@ -96,6 +98,21 @@ lock names, pyHanko judged FreePDF's signature INVALID, as it must. pyHanko's
 default policy reports earlier signatures as changed when the signed field's
 widget is a separate object, or the field has several widgets or shares an
 appearance; fields that are their own widget pass.
+
+Since 7.9.0, `PdfForm` creates text, check box, radio button, combo box, list box
+and signature fields with appearances. Regression tests read created fields back
+with their types, widgets, rectangles and appearances, fill them after reopening,
+flatten, merge and sign them. Before the release, MuPDF and pypdf read the type,
+value and on states of every created field in new, filled and reopened-then-filled
+files, and MuPDF and poppler rendered them. Text and choice fields use Helvetica,
+which is not embedded, so PDF/A documents (new, or opened with an XMP PDF/A
+claim) refuse them. Fields are not tagged yet, so tagged and PDF/UA documents
+refuse all of them. `DigitalSignatureOptions.Certification` writes a
+certification signature (DocMDP), only as the document's first signature, and
+honours a signature field's seed value for the signature type (/MDP); regression
+tests check the signature reference, the catalog's /Perms and FreePDF's own
+enforcement, and pyHanko read levels 1 to 3 from FreePDF's files and judged form
+filling after certification at levels 2 and 3 as permitted (VALID).
 
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
