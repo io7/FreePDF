@@ -188,7 +188,8 @@ public class PadesSigningTests
             TimeStampReserve = 64,
         }, new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Reason = "Test" });
 
-        Assert.ThrowsAny<Exception>(() => document.Save(new MemoryStream()));
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Save(new MemoryStream()));
+        Assert.Contains("TimeStampReserve", refused.Message);
     }
 
     // The built-in HTTP client posts application/timestamp-query and reads application/timestamp-reply.

@@ -267,23 +267,11 @@ namespace PdfSharp.Pdf
             if (!SaveAnyway && !CanModify)
                 throw new InvalidOperationException(PsMsgs.CannotModify);
 
-            if (IncrementalUpdate != null)
+            // FreePDF: an incremental update can be refused, and a signature can fail after the document is written (a
+            // time-stamp authority, a signer), so these saves go through memory to the file.
+            if (IncrementalUpdate != null || DigitalSignatureHandler != null)
             {
-                await SaveIncrementalUpdateAsync(path).ConfigureAwait(false);
-                return;
-            }
-
-            if (DigitalSignatureHandler != null)
-            {
-                // FreePDF: a signature can fail after the file is written (a time-stamp authority, a signer), so a signed
-                // document is saved in memory first and only then written: a failed signature leaves an existing file as
-                // it was.
-                using var buffer = new MemoryStream();
-                await SaveAsync(buffer).ConfigureAwait(false);
-                // ReSharper disable once UseAwaitUsing because we need no DisposeAsync for a simple FileStream.
-                using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-                buffer.Position = 0;
-                await buffer.CopyToAsync(file).ConfigureAwait(false);
+                await SaveThroughMemoryAsync(path).ConfigureAwait(false);
                 return;
             }
 
@@ -293,20 +281,21 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
-        /// Saves a document opened with <see cref="PdfDocumentOpenMode.Append"/> to a path. The file is opened first,
-        /// without truncating it, so a path that cannot be written fails before the document is saved and the save can
-        /// be repeated. The document is saved in memory, which already holds the original, and only then written to a
-        /// temporary file next to the target that replaces it: a refused save, or one that fails while writing, leaves
-        /// the file as it was, also when it is the file the document was opened from.
+        /// Saves a document opened with <see cref="PdfDocumentOpenMode.Append"/>, or one being signed, to a path. The
+        /// file is opened first, without truncating it, so a path that cannot be written fails before the document is
+        /// saved and the save can be repeated. The document is saved in memory (which holds the original of an
+        /// incremental update) and only then written to a temporary file next to the target that replaces it: a refused
+        /// save, a failed signature, or a save that fails while writing leaves the file as it was, also when it is the
+        /// file the document was opened from.
         /// </summary>
-        async Task SaveIncrementalUpdateAsync(string path)
+        async Task SaveThroughMemoryAsync(string path)
         {
             bool existed = File.Exists(path);
             using (new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
             {
             }
 
-            using var buffer = new MemoryStream(IncrementalUpdate!.OriginalLength + 64 * 1024);
+            using var buffer = new MemoryStream((IncrementalUpdate?.OriginalLength ?? 0) + 64 * 1024);
             try
             {
                 await SaveAsync(buffer).ConfigureAwait(false);

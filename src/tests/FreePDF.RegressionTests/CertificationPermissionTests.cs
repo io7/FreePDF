@@ -149,6 +149,34 @@ public class CertificationPermissionTests
             Refused(Certified(p), Change(change));
     }
 
+    // The ESIC declaration of a PAdES signature goes into a new direct /Extensions in the catalog: the indirect one
+    // (object 13) is not changed, which the certification would forbid, and its declarations are kept.
+    [Fact]
+    public void A_pades_signature_keeps_an_indirect_extensions_dictionary_of_a_certified_document()
+    {
+        var original = Fixture("/Perms << /DocMDP 10 0 R >> /Extensions 13 0 R",
+            "/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>]",
+            "", "", "<< /ADBE << /BaseVersion /1.7 /ExtensionLevel 3 >> /ESIC [<< /BaseVersion /1.7 /ExtensionLevel 1 >>] >>");
+
+        var signed = Save(original, SignPades);
+
+        Assert.Equal(original, signed.Take(original.Length).ToArray());
+        using var document = PdfReader.Open(new MemoryStream(signed), PdfDocumentOpenMode.Import);
+        var extensions = document.Catalog.Elements.GetDictionary("/Extensions")!;
+        Assert.Equal(3, extensions.Elements.GetDictionary("/ADBE")!.Elements.GetInteger("/ExtensionLevel"));
+        var levels = extensions.Elements.GetArray("/ESIC")!.Elements.Cast<PdfDictionary>().Select(d => d.Elements.GetInteger("/ExtensionLevel"));
+        Assert.Equal(new[] { 1, 2 }, levels);
+    }
+
+    [Fact]
+    public void A_malformed_extensions_entry_is_left_as_it_is()
+    {
+        var signed = Save(Fixture("/Extensions [1 2]"), SignPades);
+
+        using var document = PdfReader.Open(new MemoryStream(signed), PdfDocumentOpenMode.Import);
+        Assert.IsType<PdfArray>(document.Catalog.Elements["/Extensions"]);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

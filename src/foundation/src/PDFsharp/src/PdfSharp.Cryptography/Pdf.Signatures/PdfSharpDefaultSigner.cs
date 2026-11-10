@@ -111,8 +111,9 @@ namespace PdfSharp.Pdf.Signatures
                 // The signature size varies with the digest and the certificate: sign an empty stream once, without a
                 // time-stamp, so the authority is asked only for the real signature.
                 _signatureSize = (await SignAsync([0], timeStamp: false).ConfigureAwait(false)).Length;
-                // With DSA, signature size varies without timestamp. A variation of 2 bytes was observed. Make it 4 to allow more variation.
-                _signatureSize += 4;
+                // DSA and ECDSA signature values vary in length (an ECDSA value's two DER integers by up to 4 bytes
+                // together), so a few bytes are kept to spare.
+                _signatureSize += 8;
             }
             // The token is unsigned data: its size depends on the authority, so a fixed reserve is added.
             return MustAddTimeStamp ? _signatureSize + TimeStampReserve : _signatureSize;
@@ -139,7 +140,13 @@ namespace PdfSharp.Pdf.Signatures
                     throw new InvalidOperationException($"Tried to read {content.Length} bytes but got {read} bytes.");
                 read += count;
             }
-            return await SignAsync(content, MustAddTimeStamp).ConfigureAwait(false);
+            var signature = await SignAsync(content, MustAddTimeStamp).ConfigureAwait(false);
+            if (MustAddTimeStamp && _signatureSize > 0 && signature.Length > _signatureSize + TimeStampReserve)
+            {
+                throw new InvalidOperationException($"The time-stamp authority's token needs {signature.Length - _signatureSize} bytes, " +
+                    $"more than the {TimeStampReserve} reserved for it. Create the signer with a larger {nameof(TimeStampReserve)}.");
+            }
+            return signature;
         }
 
         async Task<byte[]> SignAsync(byte[] content, bool timeStamp)

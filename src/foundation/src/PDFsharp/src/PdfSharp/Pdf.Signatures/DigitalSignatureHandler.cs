@@ -224,18 +224,77 @@ namespace PdfSharp.Pdf.Signatures
         {
             if (Document.Version >= 20)
                 return;
-            var extensions = Document.Catalog.Elements.GetDictionary("/Extensions");
-            if (extensions?.Elements.GetDictionary("/ESIC") is { } declared && declared.Elements.GetInteger("/ExtensionLevel") >= 2)
+            var existing = Resolve(Document.Catalog.Elements["/Extensions"]);
+            // A malformed entry is left as it is rather than replaced.
+            if (existing is not (null or PdfDictionary))
                 return;
-            if (extensions == null)
+            var oldExtensions = (PdfDictionary?)existing;
+            var oldEsic = Resolve(oldExtensions?.Elements["/ESIC"]);
+            // One extension dictionary, or an array of them for one prefix (ISO 32000-2 7.12.3).
+            var declared = oldEsic switch
             {
-                extensions = new PdfDictionary(Document);
-                Document.Catalog.Elements["/Extensions"] = extensions;
-            }
+                null => [],
+                PdfDictionary dictionary => [dictionary],
+                PdfArray array => array.Elements.Select(Resolve).OfType<PdfDictionary>().ToList(),
+                _ => (List<PdfDictionary>?)null,
+            };
+            if (declared == null || declared.Any(d => d.Elements.GetInteger("/ExtensionLevel") >= 2))
+                return;
+
             var esic = new PdfDictionary(Document);
             esic.Elements.SetName("/BaseVersion", "/1.7");
             esic.Elements.SetInteger("/ExtensionLevel", 2);
-            extensions.Elements["/ESIC"] = esic;
+
+            // The declaration is written as a new direct dictionary in the catalog, with the other entries carried over:
+            // under a certification the catalog's /Extensions may change, the objects it refers to may not.
+            var extensions = new PdfDictionary(Document);
+            if (oldExtensions != null)
+            {
+                foreach (var key in oldExtensions.Elements.Keys)
+                {
+                    if (key != "/ESIC" && oldExtensions.Elements[key] is { } value)
+                        extensions.Elements[key] = Copy(value);
+                }
+            }
+            if (oldEsic is PdfArray oldArray)
+            {
+                var all = new PdfArray(Document);
+                foreach (var item in oldArray.Elements)
+                    all.Elements.Add(Copy(item));
+                all.Elements.Add(esic);
+                extensions.Elements["/ESIC"] = all;
+            }
+            else
+            {
+                extensions.Elements["/ESIC"] = esic;
+            }
+            Document.Catalog.Elements["/Extensions"] = extensions;
+
+            static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
+
+            // A direct dictionary or array belongs to one container, so it is copied; references, names and numbers are
+            // shared.
+            PdfItem Copy(PdfItem item)
+            {
+                switch (item)
+                {
+                    case PdfDictionary { Reference: null } dictionary:
+                        var dictionaryCopy = new PdfDictionary(Document);
+                        foreach (var key in dictionary.Elements.Keys)
+                        {
+                            if (dictionary.Elements[key] is { } value)
+                                dictionaryCopy.Elements[key] = Copy(value);
+                        }
+                        return dictionaryCopy;
+                    case PdfArray { Reference: null } array:
+                        var arrayCopy = new PdfArray(Document);
+                        foreach (var element in array.Elements)
+                            arrayCopy.Elements.Add(Copy(element));
+                        return arrayCopy;
+                    default:
+                        return item;
+                }
+            }
         }
 
         // SignaturesExist and AppendOnly (ISO 32000-1 Table 219).
