@@ -18,5 +18,12 @@ namespace PdfSharp.Pdf.Signatures
         /// dictionary's /M. With a signature time-stamp it is PAdES B-T, otherwise B-B.
         /// </summary>
         Pades = 1,
+
+        /// <summary>
+        /// ETSI.RFC3161: a document time-stamp (ISO 32000-2 12.8.5), an RFC 3161 time-stamp token over the document in an
+        /// invisible signature field whose signature dictionary has /Type /DocTimeStamp. With the validation data of the
+        /// document security store it makes the document's signatures PAdES B-LTA.
+        /// </summary>
+        DocumentTimeStamp = 2,
     }
 }

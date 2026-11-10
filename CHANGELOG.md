@@ -13,6 +13,24 @@
   of your own reports its format through `IDigitalSignerFormat`, and a signer
   that wraps another must forward it. A signature field whose seed value
   requires a /SubFilter is checked against the signer's format.
+- PAdES B-LT and B-LTA: `PdfDocumentSecurityStore.Add` writes certificates,
+  OCSP responses and CRLs into the document security store (DSS, ISO 32000-2
+  12.8.4.3) in an update in Append mode, without duplicates, and
+  `PdfTimeStampSigner` adds a document time-stamp (ETSI.RFC3161, ISO 32000-2
+  12.8.5; .NET 8 and later, SHA-256 or stronger). Both are permitted under
+  every certification level: a document certified with "no changes" (P=1),
+  which took no update before, now takes these two and nothing else, and such
+  an update leaves the document information as it was.
+- `PdfDocumentSecurityStore.AddValidationDataAsync` collects the validation
+  data itself: the chains of the document's signatures, signature time-stamps
+  and document time-stamps, and for each certificate below a root an OCSP
+  response (RFC 6960) from the responder it names, or else its CRLs (RFC 5280),
+  through an `HttpClient` you can supply. The default client reaches only
+  public addresses unless `AllowPrivateNetworks` is set, answers are limited
+  to `MaxResponseSize` (32 MiB), at most four addresses of a kind are asked
+  per certificate, and a cancellation token stops it. Its report lists what it
+  could not get. The core assembly now references System.Security.Cryptography.Pkcs,
+  which every FreePDF package already depended on.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use
   a test authority (.NET 8 and later; on .NET Framework and .NET Standard,

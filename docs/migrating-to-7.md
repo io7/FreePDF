@@ -228,7 +228,9 @@ DigitalSignatureHandler.ForDocument(approved, signer,
     field) are protected the same way. A `/Lock` with `/P` also limits later
     changes like a certification.
   - A certification signature (DocMDP, ISO 32000-1 12.8.2.2) with "no changes"
-    (P=1) permits no update at all; with "form filling and signing" (P=2) it
+    (P=1) permits only validation data (`PdfDocumentSecurityStore`) and document
+    time-stamps (`PdfTimeStampSigner`), as ISO 32000-2 12.8.2.2 allows since
+    7.10; before, it permitted no update at all. With "form filling and signing" (P=2) it
     permits filling in fields, adding signature fields and signing, and changing
     the document information; with P=3 also adding, changing and removing
     comments and other annotations. Page content, pages, bookmarks and other
@@ -252,7 +254,7 @@ DigitalSignatureHandler.ForDocument(approved, signer,
   locked too, while FreePDF applies the lock to the fields the document had.
 - A document with no changes is saved as it was. Otherwise the document
   information gets a new modification date (unless you set one) and FreePDF as
-  its producer. An update never adds a `/PageMode` to the catalog (a full save
+  its producer, except under a P=1 certification, where it stays as it was. An update never adds a `/PageMode` to the catalog (a full save
   makes a document with bookmarks open with them shown). Reading
   `page.Annotations`, `document.Outlines`, `document.ViewerPreferences` or a form
   field's `Kids` creates them when the file has none, and saving writes that as a

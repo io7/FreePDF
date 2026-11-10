@@ -199,6 +199,40 @@ The signer calls the authority while the document is saved, so prefer
 the authority answers (at most 30 seconds over HTTP). A signed document saved
 to a path is written only once the signature is made.
 
+### Long-term signatures (B-LT, B-LTA)
+
+```csharp
+// B-LT: the chains of the signatures and time-stamps, with an OCSP response or the CRLs for each certificate.
+using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
+{
+    var report = await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+        new PdfValidationDataOptions { ExtraCertificates = [intermediate, root] });
+    if (report.Problems.Count > 0)
+        Console.WriteLine(string.Join(Environment.NewLine, report.Problems));
+    await document.SaveAsync("signed.pdf");
+}
+// B-LTA: a document time-stamp over the document and its validation data.
+using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
+{
+    DigitalSignatureHandler.ForDocument(document, new PdfTimeStampSigner(new Uri("https://tsa.example.com/")), new DigitalSignatureOptions());
+    await document.SaveAsync("signed.pdf");
+}
+```
+
+`AddValidationDataAsync` asks the OCSP responders the certificates name and
+falls back to their CRL distribution points; give it intermediate and root
+certificates the signatures do not carry, and an `HttpClient` of your own for
+a proxy. The addresses come from the certificates, which whoever signed the
+document chose: the default client reaches only public addresses (set
+`AllowPrivateNetworks` for an internal CA), takes at most `MaxResponseSize`
+bytes per answer (32 MiB) and stops at the cancellation token. It does not
+judge the answers: `Problems` lists what it could not get and certificates
+OCSP reports as revoked. To add data you fetched yourself, use
+`PdfDocumentSecurityStore.Add`. Both kinds of update leave the signed bytes as
+they are and are permitted under every certification level, "no changes"
+included. A document time-stamp is an invisible field; it needs .NET 8 or
+later.
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries

@@ -40,6 +40,7 @@ namespace PdfSharp.Pdf.IO
             if (document.Trailer.Elements[PdfTrailer.Keys.Info] is PdfDictionary directInfo)
                 _directInfoHash = TryHash(document, directInfo);
             _originalModificationDate = InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString();
+            _originalInfo = document.Trailer.Elements[PdfTrailer.Keys.Info];
             // The encryption dictionary, whether the trailer refers to it or holds it directly.
             if (EncryptionDictionary(document) is { } encryption)
                 _encryptionHash = TryHash(document, encryption);
@@ -152,6 +153,13 @@ namespace PdfSharp.Pdf.IO
         internal int OriginalLength => _original.Length;
 
         /// <summary>
+        /// Gets a value indicating whether the update leaves the document information as the file has it: the
+        /// signatures permit no changes but validation data (P=1) and the application did not change it. Valid after
+        /// <see cref="RecordDocumentInformationChange"/>.
+        /// </summary>
+        internal bool KeepsDocumentInformation => Permissions is { PermitsOnlyValidationData: true } && !_documentInformationChanged;
+
+        /// <summary>
         /// Records whether the document information was changed since the file was opened. Call before
         /// PrepareForSave, which puts the producer into it.
         /// </summary>
@@ -196,6 +204,17 @@ namespace PdfSharp.Pdf.IO
                     document.Catalog.Elements.SetName(PdfCatalog.Keys.Version, name);
             }
 
+            // Reading document.Info creates the dictionary when the file has none; such an update keeps the trailer's
+            // /Info as the file had it.
+            if (KeepsDocumentInformation)
+            {
+                if (_originalInfo == null)
+                    document.Trailer.Elements.Remove(PdfTrailer.Keys.Info);
+                else if (_originalInfo is PdfReference original
+                         && (document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference)?.ObjectID != original.ObjectID)
+                    document.Trailer.Elements[PdfTrailer.Keys.Info] = original;
+            }
+
             var reachable = document.IrefTable.TransitiveClosure(document.Trailer);
             Array.Sort(reachable, PdfReference.Comparer);
             var written = new List<PdfReference>();
@@ -231,12 +250,18 @@ namespace PdfSharp.Pdf.IO
                 stream.Write(_original, 0, _original.Length);
                 return;
             }
-            if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
-                document.Info.ModificationDate = DateTimeOffset.Now;
-            if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
+            // FreePDF: where the signatures permit no changes but validation data (P=1), the document information keeps
+            // its modification date and producer (PrepareForSave leaves it alone then) unless the application changed
+            // it, which the permission check refuses.
+            if (!KeepsDocumentInformation)
             {
-                written.Add(info);
-                written.Sort(PdfReference.Comparer);
+                if (InformationDictionary(document)?.Elements[PdfDocumentInformation.Keys.ModDate]?.ToString() == _originalModificationDate)
+                    document.Info.ModificationDate = DateTimeOffset.Now;
+                if (info != null && written.All(iref => iref.ObjectID != info.ObjectID))
+                {
+                    written.Add(info);
+                    written.Sort(PdfReference.Comparer);
+                }
             }
 
             // The encryption dictionary of an encrypted file stays as it is: the update is encrypted with it.
@@ -613,5 +638,7 @@ namespace PdfSharp.Pdf.IO
         byte[]? _encryptionHash;
         int _versionAtOpen;
         bool _documentInformationChanged;
+        // The trailer's /Info when the file was opened: a reference, a direct dictionary, or null.
+        PdfItem? _originalInfo;
     }
 }

@@ -127,9 +127,9 @@ namespace PdfSharp.Pdf.IO
         /// <param name="password">The password the document was opened with, if it is encrypted.</param>
         internal void Check(PdfDocument document, byte[] original, IReadOnlyCollection<PdfReference> written, string? password)
         {
-            if (_permission == 1)
-                throw Refusal("saving any change");
-
+            // FreePDF 7.10: at P=1 an update may still add validation data (DSS) and document time-stamps, which
+            // ISO 32000-2 12.8.4.3 and 12.8.5 and ETSI EN 319 142-1 (B-LT, B-LTA) add after the signatures; the rules
+            // below allow nothing else at P=1.
             using var before = PdfReader.Open(new MemoryStream(original, false), password, PdfDocumentOpenMode.Import);
             var old = new Snapshot(before);
             var now = new Snapshot(document);
@@ -137,6 +137,9 @@ namespace PdfSharp.Pdf.IO
             // Signed signature fields and locked fields cannot change at all: the field, the fields above it, its
             // widgets and their appearances. Nor can they be removed from the form or their pages.
             var protectedObjects = ProtectedObjects(old, out var protectedNodes);
+            // The trailer is reached by no object: a new or replaced document information dictionary is checked here.
+            if (Restricted && now.Info != old.Info)
+                Need(2, "adding or replacing the document information");
             foreach (var iref in written)
             {
                 // A new object is reached only through changes to objects of the file, which are checked here.
@@ -244,27 +247,44 @@ namespace PdfSharp.Pdf.IO
             // Without a certification, only the protected objects are restricted.
             if (!Restricted)
                 return;
+            // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level.
+            if (old.DssObjects.Contains(id))
+                return;
 
             if (old.Fields.ContainsKey(id))
             {
+                Need(2, $"filling in the form field '{old.Fields[id].Name}'");
                 CheckKeys(old, now, oldObject, newObject, $"the form field '{old.Fields[id].Name}'", FieldKeys);
                 return;
             }
             // Appearance streams that a page also draws change the page, which falls under the last rule.
             bool drawnByPage = old.PageXObjects.Contains(id);
             if (old.Appearances.Contains(id) && !drawnByPage)
+            {
+                Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
                 return;
+            }
             if (old.AnnotationAppearances.TryGetValue(id, out var annotationPage) && !drawnByPage)
             {
                 Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
                 return;
             }
 
-            if (id == old.Info || id == old.Metadata)
+            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
+            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
+            if (id == old.Info)
+            {
+                Need(2, "changing the document information");
                 return;
+            }
+            if (id == old.Metadata)
+            {
+                Need(2, "changing the document metadata (XMP)");
+                return;
+            }
             if (id == old.Catalog)
             {
-                CheckKeys(old, now, oldObject, newObject, "the document catalog", CatalogKeys);
+                CheckKeys(old, now, oldObject, newObject, "the document catalog", _permission == 1 ? CatalogKeysAtP1 : CatalogKeys);
                 if (oldObject is PdfDictionary oldCatalog && newObject is PdfDictionary newCatalog)
                     CheckFormEntry(old, now, oldCatalog, newCatalog);
                 return;
@@ -301,7 +321,10 @@ namespace PdfSharp.Pdf.IO
             if (old.Annotations.TryGetValue(id, out var annotation))
             {
                 if (annotation.IsWidget)
+                {
+                    Need(2, $"changing a form widget on page {annotation.Page + 1}");
                     CheckKeys(old, now, oldObject, newObject, $"a form widget on page {annotation.Page + 1}", WidgetKeys);
+                }
                 else
                     Need(3, $"changing a {annotation.Subtype} annotation on page {annotation.Page + 1} (object {id.ObjectNumber})");
                 return;
@@ -334,7 +357,7 @@ namespace PdfSharp.Pdf.IO
 
         void CheckForm(Snapshot old, Snapshot now, PdfDictionary oldForm, PdfDictionary newForm)
         {
-            CheckKeys(old, now, oldForm, newForm, "the interactive form (AcroForm)", FormKeys);
+            CheckKeys(old, now, oldForm, newForm, "the interactive form (AcroForm)", _permission == 1 ? FormKeysAtP1 : FormKeys);
             var oldFields = oldForm.Elements[PdfAcroFormKeys.Fields];
             if (oldFields is PdfReference { ObjectID: var fieldArray } && fieldArray == old.FieldArray
                 && newForm.Elements[PdfAcroFormKeys.Fields] is PdfReference { ObjectID: var same } && same == fieldArray)
@@ -357,6 +380,8 @@ namespace PdfSharp.Pdf.IO
                     continue;
                 if (!IsNewSignatureField(old, now, item))
                     throw Refusal($"adding the form field '{FieldName(item)}'; only signature fields may be added");
+                if (_permission == 1 && !IsDocumentTimeStamp(now, item))
+                    throw Refusal($"adding the signature field '{FieldName(item)}'; only document time-stamps may be added");
             }
         }
 
@@ -385,6 +410,8 @@ namespace PdfSharp.Pdf.IO
                 {
                     if (!IsNewSignatureField(old, now, item))
                         throw Refusal($"adding a form widget to {page}; only signature fields may be added");
+                    if (_permission == 1 && !IsDocumentTimeStamp(now, item))
+                        throw Refusal($"adding a signature widget to {page}; only document time-stamps may be added");
                 }
                 else
                 {
@@ -403,6 +430,24 @@ namespace PdfSharp.Pdf.IO
                 return now.Fields.TryGetValue(reference.ObjectID, out var field) && field.Type == "/Sig";
             }
             return false;
+        }
+
+        // A new signature field (or its widget) whose value is a document time-stamp (ISO 32000-2 12.8.5).
+        // A new signature field holding a document time-stamp (ISO 32000-2 12.8.5): /Type /DocTimeStamp with
+        // /SubFilter /ETSI.RFC3161, and nothing that changes permissions or acts: no transform /Reference, no field
+        // lock and no action.
+        static bool IsDocumentTimeStamp(Snapshot now, PdfItem item)
+        {
+            if (item is not PdfReference reference || !now.Fields.TryGetValue(reference.ObjectID, out var field))
+                return false;
+            if (field.Type != "/Sig" || Resolve(field.Dictionary.Elements["/V"]) is not PdfDictionary value)
+                return false;
+            return value.Elements.GetName("/Type") == "/DocTimeStamp"
+                && value.Elements.GetName("/SubFilter") == "/ETSI.RFC3161"
+                && !value.Elements.ContainsKey("/Reference")
+                && !field.Dictionary.Elements.ContainsKey("/Lock")
+                && !field.Dictionary.Elements.ContainsKey("/A")
+                && !field.Dictionary.Elements.ContainsKey("/AA");
         }
 
         void CheckKeys(Snapshot old, Snapshot now, PdfObject oldObject, PdfObject newObject, string description, HashSet<string> allowed)
@@ -447,13 +492,19 @@ namespace PdfSharp.Pdf.IO
 
         bool Restricted => _permission != Unrestricted;
 
+        /// <summary>
+        /// Gets a value indicating whether the signatures permit no changes but validation data and document
+        /// time-stamps (P=1), so that a save must not update the document information by itself.
+        /// </summary>
+        internal bool PermitsOnlyValidationData => _permission == 1;
+
         bool IsLocked(string fieldName) => _locks.Any(fieldLock => fieldLock.Locks(fieldName));
 
         InvalidOperationException Refusal(string change)
         {
             var permits = _permission switch
             {
-                1 => "no changes",
+                1 => "no changes but validation data and document time-stamps",
                 2 => "only filling in forms and signing",
                 _ => "only filling in forms, signing and annotating",
             };
@@ -551,6 +602,11 @@ namespace PdfSharp.Pdf.IO
                 Catalog = document.Catalog.ObjectID;
                 Info = (document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference)?.ObjectID;
                 Metadata = (document.Catalog.Elements[PdfCatalog.Keys.Metadata] as PdfReference)?.ObjectID;
+                CollectDss(document.Catalog.Elements["/DSS"]);
+                // An object the document also reaches without the DSS (a page's content, a field) is not validation
+                // data, whatever the DSS refers to.
+                if (DssObjects.Count > 0)
+                    DssObjects.ExceptWith(ReachableWithoutDss(document));
                 var formItem = document.Catalog.Elements[PdfCatalog.Keys.AcroForm];
                 Form = (formItem as PdfReference)?.ObjectID;
                 FieldArray = ((Resolve(formItem) as PdfDictionary)?.Elements[PdfAcroFormKeys.Fields] as PdfReference)?.ObjectID;
@@ -610,6 +666,76 @@ namespace PdfSharp.Pdf.IO
             internal Dictionary<PdfObjectID, int> Pages { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
             internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();
+            internal HashSet<PdfObjectID> DssObjects { get; } = new();
+
+            // The indirect objects reachable from the trailer when the catalog's /DSS is left out.
+            static HashSet<PdfObjectID> ReachableWithoutDss(PdfDocument document)
+            {
+                var result = new HashSet<PdfObjectID>();
+                var catalog = document.Catalog.ObjectID;
+                var pending = new Stack<PdfItem>();
+                foreach (var item in document.Trailer.Elements.Values)
+                {
+                    if (item != null)
+                        pending.Push(item);
+                }
+                while (pending.Count > 0)
+                {
+                    var current = pending.Pop();
+                    if (current is PdfReference reference)
+                    {
+                        if (!result.Add(reference.ObjectID) || reference.Value is not { } value)
+                            continue;
+                        current = value;
+                    }
+                    if (current is PdfDictionary dictionary)
+                    {
+                        bool isCatalog = dictionary.Reference?.ObjectID == catalog;
+                        foreach (var key in dictionary.Elements.Keys)
+                        {
+                            if (isCatalog && key == "/DSS")
+                                continue;
+                            if (dictionary.Elements[key] is { } child)
+                                pending.Push(child);
+                        }
+                    }
+                    else if (current is PdfArray array)
+                    {
+                        foreach (var child in array.Elements)
+                            pending.Push(child);
+                    }
+                }
+                return result;
+            }
+
+            // The indirect objects of the document security store: the DSS, its arrays and VRI dictionaries, and the
+            // streams of certificates, OCSP responses and CRLs.
+            void CollectDss(PdfItem? item)
+            {
+                var pending = new Stack<PdfItem>();
+                if (item != null)
+                    pending.Push(item);
+                while (pending.Count > 0)
+                {
+                    var current = pending.Pop();
+                    if (current is PdfReference reference)
+                    {
+                        if (!DssObjects.Add(reference.ObjectID) || reference.Value is not { } value)
+                            continue;
+                        current = value;
+                    }
+                    if (current is PdfDictionary dictionary)
+                    {
+                        foreach (var child in dictionary.Elements.Values)
+                            pending.Push(child);
+                    }
+                    else if (current is PdfArray array)
+                    {
+                        foreach (var child in array.Elements)
+                            pending.Push(child);
+                    }
+                }
+            }
 
             // Objects with rules of their own, at which the objects of a protected field end.
             internal bool IsBoundary(PdfObjectID id)
@@ -710,7 +836,11 @@ namespace PdfSharp.Pdf.IO
 
         static readonly HashSet<string> FieldKeys = new(StringComparer.Ordinal) { "/V", "/AS", "/AP", "/I" };
         static readonly HashSet<string> WidgetKeys = new(StringComparer.Ordinal) { "/AS", "/AP" };
-        static readonly HashSet<string> CatalogKeys = new(StringComparer.Ordinal) { "/AcroForm", "/Version", "/Metadata", "/Extensions" };
+        static readonly HashSet<string> CatalogKeys = new(StringComparer.Ordinal) { "/AcroForm", "/Version", "/Metadata", "/Extensions", "/DSS" };
+        // At P=1 the catalog may only gain or change its document security store and the ESIC extension declaration
+        // (EN 319 142-1 5.6, also for a document time-stamp), and the form only new document time-stamp fields.
+        static readonly HashSet<string> CatalogKeysAtP1 = new(StringComparer.Ordinal) { "/DSS", "/Extensions" };
+        static readonly HashSet<string> FormKeysAtP1 = new(StringComparer.Ordinal) { "/Fields", "/SigFlags" };
         static readonly HashSet<string> FormKeys = new(StringComparer.Ordinal) { "/Fields", "/SigFlags", "/DR", "/NeedAppearances" };
         static readonly HashSet<string> PageKeys = new(StringComparer.Ordinal) { "/Annots" };
 

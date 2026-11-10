@@ -2,10 +2,6 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Formats.Asn1;
-#if NET8_0_OR_GREATER
-using System.Net.Http;
-using System.Net.Http.Headers;
-#endif
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
@@ -22,8 +18,6 @@ namespace PdfSharp.Pdf.Signatures
         static readonly Oid SignatureTimeStampOid = new("1.2.840.113549.1.9.16.2.14");
         // id-aa-signingCertificateV2 (RFC 5035).
         static readonly Oid SigningCertificateV2Oid = new("1.2.840.113549.1.9.16.2.47");
-        const string TimestampQueryContentType = "application/timestamp-query";
-        const string TimestampReplyContentType = "application/timestamp-reply";
 
         /// <summary>
         /// Creates a new instance of the PdfSharpDefaultSigner class.
@@ -259,34 +253,12 @@ namespace PdfSharp.Pdf.Signatures
             if (TimeStampClient is not null)
                 reply = await TimeStampClient(request.Encode()).ConfigureAwait(false);
             else
-                reply = await PostToAuthorityAsync(request.Encode()).ConfigureAwait(false);
+                reply = await TimeStampAuthority.PostAsync(TimeStampAuthorityUri!, request.Encode()).ConfigureAwait(false);
             var token = request.ProcessResponse(reply, out _);
 
             // The time-stamp token goes into the signer's unsigned attributes.
             signerInfo.AddUnsignedAttribute(new AsnEncodedData(SignatureTimeStampOid, token.AsSignedCms().Encode()));
 #endif
         }
-
-#if NET8_0_OR_GREATER
-        // One client for all requests: no new connection per signature, and a bounded wait for the authority.
-        static readonly HttpClient TimeStampHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
-
-        async Task<byte[]> PostToAuthorityAsync(byte[] request)
-        {
-            using var content = new ByteArrayContent(request);
-            content.Headers.ContentType = new MediaTypeHeaderValue(TimestampQueryContentType);
-            using var response = await TimeStampHttp.PostAsync(TimeStampAuthorityUri, content).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new CryptographicException(
-                    $"There was an error from the timestamp authority. It responded with {response.StatusCode} {(int)response.StatusCode}.");
-            }
-            if (response.Content.Headers.ContentType?.MediaType != TimestampReplyContentType)
-                throw new CryptographicException("The reply from the time stamp server was in an invalid format.");
-
-            return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-        }
-#endif
     }
 }

@@ -85,5 +85,7 @@
 
   <ItemGroup>
     <PackageReference Include="System.Text.Encoding.CodePages" />
+    <!-- FreePDF 7.10: validation data for signatures (CMS certificates, OCSP). Every package already depends on it. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 </Project>

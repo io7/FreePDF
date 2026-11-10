@@ -149,6 +149,99 @@ public class CertificationPermissionTests
             Refused(Certified(p), Change(change));
     }
 
+    // P=1 ("no changes") permits validation data and document time-stamps only (ISO 32000-2 12.8.2.2). The fixture has
+    // no /Info: the update must not add one.
+    [Fact]
+    public void Validation_data_is_permitted_at_P1_and_adds_no_document_information()
+    {
+        var original = Certified(1);
+
+        var result = Save(original, document => PdfDocumentSecurityStore.Add(document, certificates: [new byte[] { 0x30, 0x00 }]));
+
+        Assert.Equal(original, result.Take(original.Length).ToArray());
+        var update = Latin1(result).Substring(original.Length);
+        Assert.Contains("/DSS", update);
+        Assert.DoesNotContain("/Info", update);
+        Assert.DoesNotContain("/Producer", update);
+    }
+
+    // A field that calls its value a document time-stamp must be one: /ETSI.RFC3161, and no lock or action.
+    [Theory]
+    [InlineData("/ETSI.RFC3161", "", true)]
+    [InlineData("/adbe.pkcs7.detached", "", false)]
+    [InlineData("/ETSI.CAdES.detached", "", false)]
+    [InlineData("/ETSI.RFC3161", "/Lock << /Type /SigFieldLock /Action /All >>", false)]
+    public void Only_a_document_time_stamp_field_is_added_at_P1(string subFilter, string fieldEntries, bool allowed)
+    {
+        Action<PdfDocument> addField = document =>
+        {
+            var value = new PdfDictionary(document);
+            value.Elements.SetName("/Type", "/DocTimeStamp");
+            value.Elements.SetName("/Filter", "/Adobe.PPKLite");
+            value.Elements.SetName("/SubFilter", subFilter);
+            value.Elements["/ByteRange"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
+            value.Elements["/Contents"] = new PdfString("0");   // Not a real token: the permission check reads the structure.
+            document.Internals.AddObject(value);
+            var field = new PdfDictionary(document);
+            field.Elements.SetName("/FT", "/Sig");
+            field.Elements.SetString("/T", "Stamp");
+            field.Elements["/V"] = value.Reference;
+            field.Elements.SetName("/Type", "/Annot");
+            field.Elements.SetName("/Subtype", "/Widget");
+            field.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(0), new PdfInteger(0));
+            field.Elements["/P"] = document.Pages[0].Reference;
+            field.Elements.SetInteger("/F", 132);
+            if (fieldEntries.Length > 0)
+            {
+                var fieldLock = new PdfDictionary(document);
+                fieldLock.Elements.SetName("/Type", "/SigFieldLock");
+                fieldLock.Elements.SetName("/Action", "/All");
+                field.Elements["/Lock"] = fieldLock;
+            }
+            document.Internals.AddObject(field);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(field.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(field.Reference!);
+        };
+
+        if (allowed)
+            Allowed(Certified(1), addField);
+        else
+            Refused(Certified(1), addField);
+    }
+
+    // An object the signed revision's DSS refers to, but that the document uses elsewhere (here the page's content
+    // stream, object 11), is not validation data and stays protected.
+    [Fact]
+    public void A_dss_reference_does_not_free_a_content_stream()
+    {
+        var original = Fixture("/Perms << /DocMDP 10 0 R >> /DSS 13 0 R",
+            "/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>]",
+            "", "", "<< /Certs [11 0 R] >>");
+
+        var refused = Refused(original, document => Object(document, 11).Stream!.Value = "1 0 0 rg 0 0 9 9 re f\n"u8.ToArray());
+
+        Assert.Contains("P=1", refused.Message);
+    }
+
+#if NET8_0_OR_GREATER
+    // Adding a document time-stamp raises the form's /SigFlags to 3; at P=1 that is part of adding it.
+    [Theory]
+    [InlineData("/SigFlags 3")]
+    [InlineData("/SigFlags 1")]
+    public void A_document_time_stamp_is_permitted_at_P1(string sigFlags)
+    {
+        var original = Latin1Bytes(Latin1(Certified(1)).Replace("/SigFlags 3", sigFlags));
+        using var authority = new TestTimeStampAuthority(new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero));
+
+        Allowed(original, document => DigitalSignatureHandler.ForDocument(document, new PdfTimeStampSigner(authority.RespondAsync),
+            new DigitalSignatureOptions()));
+    }
+#endif
+
+    static string Latin1(byte[] bytes) => new(bytes.Select(b => (char)b).ToArray());
+
+    static byte[] Latin1Bytes(string text) => text.Select(c => (byte)c).ToArray();
+
     // The ESIC declaration of a PAdES signature goes into a new direct /Extensions in the catalog: the indirect one
     // (object 13) is not changed, which the certification would forbid, and its declarations are kept.
     [Fact]
