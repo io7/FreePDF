@@ -35,8 +35,8 @@
   last one or two characters when the text did not fill a triplet, and
   EDIFACT symbols could not be read. All sizes, square and rectangular, are
   supported; rows and columns 0 pick the smallest square that fits. Text is
-  written in ASCII encodation (digit pairs, Upper Shift for Latin-1, UTF-8 with
-  ECI 26 beyond it, FNC1 for GS1 DataMatrix) or Base256 where the encoding
+  written in ASCII encodation (digit pairs; text that is not ASCII as UTF-8
+  after ECI 26; FNC1 for GS1 DataMatrix) or Base256 where the encoding
   asks for it; C40, Text, X12 and EDIFACT requests are written in ASCII, so a
   symbol can need a larger size than before. `GetModules()` returns the matrix,
   and MigraDoc's `BarcodeType.DataMatrix` draws one. The inherited encoder,

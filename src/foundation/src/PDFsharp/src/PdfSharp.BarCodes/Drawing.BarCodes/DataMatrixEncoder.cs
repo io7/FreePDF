@@ -78,11 +78,6 @@ namespace PdfSharp.Drawing.BarCodes
         internal const char Fnc1 = Code128.Fnc1;
 
         /// <summary>
-        /// Whether rows x columns is an ECC 200 symbol size (in either orientation for rectangles).
-        /// </summary>
-        internal static bool IsSize(int rows, int columns) => Sizes.Any(s => s.Rows == rows && s.Columns == columns);
-
-        /// <summary>
         /// Encodes the text. Rows and columns 0 pick the smallest square symbol the data fits in. The encoding string
         /// has one letter per character; 'b' marks Base256, every other letter ASCII encodation.
         /// </summary>
@@ -110,15 +105,20 @@ namespace PdfSharp.Drawing.BarCodes
         }
 
         /// <summary>
-        /// ASCII encodation: two digits in one codeword (130 + value), other ASCII as value + 1, Latin-1 above 127
-        /// with Upper Shift, FNC1 as 232. Text beyond Latin-1 is UTF-8 after ECI 26. Runs marked 'b' use Base256.
+        /// ASCII encodation: two digits in one codeword (130 + value), other ASCII as value + 1, FNC1 as 232. Text with
+        /// other characters is UTF-8 after ECI 26, its bytes above 127 with Upper Shift; without the ECI, readers guess
+        /// the character set of such bytes (ISO 8859-1 by the standard, Shift_JIS by some readers). Runs marked 'b'
+        /// use Base256.
         /// </summary>
         static byte[] EncodeData(string text, string encoding)
         {
-            bool latin1 = text.All(ch => ch <= 255 || ch == Fnc1);
+            bool ascii = text.All(ch => ch < 128 || ch == Fnc1);
             var result = new List<byte>(text.Length + 4);
-            if (!latin1)
+            if (!ascii)
             {
+                // GS1 data starts with FNC1 and is ASCII; an ECI in front of FNC1 would make it ordinary data.
+                if (text.Length > 0 && text[0] == Fnc1)
+                    throw new ArgumentException(BcgSR.Gs1DataMatrixNotAscii);
                 result.Add(EciCodeword);
                 result.Add(Utf8Eci + 1); // ECI numbers 0 to 126 take one codeword, the number plus 1
             }
@@ -131,7 +131,10 @@ namespace PdfSharp.Drawing.BarCodes
                     int end = i;
                     while (end < text.Length && end < encoding.Length && Char.ToLowerInvariant(encoding[end]) == 'b' && text[end] != Fnc1)
                         end++;
-                    AppendBase256(result, Bytes(text.Substring(i, end - i), latin1));
+                    // A run never ends between the two halves of a surrogate pair.
+                    if (end < text.Length && Char.IsHighSurrogate(text[end - 1]) && Char.IsLowSurrogate(text[end]))
+                        end++;
+                    AppendBase256(result, Bytes(text.Substring(i, end - i), ascii));
                     i = end;
                     continue;
                 }
@@ -150,8 +153,8 @@ namespace PdfSharp.Drawing.BarCodes
                 else
                 {
                     // One character may be one UTF-8 byte sequence; each byte is a separate codeword.
-                    int length = latin1 || !Char.IsHighSurrogate(ch) || i + 1 >= text.Length ? 1 : 2;
-                    foreach (byte b in Bytes(text.Substring(i, length), latin1))
+                    int length = ascii || !Char.IsHighSurrogate(ch) || i + 1 >= text.Length ? 1 : 2;
+                    foreach (byte b in Bytes(text.Substring(i, length), ascii))
                     {
                         if (b < 128)
                             result.Add((byte)(b + 1));
@@ -172,8 +175,8 @@ namespace PdfSharp.Drawing.BarCodes
         static bool IsBase256(string encoding, int index)
             => index < encoding.Length && Char.ToLowerInvariant(encoding[index]) == 'b';
 
-        static byte[] Bytes(string text, bool latin1)
-            => latin1 ? text.Select(ch => (byte)ch).ToArray() : StrictUtf8.GetBytes(text);
+        static byte[] Bytes(string text, bool ascii)
+            => ascii ? text.Select(ch => (byte)ch).ToArray() : StrictUtf8.GetBytes(text);
 
         /// <summary>
         /// Base256: the latch, a length of one (up to 249) or two codewords, the bytes, all after the latch randomized

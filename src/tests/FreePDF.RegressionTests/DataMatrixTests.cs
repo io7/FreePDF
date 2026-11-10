@@ -83,8 +83,8 @@ public class DataMatrixTests
     [Theory]
     [InlineData("A", new byte[] { 66 })]                                   // ASCII value + 1
     [InlineData("1234", new byte[] { 142, 164 })]                          // digit pairs
-    [InlineData("é", new byte[] { 235, 106 })]                            // Upper Shift, then 0xE9 - 127
-    [InlineData("ñ", new byte[] { 235, 0xF1 - 127 })]                    // a real ñ is a Latin-1 letter, not FNC1
+    [InlineData("é", new byte[] { 241, 27, 235, 0xC3 - 127, 235, 0xA9 - 127 })] // ECI 26, then UTF-8 C3 A9 with Upper Shift
+    [InlineData("ñ", new byte[] { 241, 27, 235, 0xC3 - 127, 235, 0xB1 - 127 })] // a real ñ is a letter, not FNC1
     public void Ascii_encodation_writes_the_standard_codewords(string text, byte[] expected)
     {
         var symbol = new CodeDataMatrix(text, "", 0, 0, 0, new XSize(100, 100)).GetModules();
@@ -104,6 +104,37 @@ public class DataMatrixTests
     [Fact]
     public void A_lone_surrogate_is_refused()
         => Assert.ThrowsAny<ArgumentException>(() => new CodeDataMatrix("a" + (char)0xDC00 + "€", 0));
+
+    // Found by review: GS1 data with characters beyond ASCII got an ECI in front of FNC1 and was no longer GS1.
+    [Fact]
+    public void Gs1_data_beyond_ascii_is_refused()
+        => Assert.Throws<ArgumentException>(() => new CodeDataMatrix(Code128.Fnc1 + "01" + "€", 0));
+
+    // Found by review: a negative quiet zone drew at NaN coordinates.
+    [Fact]
+    public void A_negative_quiet_zone_is_refused()
+        => Assert.Throws<ArgumentOutOfRangeException>(() => new CodeDataMatrix("AB", "", 10, 10, -5, new XSize(50, 50)));
+
+    // Found by review: an encoding string that marked only the first half of a surrogate pair as Base256 threw.
+    [Fact]
+    public void A_base256_run_keeps_surrogate_pairs_whole()
+    {
+        var text = "a" + (char)0xD83D + (char)0xDE00 + "b";   // a, U+1F600, b
+
+        var codewords = DataMatrixReader.Codewords(new CodeDataMatrix(text, "abaa", 0, 0, 0, new XSize(50, 50)).GetModules(), 1, 1);
+
+        // ECI 26, 'a', then the Base256 latch and a length of 4 (randomized), and the 4 UTF-8 bytes of U+1F600.
+        Assert.Equal(new byte[] { 241, 27, (byte)('a' + 1), 231 }, codewords.Take(4));
+        Assert.Equal((byte)((4 + 149 * 5 % 255 + 1) % 256), codewords[4]);
+    }
+
+    [Fact]
+    public void A_null_encoding_means_ascii()
+    {
+        var code = new CodeDataMatrix("ABC", "", 0, 0, 0, new XSize(50, 50)) { Encoding = null! };
+
+        Assert.Equal(10, code.GetModules().GetLength(0));
+    }
 
     // Text beyond Latin-1 is UTF-8 after ECI 26 (codewords 241, 27).
     [Fact]

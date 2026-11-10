@@ -48,6 +48,8 @@ namespace PdfSharp.Drawing.BarCodes
                 ? $"The text is too long for a QR code with error correction level {level}."
                 : $"The text is too long for a version {version} QR code with error correction level {level}.";
 
+        internal static string Gs1DataMatrixNotAscii => "GS1 data (text that starts with FNC1) may hold only ASCII characters.";
+
         internal static string QREmptyText => "A QR code needs at least one character; readers do not report empty codes.";
 
         internal static string QRVersionOutOfRange => "The QR code version must be 0 (the smallest that fits) or 1 to 40.";

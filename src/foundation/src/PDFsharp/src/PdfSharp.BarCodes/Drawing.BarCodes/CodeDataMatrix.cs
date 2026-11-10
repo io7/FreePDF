@@ -18,8 +18,8 @@ namespace PdfSharp.Drawing.BarCodes
     /// <remarks>
     /// <para>Rows and columns give the symbol size, for example 26 x 26 or 12 x 36; 0 x 0 picks the smallest square
     /// size the text fits in. <see cref="CodeBase.Size"/> includes the <see cref="QuietZone"/>, in modules.</para>
-    /// <para>Text is written in ASCII encodation (two digits per codeword; Latin-1 letters with Upper Shift; other
-    /// text as UTF-8 marked with ECI 26), or in Base256 where the encoding asks for it. C40, Text, X12 and EDIFACT
+    /// <para>Text is written in ASCII encodation (two digits per codeword; text that is not ASCII
+    /// as UTF-8 marked with ECI 26), or in Base256 where the encoding asks for it. C40, Text, X12 and EDIFACT
     /// requests are written in ASCII encodation, which every reader decodes the same way. <see cref="Code128.Fnc1"/>
     /// writes FNC1, as GS1 DataMatrix needs first.</para>
     /// </remarks>
@@ -131,7 +131,7 @@ namespace PdfSharp.Drawing.BarCodes
         public int QuietZone
         {
             get => _quietZone;
-            set => _quietZone = value;
+            set => _quietZone = value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value), BcgSR.QRQuietZoneNegative);
         }
 
         int _quietZone;
@@ -140,7 +140,7 @@ namespace PdfSharp.Drawing.BarCodes
         /// Encodes the text and returns the symbol's modules, finder and clock patterns included, without the
         /// quiet zone, indexed [row, column], true for dark.
         /// </summary>
-        public bool[,] GetModules() => DataMatrixEncoder.Encode(Text, Encoding, Rows, Columns);
+        public bool[,] GetModules() => DataMatrixEncoder.Encode(Text, Encoding ?? "", Rows, Columns);
 
         /// <summary>
         /// Renders the matrix code: the dark modules of each row, merged into runs, as one filled path. With a quiet
