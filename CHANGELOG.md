@@ -18,6 +18,18 @@
   `BarcodeType` values Ean13, Ean8, UpcA and QRCode, horizontally or rotated by
   `Orientation`, with text in the Normal style's font when `Text` is set.
   `Section`, `Cell`, `TextFrame` and `HeaderFooter` get `AddBarcode()`.
+- Data Matrix: `CodeDataMatrix` has a new ECC 200 encoder written from
+  ISO/IEC 16022 and draws vector modules in every build. Before, the Core
+  build drew nothing ("'XImage' must not be null"), C40, Text and X12 lost the
+  last one or two characters when the text did not fill a triplet, and
+  EDIFACT symbols could not be read. All sizes, square and rectangular, are
+  supported; rows and columns 0 pick the smallest square that fits. Text is
+  written in ASCII encodation (digit pairs, Upper Shift for Latin-1, UTF-8 with
+  ECI 26 beyond it, FNC1 for GS1 DataMatrix) or Base256 where the encoding
+  asks for it; C40, Text, X12 and EDIFACT requests are written in ASCII, so a
+  symbol can need a larger size than before. `GetModules()` returns the matrix,
+  and MigraDoc's `BarcodeType.DataMatrix` draws one. The inherited encoder,
+  which appears to derive from the GPL-licensed iec16022 library, is removed.
 - PNG images with 1-, 2- or 4-bit grayscale and 2-bit palettes load in the
   Core build; they threw "Unsupported bit depth". QR code generators often
   write 1-bit grayscale. Interlaced low-bit grayscale PNGs are still refused.

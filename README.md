@@ -46,8 +46,9 @@ the generated PDF/A-3 file with veraPDF.
 
 ## QR codes and bar codes
 
-QR codes, Code 128 (including GS1-128), EAN-13, EAN-8 and UPC-A are drawn as
-vector shapes, so they stay sharp in print. No image library is needed.
+QR codes, Data Matrix, Code 128 (including GS1-128), EAN-13, EAN-8 and UPC-A
+are drawn as vector shapes, so they stay sharp in print. No image library is
+needed.
 
 ```csharp
 var qr = new CodeQR("https://example.com/pay/2026-118", new XSize(90, 90));   // level M, version chosen to fit
@@ -62,7 +63,7 @@ In MigraDoc, add a barcode to a section, cell, text frame, header or footer:
 
 ```csharp
 var barcode = section.AddBarcode();
-barcode.Type = BarcodeType.QRCode;   // also Barcode128, Ean13, Ean8, UpcA, Barcode39, Barcode25i
+barcode.Type = BarcodeType.QRCode;   // also DataMatrix, Barcode128, Ean13, Ean8, UpcA, Barcode39, Barcode25i
 barcode.Code = "https://example.com/pay/2026-118";
 barcode.Width = barcode.Height = Unit.FromCentimeter(3);
 ```
