@@ -199,6 +199,29 @@ The signer calls the authority while the document is saved, so prefer
 the authority answers (at most 30 seconds over HTTP). A signed document saved
 to a path is written only once the signature is made.
 
+### Long-term signatures (B-LT, B-LTA)
+
+```csharp
+// B-LT: the validation data (DER certificates, OCSP responses, CRLs) for the signer's and the authority's chains.
+using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
+{
+    PdfDocumentSecurityStore.Add(document, certificates: chain, ocspResponses: ocsps, crls: crls);
+    document.Save("signed.pdf");
+}
+// B-LTA: a document time-stamp over the document and its validation data.
+using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
+{
+    DigitalSignatureHandler.ForDocument(document, new PdfTimeStampSigner(new Uri("https://tsa.example.com/")), new DigitalSignatureOptions());
+    await document.SaveAsync("signed.pdf");
+}
+```
+
+Both are updates that leave the signed bytes as they are, and both are
+permitted under every certification level, "no changes" included. A document
+time-stamp is an invisible field; it needs .NET 8 or later. FreePDF does not
+fetch OCSP responses or CRLs yet: get them from the certificates' responders
+and distribution points.
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries

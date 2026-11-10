@@ -175,7 +175,17 @@ is rated "form filling"), as valid with valid time-stamps; poppler's pdfsig
 judged the same signatures valid but does not report time-stamps. These checks
 cover CMS validity and the attributes above, not full ETSI profile conformance:
 no conformance checker was run. Signature time-stamps need .NET 8 or later.
-Long-term validation data (B-LT, B-LTA) is not written yet.
+Since 7.10.0, FreePDF also writes validation data into the document security
+store and adds document time-stamps (B-LT, B-LTA), in Append mode and also under
+a "no changes" certification. Regression tests check the DSS entries, that the
+signed bytes stay as they were, the document time-stamp token against the covered
+bytes, and the permission rules at P=1. pyHanko 0.38.1 rated the DSS and document
+time-stamp updates as LTA updates (also after a P=1 certification), judged the
+document time-stamps valid and trusted, and its AdES LTA validation (EN 319 102-1
+5.6.3) passed offline with the test certificates as trust anchors. That check
+has no revocation data to weigh, so it does not show validation after a
+certificate expires or is revoked; poppler's pdfsig does not recognise document
+time-stamps. FreePDF does not fetch OCSP responses or CRLs yet.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
