@@ -75,6 +75,11 @@ namespace PdfSharp.Pdf.Signatures
 
         IDigitalSigner Signer { get; init; }
 
+        // FreePDF: a PAdES signer (IDigitalSignerFormat) writes ETSI.CAdES.detached (ISO 32000-2 12.8.3.4).
+        string SubFilter => (Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades
+            ? "/ETSI.CAdES.detached"
+            : "/adbe.pkcs7.detached";
+
         /// <summary>
         /// Computes the signature and byte range after the document stream was written.
         /// </summary>
@@ -274,7 +279,7 @@ namespace PdfSharp.Pdf.Signatures
         void CheckField(PdfFormSignatureField field)
         {
             if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.SV) is { } seedValues)
-                SignatureSeedValues.Check(seedValues, Options);
+                SignatureSeedValues.Check(seedValues, Options, SubFilter);
             if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.Lock) is { } fieldLock
                 && fieldLock.Elements.GetName("/Action") is not ("/All" or "/Include" or "/Exclude"))
             {
@@ -477,7 +482,7 @@ namespace PdfSharp.Pdf.Signatures
 
             signatureDic.Elements.Add(PdfSignature.Keys.Type, new PdfName(PdfFormFieldType.Signature));
             signatureDic.Elements.Add(PdfSignature.Keys.Filter, new PdfName("/Adobe.PPKLite"));
-            signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName("/adbe.pkcs7.detached"));
+            signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName(SubFilter));
             signatureDic.Elements.Add(PdfSignature.Keys.M, new PdfDate(DateTimeOffset.Now));
 
             signatureDic.Elements.Add(PdfSignature.Keys.Contents, contents);

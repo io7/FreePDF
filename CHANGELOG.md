@@ -2,12 +2,24 @@
 
 ## Unreleased
 
-- .NET 11: CI installs the candidate packages, the files that are published, in
-  .NET 11 applications (Linux and
-  Windows, including the GDI and WPF packages) and runs the regression tests on
-  the .NET 11 runtime. .NET 11 applications use the `net10.0` assets; the
-  packages are unchanged. The support policy notes that .NET 8 and 9 reached the
-  end of Microsoft's support on 2026-11-10.
+- PAdES baseline signatures: `PdfSharpDefaultSigner` with
+  `Format = PdfSignatureFormat.Pades` writes ETSI.CAdES.detached signatures
+  with the signing-certificate-v2 attribute and no signing-time attribute
+  (ETSI EN 319 142-1): PAdES B-B, and B-T with a time-stamp authority. A signer
+  of your own reports its format through `IDigitalSignerFormat`. A signature
+  field whose seed value requires a /SubFilter is checked against the signer's
+  format.
+- `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
+  request instead of an HTTP POST, for example to add authentication or to use
+  a test authority (.NET 8 and later).
+- `PdfSharpDefaultSigner` refuses a null certificate with
+  `ArgumentNullException`; it failed later with `NullReferenceException`.
+- .NET 11: CI installs the candidate packages, the files that are published,
+  in .NET 11 applications (Linux and Windows, including the GDI and WPF
+  packages) and runs the regression tests on the .NET 11 runtime. .NET 11
+  applications use the `net10.0` assets; the packages are unchanged. The
+  support policy notes that .NET 8 and 9 reached the end of Microsoft's support
+  on 2026-11-10.
 
 ## 7.9.0
 

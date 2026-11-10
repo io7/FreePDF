@@ -363,3 +363,14 @@ existing form-filling, appearance and signing code. No other PDF library's
 implementation was read. pyHanko, MuPDF (PyMuPDF), pypdf and poppler were used as
 external readers and validators during validation; they are not part of the
 repository or packages.
+
+## PAdES baseline signatures (2026-11-10)
+
+The PAdES format and time-stamp client in `PdfSharpDefaultSigner.cs`, `PdfSignatureFormat.cs`,
+`IDigitalSignerFormat.cs`, the /SubFilter choice in `DigitalSignatureHandler.cs` and the test time-stamp
+authority `TestTimeStampAuthority.cs` are original FreePDF code. Their inputs were ETSI EN 319 142-1 (PAdES
+baseline signatures), ETSI EN 319 122-1 (CAdES), RFC 5652 (CMS), RFC 5035 (ESS signing-certificate-v2), RFC 3161
+(time-stamp protocol), ISO 32000-2 12.8.3 and the documentation of .NET's System.Security.Cryptography.Pkcs and
+System.Formats.Asn1 types. No source of iText, PDFBox, pyHanko, EU DSS or other signing libraries was read;
+pyHanko and poppler's pdfsig were used only as external validators, and only the documentation (signatures and
+docstrings) of pyHanko's validation API was consulted to call it.

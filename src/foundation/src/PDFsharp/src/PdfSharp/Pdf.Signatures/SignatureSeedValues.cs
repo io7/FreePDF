@@ -19,7 +19,7 @@ namespace PdfSharp.Pdf.Signatures
         const int LockDocumentBit = 8;
         const int AppearanceFilterBit = 9;
 
-        public static void Check(PdfDictionary seedValues, DigitalSignatureOptions options)
+        public static void Check(PdfDictionary seedValues, DigitalSignatureOptions options, string subFilter)
         {
             var name = options.FieldName;
             var flags = seedValues.Elements.GetInteger("/Ff");
@@ -31,7 +31,7 @@ namespace PdfSharp.Pdf.Signatures
             if (Required(SubFilterBit) && seedValues.Elements.GetArray("/SubFilter") is { } subFilters)
             {
                 var formats = Names(subFilters);
-                if (formats.Count > 0 && !formats.Contains("/adbe.pkcs7.detached"))
+                if (formats.Count > 0 && !formats.Contains(subFilter))
                     missing.Add($"the signature format {string.Join(" or ", formats)}");
             }
             // A required /LegalAttestation only limits the attestations a signer may make; FreePDF makes none.

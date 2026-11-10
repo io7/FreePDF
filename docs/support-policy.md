@@ -159,9 +159,19 @@ later pages as artifacts. PDF/UA-2 is not covered.
 
 The signing checks verify cryptographic integrity and tamper detection using
 synthetic self-signed certificates. They do not establish trusted identity,
-revocation checking, timestamp-authority behaviour, PAdES/LTV or a legal
-signature status. No FIPS certification is claimed. MD5 exists only for legacy
-PDF-format operations and checksums, never as the recommended signature digest.
+revocation checking, the behaviour of real timestamp authorities, PAdES/LTV or
+a legal signature status. No FIPS certification is claimed. MD5 exists only for
+legacy PDF-format operations and checksums, never as the recommended signature
+digest.
+
+Since 7.10.0, `PdfSharpDefaultSigner` writes PAdES B-B and B-T signatures
+(ETSI.CAdES.detached) on request. Regression tests check the CMS attributes
+(content-type, message-digest, signing-certificate-v2 with the certificate's
+hash, issuer and serial number, no signing-time) and the signature time-stamp
+against an offline test authority, and pyHanko and poppler's pdfsig validated
+FreePDF's B-B and B-T files, SHA-256 and SHA-512, also countersigned in Append
+mode, as valid with valid time-stamps. Signature time-stamps need .NET 8 or
+later. Long-term validation data (B-LT, B-LTA) is not written yet.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
