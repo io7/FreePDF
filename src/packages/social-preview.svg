@@ -1,13 +1,22 @@
 <!-- GitHub social preview (1280x640), uploaded by hand under Settings > General > Social preview.
-     Text is set in Inter, so render it on a machine with Inter installed: Inkscape PNG export at 1280 x 640. -->
+     Text is set in Inter and Inter Display, so render it on a machine with both installed:
+     Inkscape PNG export at 1280 x 640. The mark is icon.svg at 300 px. -->
 
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
-  <rect width="1280" height="640" fill="#16181D"/>
-  <g transform="translate(128 200) scale(1.875)">
+  <rect width="1280" height="640" fill="#FBF7F4"/>
+  <rect width="1280" height="14" fill="#A11F63"/>
+  <g transform="translate(104 170) scale(2.34375)">
     <rect width="128" height="128" rx="24" fill="#A11F63"/>
-    <path d="M40 24H104V40H56V56H88V72H56V104H40Z" fill="#FFFFFF"/>
+    <g fill="#FFFFFF" transform="translate(-5 2)">
+      <path d="M22 78L29 43Q33 29 48 25L86 14L83 30L50 40Q43 42 41 50L36 70Z"/>
+      <path d="M37 94L44 59Q48 45 63 41L101 30L98 46L65 56Q58 58 56 66L51 86Z"/>
+      <path d="M52 110L59 75Q63 61 78 57L116 46L109 81Q106 95 91 100Z"/>
+    </g>
   </g>
-  <text x="440" y="318" font-family="Inter" font-weight="700" font-size="112" fill="#FFFFFF">FreePDF</text>
-  <text x="444" y="388" font-family="Inter" font-weight="400" font-size="36" fill="#D3D6DC">PDF creation and document layout for .NET</text>
-  <text x="444" y="444" font-family="Inter" font-weight="400" font-size="28" fill="#8C93A1">MIT licence · maintained by io7</text>
+  <text x="472" y="254" font-family="Inter Display" font-weight="800" font-size="112" letter-spacing="-3" fill="#2A1420">FreePDF</text>
+  <text x="476" y="324" font-family="Inter" font-weight="600" font-size="38" fill="#A11F63">PDFsharp and MigraDoc 6.2.4,</text>
+  <text x="476" y="372" font-family="Inter" font-weight="600" font-size="38" fill="#A11F63">continued under the MIT licence</text>
+  <text x="476" y="434" font-family="Inter" font-weight="400" font-size="30" fill="#4A3540">Create, read, edit, fill and sign PDFs in .NET.</text>
+  <text x="476" y="475" font-family="Inter" font-weight="400" font-size="30" fill="#4A3540">Same namespaces: swap the package, rebuild.</text>
+  <text x="104" y="578" font-family="Inter" font-weight="500" font-size="24" fill="#7A6570">io7.FreePDF on NuGet  ·  github.com/io7/FreePDF</text>
 </svg>
