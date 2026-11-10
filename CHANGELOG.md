@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.9.0
 
 - QR codes: `CodeQR` draws QR codes (model 2, versions 1 to 40, error
   correction levels L, M, Q and H) as one vector path. The smallest version
@@ -70,8 +70,10 @@
 - Certifying a document: `DigitalSignatureOptions.Certification` makes the
   signature a certification signature (DocMDP) that permits no changes, form
   filling, or form filling and comments. Only the first signature of a
-  document can certify it. pyHanko validates such files and accepts form
-  filling after certification at levels 2 and 3.
+  document can certify it. pyHanko validates such files and accepts filling
+  text fields, check boxes and combo boxes after certification at levels 2 and
+  3; its default policy rejects selecting a radio button (see the support
+  policy).
 - A signature field whose seed value names the signature type (/MDP) can now be
   signed: an approval signature where /P is 0, a certification at the named
   level where /P is 1 to 3. Other options are refused with an
