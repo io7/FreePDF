@@ -75,6 +75,11 @@ namespace PdfSharp.Pdf.Signatures
 
         IDigitalSigner Signer { get; init; }
 
+        // FreePDF: a PAdES signer (IDigitalSignerFormat) writes ETSI.CAdES.detached (ISO 32000-2 12.8.3.4).
+        string SubFilter => (Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades
+            ? "/ETSI.CAdES.detached"
+            : "/adbe.pkcs7.detached";
+
         /// <summary>
         /// Computes the signature and byte range after the document stream was written.
         /// </summary>
@@ -187,6 +192,8 @@ namespace PdfSharp.Pdf.Signatures
             var signatureSize = await Signer.GetSignatureSizeAsync().ConfigureAwait(false);
             _contentsPlaceholder = new(2 * signatureSize + 2);
             _byteRangePlaceholder = new(ByteRangePlaceholderLength);
+            if ((Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades)
+                DeclareEsicExtension();
 
             if (Options.FieldName != null)
             {
@@ -207,6 +214,87 @@ namespace PdfSharp.Pdf.Signatures
             var acroForm = Document.Catalog.GetOrCreateAcroForm();
             SetSignatureFlags(acroForm);
             acroForm.Fields.Elements.Add(signatureField);
+        }
+
+        /// <summary>
+        /// ETSI EN 319 142-1 5.6: a document below PDF 2.0 that uses an ETSI /SubFilter should declare the ESIC developer
+        /// extension (BaseVersion 1.7, ExtensionLevel 2) in the catalog's /Extensions (ISO 32000-1 7.12).
+        /// </summary>
+        void DeclareEsicExtension()
+        {
+            if (Document.Version >= 20)
+                return;
+            var existing = Resolve(Document.Catalog.Elements["/Extensions"]);
+            // A malformed entry is left as it is rather than replaced.
+            if (existing is not (null or PdfDictionary))
+                return;
+            var oldExtensions = (PdfDictionary?)existing;
+            var oldEsic = Resolve(oldExtensions?.Elements["/ESIC"]);
+            // One extension dictionary, or an array of them for one prefix (ISO 32000-2 7.12.3).
+            var declared = oldEsic switch
+            {
+                null => [],
+                PdfDictionary dictionary => [dictionary],
+                PdfArray array => array.Elements.Select(Resolve).OfType<PdfDictionary>().ToList(),
+                _ => (List<PdfDictionary>?)null,
+            };
+            if (declared == null || declared.Any(d => d.Elements.GetInteger("/ExtensionLevel") >= 2))
+                return;
+
+            var esic = new PdfDictionary(Document);
+            esic.Elements.SetName("/BaseVersion", "/1.7");
+            esic.Elements.SetInteger("/ExtensionLevel", 2);
+
+            // The declaration is written as a new direct dictionary in the catalog, with the other entries carried over:
+            // under a certification the catalog's /Extensions may change, the objects it refers to may not.
+            var extensions = new PdfDictionary(Document);
+            if (oldExtensions != null)
+            {
+                foreach (var key in oldExtensions.Elements.Keys)
+                {
+                    if (key != "/ESIC" && oldExtensions.Elements[key] is { } value)
+                        extensions.Elements[key] = Copy(value);
+                }
+            }
+            if (oldEsic is PdfArray oldArray)
+            {
+                var all = new PdfArray(Document);
+                foreach (var item in oldArray.Elements)
+                    all.Elements.Add(Copy(item));
+                all.Elements.Add(esic);
+                extensions.Elements["/ESIC"] = all;
+            }
+            else
+            {
+                extensions.Elements["/ESIC"] = esic;
+            }
+            Document.Catalog.Elements["/Extensions"] = extensions;
+
+            static PdfItem? Resolve(PdfItem? item) => item is PdfReference reference ? reference.Value : item;
+
+            // A direct dictionary or array belongs to one container, so it is copied; references, names and numbers are
+            // shared.
+            PdfItem Copy(PdfItem item)
+            {
+                switch (item)
+                {
+                    case PdfDictionary { Reference: null } dictionary:
+                        var dictionaryCopy = new PdfDictionary(Document);
+                        foreach (var key in dictionary.Elements.Keys)
+                        {
+                            if (dictionary.Elements[key] is { } value)
+                                dictionaryCopy.Elements[key] = Copy(value);
+                        }
+                        return dictionaryCopy;
+                    case PdfArray { Reference: null } array:
+                        var arrayCopy = new PdfArray(Document);
+                        foreach (var element in array.Elements)
+                            arrayCopy.Elements.Add(Copy(element));
+                        return arrayCopy;
+                    default:
+                        return item;
+                }
+            }
         }
 
         // SignaturesExist and AppendOnly (ISO 32000-1 Table 219).
@@ -274,7 +362,7 @@ namespace PdfSharp.Pdf.Signatures
         void CheckField(PdfFormSignatureField field)
         {
             if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.SV) is { } seedValues)
-                SignatureSeedValues.Check(seedValues, Options);
+                SignatureSeedValues.Check(seedValues, Options, SubFilter);
             if (field.Elements.GetDictionary(PdfFormSignatureField.Keys.Lock) is { } fieldLock
                 && fieldLock.Elements.GetName("/Action") is not ("/All" or "/Include" or "/Exclude"))
             {
@@ -477,7 +565,7 @@ namespace PdfSharp.Pdf.Signatures
 
             signatureDic.Elements.Add(PdfSignature.Keys.Type, new PdfName(PdfFormFieldType.Signature));
             signatureDic.Elements.Add(PdfSignature.Keys.Filter, new PdfName("/Adobe.PPKLite"));
-            signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName("/adbe.pkcs7.detached"));
+            signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName(SubFilter));
             signatureDic.Elements.Add(PdfSignature.Keys.M, new PdfDate(DateTimeOffset.Now));
 
             signatureDic.Elements.Add(PdfSignature.Keys.Contents, contents);
