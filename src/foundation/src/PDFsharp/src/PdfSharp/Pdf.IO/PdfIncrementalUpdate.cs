@@ -600,7 +600,7 @@ namespace PdfSharp.Pdf.IO
         }
 
         // Null when the object cannot be written.
-        static byte[]? TryHash(PdfDocument document, PdfObject value)
+        internal static byte[]? TryHash(PdfDocument document, PdfObject value)
         {
             try
             {
@@ -612,7 +612,7 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        static bool Same(byte[] first, byte[] second)
+        internal static bool Same(byte[] first, byte[] second)
         {
             if (first.Length != second.Length)
                 return false;

@@ -388,3 +388,15 @@ FreePDF code. Their inputs were ISO 32000-2 12.8.2.2 (DocMDP), 12.8.4.3 (documen
 of .NET's System.Security.Cryptography.Pkcs types. No source of iText, PDFBox, pyHanko, EU DSS or other signing
 libraries was read; pyHanko 0.38.1 and poppler's pdfsig were used only as external validators, and only the
 documentation (signatures and docstrings) of pyHanko's validation API was consulted to call it.
+
+## Signature verification (2026-11-10)
+
+The verifier `PdfSignatureVerifier.cs` and its result types `PdfSignatureVerification.cs` (byte ranges and revisions,
+CMS and time-stamp checks, chain building, OCSP response and CRL parsing and signature checks, the PAdES level), the
+change description carried by the permission engine's refusals, and the tests in `SignatureVerifierTests.cs` are
+original FreePDF code. Their inputs were ISO 32000-2 12.8 (signatures, DocMDP, FieldMDP, DSS, document time-stamps),
+ETSI EN 319 142-1 (PAdES baseline levels), ETSI EN 319 102-1 (the order of validation steps and the idea of proof of
+existence; FreePDF does not implement its full process), RFC 5652, RFC 5035, RFC 3161, RFC 6960 and RFC 5280, and
+the documentation of .NET's System.Security.Cryptography.Pkcs, X509Certificates and System.Formats.Asn1 types. No
+source of iText, PDFBox, pyHanko, EU DSS or other signing or validation libraries was read; pyHanko 0.38.1 was used
+only as an external validator to compare verdicts, called through its documented API.

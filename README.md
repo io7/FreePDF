@@ -224,14 +224,43 @@ falls back to their CRL distribution points; give it intermediate and root
 certificates the signatures do not carry, and an `HttpClient` of your own for
 a proxy. The addresses come from the certificates, which whoever signed the
 document chose: the default client reaches only public addresses (set
-`AllowPrivateNetworks` for an internal CA), takes at most `MaxResponseSize`
-bytes per answer (32 MiB) and stops at the cancellation token. It does not
+`AllowPrivateNetworks` for an internal CA), checks every redirect and the
+address it connects to (on .NET Framework and .NET Standard it does so for
+HTTP addresses only, the usual case for OCSP and CRLs), uses no proxy (pass
+your own `HttpClient` behind one), takes at most
+`MaxResponseSize` bytes per answer (32 MiB) and 30 seconds per request, and
+stops at the cancellation token. It does not
 judge the answers: `Problems` lists what it could not get and certificates
 OCSP reports as revoked. To add data you fetched yourself, use
 `PdfDocumentSecurityStore.Add`. Both kinds of update leave the signed bytes as
 they are and are permitted under every certification level, "no changes"
 included. A document time-stamp is an invisible field; it needs .NET 8 or
 later.
+
+### Checking signatures
+
+```csharp
+var results = await PdfSignatureVerifier.VerifyAsync(File.ReadAllBytes("signed.pdf"),
+    new PdfSignatureVerificationOptions { TrustedRoots = [root] });
+foreach (var signature in results)
+    Console.WriteLine($"{signature.FieldName}: {signature.Status} {signature.PadesLevel} {string.Join("; ", signature.Reasons)}");
+```
+
+For each signature and document time-stamp, `PdfSignatureVerifier` reports
+whether the bytes it covers are intact, the signer and the chain, whether the
+chain ends at a trusted root (the ones you give, or the system's), the claimed
+and the time-stamped signing time, revocation (from the DSS by default, online
+on request), the first later change its certification or field locks forbid,
+and the PAdES level reached. A certificate that has expired since counts if
+it was valid at the signature's time-stamp, and only a time-stamp from a
+trusted time-stamp authority counts. After an approval signature, a later
+update that changes more than form fields, signatures and validation data
+(a comment, for example) is reported as `UnexpectedChange`. `Status` is `Valid`,
+`Invalid` (changed bytes, a revoked certificate, a forbidden change) or
+`Indeterminate` (trust, revocation or later changes not established as
+harmless), with the reasons. It is a technical
+check: EU trusted lists, qualified status and signature policies are not
+checked. Time-stamps are checked on .NET 8 or later.
 
 ## Project status
 

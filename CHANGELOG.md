@@ -31,6 +31,20 @@
   per certificate, and a cancellation token stops it. Its report lists what it
   could not get. The core assembly now references System.Security.Cryptography.Pkcs,
   which every FreePDF package already depended on.
+- Signature verification: `PdfSignatureVerifier.VerifyAsync` checks every
+  signature and document time-stamp of a file: the byte range and the bytes it
+  covers, the CMS signature or the time-stamp token, the signature time-stamp,
+  the chain to trusted roots (yours or the system's; at the time-stamp when
+  the certificate has expired since), revocation from OCSP responses and CRLs
+  in the DSS or online, the first later change its certification or field
+  locks forbid (with the same rules as saves in Append mode), and the PAdES
+  level from B-B to B-LTA. Only time-stamps from trusted time-stamp
+  authorities count, delegated OCSP responders must be signed by the CA, and a
+  later update that replaces the catalog or, after an approval signature,
+  changes more than form fields, signatures and validation data is reported.
+  `AddValidationDataAsync`'s default client checks every redirect and the
+  address it connects to, uses no proxy, and gives each request 30 seconds. Each result has a status (Valid, Invalid, Indeterminate) and its
+  reasons. Time-stamps are checked on .NET 8 and later.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use
   a test authority (.NET 8 and later; on .NET Framework and .NET Standard,

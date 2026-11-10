@@ -77,6 +77,18 @@ namespace PdfSharp.Pdf.IO
             return new PdfModificationPermissions(permission, locks, certified);
         }
 
+        /// <summary>
+        /// Gets a value indicating whether a certification or a lock limits the changes (P=1 to 3); otherwise only the
+        /// signed and locked fields themselves are protected.
+        /// </summary>
+        internal bool LimitsChanges => _permission != Unrestricted;
+
+        /// <summary>
+        /// The same permissions, but no more than the given level: for the signature verifier, which checks the changes
+        /// after an approval signature against P=3 (form filling, signing, annotating, validation data).
+        /// </summary>
+        internal PdfModificationPermissions AtMost(int level) => new(Math.Min(_permission, level), _locks, _certified);
+
         // A signature field whose /V is a signature dictionary.
         static bool IsSigned(FieldNode field, out PdfDictionary signature)
         {
@@ -432,22 +444,66 @@ namespace PdfSharp.Pdf.IO
             return false;
         }
 
-        // A new signature field (or its widget) whose value is a document time-stamp (ISO 32000-2 12.8.5).
         // A new signature field holding a document time-stamp (ISO 32000-2 12.8.5): /Type /DocTimeStamp with
-        // /SubFilter /ETSI.RFC3161, and nothing that changes permissions or acts: no transform /Reference, no field
-        // lock and no action.
+        // /SubFilter /ETSI.RFC3161, a /ByteRange and /Contents, nothing that changes permissions or acts (no transform
+        // /Reference, field lock or action), and no visible widget, so that it cannot cover the page.
         static bool IsDocumentTimeStamp(Snapshot now, PdfItem item)
         {
             if (item is not PdfReference reference || !now.Fields.TryGetValue(reference.ObjectID, out var field))
                 return false;
             if (field.Type != "/Sig" || Resolve(field.Dictionary.Elements["/V"]) is not PdfDictionary value)
                 return false;
-            return value.Elements.GetName("/Type") == "/DocTimeStamp"
-                && value.Elements.GetName("/SubFilter") == "/ETSI.RFC3161"
+            return NameOf(value, "/Type") == "/DocTimeStamp"
+                && NameOf(value, "/SubFilter") == "/ETSI.RFC3161"
+                // While FreePDF saves its own, these are still placeholders for the values.
+                && value.Elements.ContainsKey("/ByteRange")
+                && value.Elements.ContainsKey("/Contents")
                 && !value.Elements.ContainsKey("/Reference")
                 && !field.Dictionary.Elements.ContainsKey("/Lock")
                 && !field.Dictionary.Elements.ContainsKey("/A")
-                && !field.Dictionary.Elements.ContainsKey("/AA");
+                && !field.Dictionary.Elements.ContainsKey("/AA")
+                && Widgets(field.Dictionary).All(IsInvisible);
+        }
+
+        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+
+        // The field itself when it is its own widget, and its kids.
+        static IEnumerable<PdfDictionary> Widgets(PdfDictionary field)
+        {
+            if (NameOf(field, "/Subtype") == "/Widget")
+                yield return field;
+            if (Resolve(field.Elements["/Kids"]) is PdfArray kids)
+            {
+                foreach (var kid in kids.Elements)
+                {
+                    if (Resolve(kid) is PdfDictionary widget)
+                        yield return widget;
+                }
+            }
+        }
+
+        // A widget that shows nothing on screen or on paper: Hidden (ISO 32000-1 Table 165; NoView alone still prints and
+        // can be toggled), or a rectangle without area.
+        static bool IsInvisible(PdfDictionary widget)
+        {
+            int flags = Resolve(widget.Elements["/F"]) is PdfInteger f ? f.Value : 0;
+            if ((flags & 2) != 0)
+                return true;
+            if (Resolve(widget.Elements["/Rect"]) is not PdfArray rect || rect.Elements.Count != 4)
+                return true;
+            // Numbers may be indirect objects; anything that is not a number counts as visible, to be safe.
+            var numbers = rect.Elements.Select(e => Resolve(e) switch
+            {
+                PdfInteger i => (double?)i.Value,
+                PdfIntegerObject i => i.Value,
+                PdfReal r => r.Value,
+                PdfRealObject r => r.Value,
+                PdfLongInteger l => l.Value,
+                _ => null,
+            }).ToArray();
+            if (numbers.Any(n => n == null))
+                return false;
+            return numbers[0] == numbers[2] || numbers[1] == numbers[3];
         }
 
         void CheckKeys(Snapshot old, Snapshot now, PdfObject oldObject, PdfObject newObject, string description, HashSet<string> allowed)
@@ -508,14 +564,38 @@ namespace PdfSharp.Pdf.IO
                 2 => "only filling in forms and signing",
                 _ => "only filling in forms, signing and annotating",
             };
-            return new InvalidOperationException(
+            return Refused(
                 $"The signatures of this document permit {permits} ({(_certified ? "DocMDP" : "signature field lock")} P={_permission}), so saving would make " +
-                $"validators report them as broken: {change}. Nothing was written.");
+                $"validators report them as broken: {change}. Nothing was written.",
+                change);
         }
 
         static InvalidOperationException ProtectionRefusal(string change)
-            => new($"A signature of this document protects what this save changes, so saving would make validators " +
-                   $"report that signature as broken: {change}. Nothing was written.");
+        {
+            var exception = Refused($"A signature of this document protects what this save changes, so saving would make validators " +
+                   $"report that signature as broken: {change}. Nothing was written.", $"{change} (protected by a signature)");
+            exception.Data[ProtectedKey] = true;
+            return exception;
+        }
+
+        /// <summary>
+        /// The key under which a refusal's <see cref="Exception.Data"/> holds true when the change touches a signed or
+        /// locked field itself, which no signature permits.
+        /// </summary>
+        internal const string ProtectedKey = "FreePDF.Protected";
+
+        /// <summary>
+        /// The key under which a refusal's <see cref="Exception.Data"/> holds the description of the change alone, for the
+        /// signature verifier.
+        /// </summary>
+        internal const string RefusedChangeKey = "FreePDF.RefusedChange";
+
+        static InvalidOperationException Refused(string message, string change)
+        {
+            var exception = new InvalidOperationException(message);
+            exception.Data[RefusedChangeKey] = change;
+            return exception;
+        }
 
         static string Describe(PdfObject value, PdfObjectID id)
         {
