@@ -39,6 +39,13 @@ namespace PdfSharp.Pdf.Signatures
                     "Signature page index cannot be negative.");
             }
 
+            if (IsDocumentTimeStamp && (options.FieldName != null || options.Certification != null || options.Rectangle != default))
+            {
+                // ISO 32000-2 12.8.5: a document time-stamp is not a signature of a person; it gets its own invisible field.
+                throw new ArgumentException("A document time-stamp gets its own invisible field: FieldName, Certification and " +
+                    "Rectangle must be left unset.", nameof(options));
+            }
+
             if (options.FieldName != null)
             {
                 if (options.Rectangle != default || options.PageIndex != 0)
@@ -75,10 +82,18 @@ namespace PdfSharp.Pdf.Signatures
 
         IDigitalSigner Signer { get; init; }
 
-        // FreePDF: a PAdES signer (IDigitalSignerFormat) writes ETSI.CAdES.detached (ISO 32000-2 12.8.3.4).
-        string SubFilter => (Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades
-            ? "/ETSI.CAdES.detached"
-            : "/adbe.pkcs7.detached";
+        // FreePDF: the signer's format (IDigitalSignerFormat) decides the /SubFilter: ETSI.CAdES.detached for PAdES
+        // (ISO 32000-2 12.8.3.4), ETSI.RFC3161 for a document time-stamp (12.8.5), adbe.pkcs7.detached otherwise.
+        PdfSignatureFormat Format => (Signer as IDigitalSignerFormat)?.Format ?? PdfSignatureFormat.Pkcs7Detached;
+
+        string SubFilter => Format switch
+        {
+            PdfSignatureFormat.Pades => "/ETSI.CAdES.detached",
+            PdfSignatureFormat.DocumentTimeStamp => "/ETSI.RFC3161",
+            _ => "/adbe.pkcs7.detached",
+        };
+
+        bool IsDocumentTimeStamp => Format == PdfSignatureFormat.DocumentTimeStamp;
 
         /// <summary>
         /// Computes the signature and byte range after the document stream was written.
@@ -192,7 +207,7 @@ namespace PdfSharp.Pdf.Signatures
             var signatureSize = await Signer.GetSignatureSizeAsync().ConfigureAwait(false);
             _contentsPlaceholder = new(2 * signatureSize + 2);
             _byteRangePlaceholder = new(ByteRangePlaceholderLength);
-            if ((Signer as IDigitalSignerFormat)?.Format == PdfSignatureFormat.Pades)
+            if (Format != PdfSignatureFormat.Pkcs7Detached)
                 DeclareEsicExtension();
 
             if (Options.FieldName != null)
@@ -508,12 +523,20 @@ namespace PdfSharp.Pdf.Signatures
             signatureField.Elements.Add(PdfAnnotation.Keys.Rect, new PdfRectangle(Options.Rectangle));
 
             // TODO COMPILE
-            signatureField.CustomAppearanceHandler = Options.AppearanceHandler ?? new DefaultSignatureAppearanceHandler()
+            if (IsDocumentTimeStamp)
             {
-                Location = Options.Location,
-                Reason = Options.Reason,
-                Signer = Signer.CertificateName
-            };
+                // A document time-stamp's field is invisible: its rectangle is empty and its appearance draws nothing.
+                signatureField.CustomAppearanceHandler = new EmptyAppearanceHandler();
+            }
+            else
+            {
+                signatureField.CustomAppearanceHandler = Options.AppearanceHandler ?? new DefaultSignatureAppearanceHandler()
+                {
+                    Location = Options.Location,
+                    Reason = Options.Reason,
+                    Signer = Signer.CertificateName
+                };
+            }
 
             // Call RenderCustomAppearance(); here.
             signatureField.RenderAppearance();
@@ -563,6 +586,19 @@ namespace PdfSharp.Pdf.Signatures
         {
             PdfSignature signatureDic = new(Document);
 
+            if (IsDocumentTimeStamp)
+            {
+                // ISO 32000-2 Table 260: a document time-stamp dictionary has no signing time, reason or location; the
+                // time is the token's.
+                signatureDic.Elements.Add(PdfSignature.Keys.Type, new PdfName("/DocTimeStamp"));
+                signatureDic.Elements.Add(PdfSignature.Keys.Filter, new PdfName("/Adobe.PPKLite"));
+                signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName(SubFilter));
+                signatureDic.Elements.Add(PdfSignature.Keys.Contents, contents);
+                signatureDic.Elements.Add(PdfSignature.Keys.ByteRange, byteRange);
+                Document.Internals.AddObject(signatureDic);
+                return signatureDic;
+            }
+
             signatureDic.Elements.Add(PdfSignature.Keys.Type, new PdfName(PdfFormFieldType.Signature));
             signatureDic.Elements.Add(PdfSignature.Keys.Filter, new PdfName("/Adobe.PPKLite"));
             signatureDic.Elements.Add(PdfSignature.Keys.SubFilter, new PdfName(SubFilter));
@@ -593,5 +629,10 @@ namespace PdfSharp.Pdf.Signatures
 
         PdfPlaceholder? _contentsPlaceholder;
         PdfPlaceholder? _byteRangePlaceholder;
+
+        sealed class EmptyAppearanceHandler : IAnnotationAppearanceHandler
+        {
+            public void DrawAppearance(PdfSharp.Drawing.XGraphics gfx, PdfSharp.Drawing.XRect rect) { }
+        }
     }
 }
