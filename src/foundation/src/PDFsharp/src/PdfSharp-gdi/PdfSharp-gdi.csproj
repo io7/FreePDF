@@ -376,6 +376,8 @@
     <Compile Include="..\PdfSharp\Pdf.Signatures\SignatureSeedValues.cs" Link="Pdf.Signatures\SignatureSeedValues.cs" />
     <Compile Include="..\PdfSharp\Pdf.Signatures\PdfDocumentSecurityStore.cs" Link="Pdf.Signatures\PdfDocumentSecurityStore.cs" />
     <Compile Include="..\PdfSharp\Pdf.Signatures\PdfValidationData.cs" Link="Pdf.Signatures\PdfValidationData.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Signatures\PdfSignatureVerification.cs" Link="Pdf.Signatures\PdfSignatureVerification.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Signatures\PdfSignatureVerifier.cs" Link="Pdf.Signatures\PdfSignatureVerifier.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfAttributesBase.cs" Link="Pdf.Structure\PdfAttributesBase.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfLayoutAttributes.cs" Link="Pdf.Structure\PdfLayoutAttributes.cs" />
     <Compile Include="..\PdfSharp\Pdf.Structure\PdfMarkedContentReference.cs" Link="Pdf.Structure\PdfMarkedContentReference.cs" />

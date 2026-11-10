@@ -508,14 +508,28 @@ namespace PdfSharp.Pdf.IO
                 2 => "only filling in forms and signing",
                 _ => "only filling in forms, signing and annotating",
             };
-            return new InvalidOperationException(
+            return Refused(
                 $"The signatures of this document permit {permits} ({(_certified ? "DocMDP" : "signature field lock")} P={_permission}), so saving would make " +
-                $"validators report them as broken: {change}. Nothing was written.");
+                $"validators report them as broken: {change}. Nothing was written.",
+                $"{change} (the signatures permit {permits}, {(_certified ? "DocMDP" : "signature field lock")} P={_permission})");
         }
 
         static InvalidOperationException ProtectionRefusal(string change)
-            => new($"A signature of this document protects what this save changes, so saving would make validators " +
-                   $"report that signature as broken: {change}. Nothing was written.");
+            => Refused($"A signature of this document protects what this save changes, so saving would make validators " +
+                   $"report that signature as broken: {change}. Nothing was written.", $"{change} (protected by a signature)");
+
+        /// <summary>
+        /// The key under which a refusal's <see cref="Exception.Data"/> holds the description of the change alone, for the
+        /// signature verifier.
+        /// </summary>
+        internal const string RefusedChangeKey = "FreePDF.RefusedChange";
+
+        static InvalidOperationException Refused(string message, string change)
+        {
+            var exception = new InvalidOperationException(message);
+            exception.Data[RefusedChangeKey] = change;
+            return exception;
+        }
 
         static string Describe(PdfObject value, PdfObjectID id)
         {

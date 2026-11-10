@@ -263,7 +263,7 @@ namespace PdfSharp.Pdf.Signatures
             return result.Count > 0 ? result : [leaf];
         }
 
-        static X509Certificate2 LoadCertificate(byte[] der)
+        internal static X509Certificate2 LoadCertificate(byte[] der)
 #if NET9_0_OR_GREATER
             => X509CertificateLoader.LoadCertificate(der);
 #else
@@ -274,7 +274,7 @@ namespace PdfSharp.Pdf.Signatures
             => certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData);
 
         // The HTTP requests of one call: the client, the limits, the problems found.
-        sealed class Fetcher(PdfValidationDataOptions options, CancellationToken cancellationToken)
+        internal sealed class Fetcher(PdfValidationDataOptions options, CancellationToken cancellationToken)
         {
             internal List<string> Problems { get; } = [];
 
