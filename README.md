@@ -68,7 +68,8 @@ barcode.Width = barcode.Height = Unit.FromCentimeter(3);
 ```
 
 The size of a QR code includes its quiet zone, and the size of an EAN or UPC
-code includes the quiet zones that hold its outer digits. Text that is not
+code includes the quiet zones that hold its outer digits; in MigraDoc the
+shape's size includes the quiet zones of every type. Text that is not
 ASCII goes into QR codes as UTF-8 with the standard's ECI marker; set
 `Utf8Eci = false` for payment apps that expect plain UTF-8. Each code type was
 checked against an independent decoder; see the [support policy](docs/support-policy.md).

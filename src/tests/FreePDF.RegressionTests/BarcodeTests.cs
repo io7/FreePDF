@@ -168,7 +168,7 @@ public class BarcodeTests
     // Check (104 + 17 + 2*99 + 3*23 + 4*45) mod 103 = 53.
     [InlineData("12345", new[] { 104, 17, 99, 23, 45, 53 })]
     // GS1-128: FNC1 (102) after the start character; check 895 mod 103 = 71.
-    [InlineData("ñ0109501101530003", new[] { 105, 102, 1, 9, 50, 11, 1, 53, 0, 3, 71 })]
+    [InlineData("\uE0F10109501101530003", new[] { 105, 102, 1, 9, 50, 11, 1, 53, 0, 3, 71 })]
     public void Code_128_uses_the_fewest_symbol_characters(string text, int[] expected)
     {
         var code = new Code128(text);
@@ -296,6 +296,155 @@ public class BarcodeTests
         var operators = Flatten(ContentReader.ReadContent(page)).ToList();
         Assert.True(operators.Count(op => op.Name is "re" or "m") > 20, "the bars or modules are drawn");
         Assert.True(operators.Count(op => op.Name == "cm") >= 1, "the upward code is rotated");
+    }
+
+    // ----- found by review -------------------------------------------------------------------------------------
+
+    // The code fills the shape inside its border (half a line width in from the stroke's centre), and Code 128,
+    // Code 39 and 2 of 5 keep a quiet zone inside the shape. The bars sat half a line width too far right and
+    // touched the border, so bordered codes could not be read.
+    [Theory]
+    [InlineData(BarcodeType.Barcode128, "FREEPDF-118")]
+    [InlineData(BarcodeType.Barcode39, "FREEPDF")]
+    [InlineData(BarcodeType.Barcode25i, "123456")]
+    public void MigraDoc_keeps_linear_codes_off_the_border(BarcodeType type, string code)
+    {
+        TestFonts.Initialize();
+        var document = new Document();
+        var barcode = document.AddSection().AddBarcode();
+        barcode.Type = type;
+        barcode.Code = code;
+        barcode.Width = Unit.FromCentimeter(6);
+        barcode.Height = Unit.FromCentimeter(2);
+        barcode.LineFormat.Width = 8;
+        barcode.LineFormat.Color = Colors.Black;
+
+        var operators = RenderMigraDoc(document);
+
+        var rectangles = operators.Where(op => op.Name == "re")
+            .Select(op => new XRect(Number(op, 0), Number(op, 1), Number(op, 2), Number(op, 3))).ToList();
+        var border = rectangles.OrderByDescending(r => r.Width).First();
+        var bars = rectangles.Where(r => r != border).Concat(PathRectangles(operators)).ToList();
+        double innerLeft = border.X + 4, innerRight = border.X + border.Width - 4;
+        double left = bars.Min(r => r.X) - innerLeft, right = innerRight - bars.Max(r => r.X + r.Width);
+        Assert.InRange(left - right, -0.05, 0.05);
+        if (type == BarcodeType.Barcode128)
+        {
+            double width = Unit.FromCentimeter(6).Point - 8;
+            Assert.InRange(left, 10 * width / (new Code128(code).GetModules().Length + 20) - 0.05, 10 * width / (new Code128(code).GetModules().Length + 20) + 0.05);
+        }
+        else
+            Assert.True(left > 4, $"quiet zone {left}");
+    }
+
+    // An exception while drawing leaves the graphics state as it was; the state stayed rotated and saved.
+    [Fact]
+    public void A_failed_draw_restores_the_graphics_state()
+    {
+        TestFonts.Initialize();
+        static int DepthAtRectangle(List<COperator> operators)
+        {
+            int depth = 0;
+            foreach (var op in operators)
+            {
+                if (op.Name == "q")
+                    depth++;
+                else if (op.Name == "Q")
+                    depth--;
+                else if (op.Name == "re")
+                    return depth;
+            }
+            throw new InvalidOperationException("No rectangle drawn.");
+        }
+
+        var baseline = DrawAndReadOperators(gfx => gfx.DrawRectangle(XBrushes.Black, 50, 60, 100, 100));
+        var afterFailures = DrawAndReadOperators(gfx =>
+        {
+            var font = new XFont("FreePDF Synthetic", 20);
+            var tooLow = new Ean13("590123412345", new XSize(113, 10)) { Direction = CodeDirection.TopToBottom };
+            Assert.Throws<InvalidOperationException>(() => gfx.DrawBarCode(tooLow, XBrushes.Black, font, new XPoint(400, 50)));
+            var embedded = new Code128("ABC", new XSize(100, 8), CodeDirection.BottomToTop) { TextLocation = TextLocation.BelowEmbedded };
+            Assert.Throws<InvalidOperationException>(() => gfx.DrawBarCode(embedded, XBrushes.Black, font, new XPoint(400, 50)));
+            gfx.DrawRectangle(XBrushes.Black, 50, 60, 100, 100);
+        });
+
+        Assert.Equal(DepthAtRectangle(baseline), DepthAtRectangle(afterFailures));
+        Assert.Equal(baseline.Count(op => op.Name == "cm"), afterFailures.Count(op => op.Name == "cm"));
+    }
+
+    // FNC1 is a private-use character: a real ñ (U+00F1) in text was taken for FNC1.
+    [Fact]
+    public void Fnc1_is_not_a_letter()
+    {
+        Assert.Throws<ArgumentException>(() => new Code128("A" + (char)0xF1 + "o"));
+        Assert.Equal(102, new Code128(Code128.Fnc1 + "01").GetSymbolValues()[1]);
+    }
+
+    // A lone surrogate is refused; it was written as U+FFFD.
+    [Fact]
+    public void A_qr_code_refuses_a_lone_surrogate()
+        => Assert.ThrowsAny<ArgumentException>(() => new CodeQR("a" + (char)0xD800 + "b").GetModules());
+
+    // The DDL writer did not escape the code: quotes cut it short, backslashes and line breaks failed to parse.
+    [Theory]
+    [InlineData("say \"hi\" there")]
+    [InlineData("C:\\path\\file")]
+    [InlineData("line1\nline2\r\nend\ttab")]
+    public void A_barcode_survives_a_ddl_round_trip(string code)
+    {
+        var document = new Document();
+        var barcode = document.AddSection().AddBarcode();
+        barcode.Type = BarcodeType.QRCode;
+        barcode.Code = code;
+
+        var read = MigraDoc.DocumentObjectModel.IO.DdlReader.DocumentFromString(MigraDoc.DocumentObjectModel.IO.DdlWriter.WriteToString(document));
+
+        var back = Assert.IsType<Barcode>(read.Sections[0]!.Elements[0]);
+        Assert.Equal(code, back.Code);
+        Assert.Equal(BarcodeType.QRCode, back.Type);
+    }
+
+    // The RTF renderer threw "Unsupported type in RendererFactory" for a barcode; it now leaves it out.
+    [Fact]
+    public void Rtf_output_leaves_barcodes_out()
+    {
+        var document = new Document();
+        var section = document.AddSection();
+        section.AddParagraph("Before");
+        var barcode = section.AddBarcode();
+        barcode.Type = BarcodeType.Barcode128;
+        barcode.Code = "ABC";
+        section.AddParagraph("After");
+
+        using var stream = new MemoryStream();
+        new MigraDoc.RtfRendering.RtfDocumentRenderer().Render(document, stream, false, "");
+
+        var rtf = System.Text.Encoding.ASCII.GetString(stream.ToArray());
+        Assert.Contains("Before", rtf);
+        Assert.Contains("After", rtf);
+    }
+
+    [Fact]
+    public void An_unknown_barcode_type_is_refused()
+    {
+        var document = new Document();
+        var barcode = document.AddSection().AddBarcode();
+        barcode.Type = (BarcodeType)99;
+        barcode.Code = "1234";
+        barcode.Width = barcode.Height = Unit.FromCentimeter(3);
+
+        var renderer = new PdfDocumentRenderer { Document = document };
+        Assert.Throws<ArgumentException>(() => renderer.RenderDocument());
+    }
+
+    static List<COperator> RenderMigraDoc(Document document)
+    {
+        var renderer = new PdfDocumentRenderer { Document = document };
+        renderer.RenderDocument();
+        using var output = new MemoryStream();
+        renderer.PdfDocument.Save(output);
+        var page = PdfReader.Open(new MemoryStream(output.ToArray()), PdfDocumentOpenMode.Import).Pages[0];
+        return Flatten(ContentReader.ReadContent(page)).ToList();
     }
 
     // ----- helpers ---------------------------------------------------------------------------------------------

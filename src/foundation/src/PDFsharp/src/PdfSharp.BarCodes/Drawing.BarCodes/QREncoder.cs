@@ -18,6 +18,9 @@ namespace PdfSharp.Drawing.BarCodes
         // ECI designator 26 marks the bytes that follow as UTF-8.
         const int Utf8Eci = 26;
 
+        // Throws for a lone surrogate instead of writing U+FFFD in its place.
+        static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
         // Error correction codewords per block (ISO/IEC 18004:2015, table 9), by level L, M, Q, H and version 1 to 40.
         static readonly byte[][] EccCodewordsPerBlock =
         [
@@ -246,7 +249,7 @@ namespace PdfSharp.Drawing.BarCodes
                 // ASCII is the same in every QR character set. Other text is written as UTF-8, by default
                 // marked with ECI 26 because the default character set of the byte mode is ISO-8859-1.
                 bool ascii = text.All(ch => ch < 128);
-                byte[] bytes = ascii ? Encoding.ASCII.GetBytes(text) : Encoding.UTF8.GetBytes(text);
+                byte[] bytes = ascii ? Encoding.ASCII.GetBytes(text) : StrictUtf8.GetBytes(text);
                 var bits = new BitWriter(bytes.Length * 8);
                 foreach (byte b in bytes)
                     bits.Append(b, 8);

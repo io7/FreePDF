@@ -156,18 +156,25 @@ namespace PdfSharp.Drawing.BarCodes
             var (quietLeft, quietRight) = QuietZones(kind);
             double x = size.Width / (quietLeft + modules.Length + quietRight);
 
-            XGraphicsState state = gfx.Save();
-            LinearCodeRenderer.ApplyDirection(gfx, barCode.Direction, position);
             XPoint topLeft = position + CodeBase.CalcDistance(barCode.Anchor, AnchorType.TopLeft, size);
             double barsLeft = topLeft.X + quietLeft * x;
 
             if (barCode.TextLocation == TextLocation.None)
             {
-                LinearCodeRenderer.DrawBars(gfx, brush, modules, barsLeft, topLeft.Y, x, _ => size.Height);
-                gfx.Restore(state);
+                XGraphicsState plain = gfx.Save();
+                try
+                {
+                    LinearCodeRenderer.ApplyDirection(gfx, barCode.Direction, position);
+                    LinearCodeRenderer.DrawBars(gfx, brush, modules, barsLeft, topLeft.Y, x, _ => size.Height);
+                }
+                finally
+                {
+                    gfx.Restore(plain);
+                }
                 return;
             }
 
+            // Everything that can throw comes before the graphics state is saved.
             // Digits about 9 modules high; Courier's advance (0.6 em) then fits a 7-module digit slot.
             // UPC-A prints its first and last digit smaller, beside the bars.
             XFont digitFont = LinearCodeRenderer.TextFont(font, 11 * x);
@@ -176,12 +183,25 @@ namespace PdfSharp.Drawing.BarCodes
             double barBottom = size.Height - textHeight;
             double longBottom = Math.Min(barBottom + 5 * x, size.Height);
             if (barBottom <= 0)
-                throw new InvalidOperationException(BcgSR.EanUpcTooLow);
+                throw new InvalidOperationException(BcgSR.BarsTooLow);
 
-            LinearCodeRenderer.DrawBars(gfx, brush, modules, barsLeft, topLeft.Y, x,
-                index => IsLong(index, kind) ? longBottom : barBottom);
+            XGraphicsState state = gfx.Save();
+            try
+            {
+                LinearCodeRenderer.ApplyDirection(gfx, barCode.Direction, position);
+                LinearCodeRenderer.DrawBars(gfx, brush, modules, barsLeft, topLeft.Y, x,
+                    index => IsLong(index, kind) ? longBottom : barBottom);
+                DrawDigits(gfx, brush, kind, code, barsLeft, topLeft.Y + barBottom, x, textHeight, digitFont, outerFont);
+            }
+            finally
+            {
+                gfx.Restore(state);
+            }
+        }
 
-            double textTop = topLeft.Y + barBottom;
+        static void DrawDigits(XGraphics gfx, XBrush brush, Kind kind, string code, double barsLeft, double textTop,
+            double x, double textHeight, XFont digitFont, XFont outerFont)
+        {
             void Digit(char digit, double slotLeftModule, XFont digitOrOuterFont)
                 => gfx.DrawString(digit.ToString(), digitOrOuterFont, brush,
                     new XRect(barsLeft + slotLeftModule * x, textTop, 7 * x, textHeight), XStringFormats.TopCenter);
@@ -212,8 +232,6 @@ namespace PdfSharp.Drawing.BarCodes
                     Digit(code[11], 96, outerFont);
                     break;
             }
-
-            gfx.Restore(state);
         }
     }
 }

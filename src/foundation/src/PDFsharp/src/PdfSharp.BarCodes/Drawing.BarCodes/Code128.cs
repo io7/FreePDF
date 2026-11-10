@@ -15,9 +15,10 @@ namespace PdfSharp.Drawing.BarCodes
     public class Code128 : BarCode
     {
         /// <summary>
-        /// The character that stands for the FNC1 function character (U+00F1).
+        /// The character that stands for the FNC1 function character: U+E0F1, from the Private Use Area, so no
+        /// letter of real text turns into FNC1 by accident.
         /// </summary>
-        public const char Fnc1 = 'ñ';
+        public const char Fnc1 = '\uE0F1';
 
         /// <summary>
         /// Initializes a new Code 128 bar code. Set <see cref="CodeBase.Size"/> before drawing it.
@@ -246,42 +247,42 @@ namespace PdfSharp.Drawing.BarCodes
             if (Size.IsEmpty || Size.Width <= 0 || Size.Height <= 0)
                 throw new InvalidOperationException(BcgSR.EmptyBarCodeSize);
 
+            // Everything that can throw comes before the graphics state is saved.
             bool[] modules = GetModules();
-            XGraphicsState state = gfx.Save();
-            LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
+            XFont? textFont = TextLocation == TextLocation.None ? null : LinearCodeRenderer.TextFont(font, Size.Height / 6);
+            double textHeight = textFont == null ? 0 : gfx.MeasureString("0", textFont).Height;
+            bool embedded = TextLocation is TextLocation.AboveEmbedded or TextLocation.BelowEmbedded;
+            double barHeight = embedded ? Size.Height - textHeight : Size.Height;
+            if (barHeight <= 0)
+                throw new InvalidOperationException(BcgSR.BarsTooLow);
 
             XPoint topLeft = position + CalcDistance(Anchor, AnchorType.TopLeft, Size);
             double moduleWidth = Size.Width / modules.Length;
+            double barTop = TextLocation == TextLocation.AboveEmbedded ? topLeft.Y + textHeight : topLeft.Y;
 
-            XFont? textFont = TextLocation == TextLocation.None ? null : LinearCodeRenderer.TextFont(font, Size.Height / 6);
-            double textHeight = textFont == null ? 0 : gfx.MeasureString("0", textFont).Height;
-
-            double barTop = topLeft.Y;
-            double barHeight = Size.Height;
-            if (TextLocation == TextLocation.AboveEmbedded)
+            XGraphicsState state = gfx.Save();
+            try
             {
-                barTop += textHeight;
-                barHeight -= textHeight;
-            }
-            else if (TextLocation == TextLocation.BelowEmbedded)
-                barHeight -= textHeight;
+                LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
+                LinearCodeRenderer.DrawBars(gfx, brush, modules, topLeft.X, barTop, moduleWidth, _ => barHeight);
 
-            LinearCodeRenderer.DrawBars(gfx, brush, modules, topLeft.X, barTop, moduleWidth, _ => barHeight);
-
-            if (textFont != null)
-            {
-                double textTop = TextLocation switch
+                if (textFont != null)
                 {
-                    TextLocation.Above => topLeft.Y - textHeight,
-                    TextLocation.AboveEmbedded => topLeft.Y,
-                    TextLocation.Below => topLeft.Y + Size.Height,
-                    _ => topLeft.Y + Size.Height - textHeight,
-                };
-                gfx.DrawString(HumanReadableText, textFont, brush,
-                    new XRect(topLeft.X, textTop, Size.Width, textHeight), XStringFormats.TopCenter);
+                    double textTop = TextLocation switch
+                    {
+                        TextLocation.Above => topLeft.Y - textHeight,
+                        TextLocation.AboveEmbedded => topLeft.Y,
+                        TextLocation.Below => topLeft.Y + Size.Height,
+                        _ => topLeft.Y + Size.Height - textHeight,
+                    };
+                    gfx.DrawString(HumanReadableText, textFont, brush,
+                        new XRect(topLeft.X, textTop, Size.Width, textHeight), XStringFormats.TopCenter);
+                }
             }
-
-            gfx.Restore(state);
+            finally
+            {
+                gfx.Restore(state);
+            }
         }
 
         /// <summary>

@@ -41,7 +41,7 @@ namespace PdfSharp.Drawing.BarCodes
         internal static string WrongEanUpcCheckDigit(string code, string symbology, char expected)
             => $"The check digit of the {symbology} code '{code}' is wrong; it should be {expected}.";
 
-        internal static string EanUpcTooLow => "The bar code is not high enough for its bars and the digits under them.";
+        internal static string BarsTooLow => "The bar code is not high enough for its bars and the text beside them.";
 
         internal static string QRTextTooLong(int version, QRErrorCorrectionLevel level)
             => version == 0

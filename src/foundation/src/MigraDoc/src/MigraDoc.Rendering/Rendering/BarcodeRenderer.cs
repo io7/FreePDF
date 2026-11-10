@@ -32,9 +32,11 @@ namespace MigraDoc.Rendering
         {
             RenderFilling();
 
+            // The content area is the shape plus one line width; the border is stroked on the shape's edge, so its
+            // inner edge lies half a line width inside the area, as the filling does.
             var area = _renderInfo.LayoutInfo.ContentArea;
             double lineWidth = _lineFormatRenderer.GetWidth();
-            var box = new XRect(area.X + lineWidth, area.Y + lineWidth, area.Width - 2 * lineWidth, area.Height - 2 * lineWidth);
+            var box = new XRect(area.X + lineWidth / 2, area.Y + lineWidth / 2, area.Width - 2 * lineWidth, area.Height - 2 * lineWidth);
             if (box.Width > 0 && box.Height > 0)
                 DrawCode(box);
 
@@ -69,18 +71,41 @@ namespace MigraDoc.Rendering
 
             BarCode barCode = _barcode.Type switch
             {
+                BarcodeType.Barcode25i => new Code2of5Interleaved(code, size, direction),
                 BarcodeType.Barcode39 => new Code3of9Standard(code, size, direction),
                 BarcodeType.Barcode128 => new Code128(code, size, direction),
                 BarcodeType.Ean13 => new Ean13(code, size) { Direction = direction },
                 BarcodeType.Ean8 => new Ean8(code, size) { Direction = direction },
                 BarcodeType.UpcA => new UpcA(code, size) { Direction = direction },
-                _ => new Code2of5Interleaved(code, size, direction),
+                _ => throw new ArgumentException($"Unknown barcode type {(int)_barcode.Type}."),
             };
 
             // LineRatio is the wide-to-narrow ratio of the thick/thin codes; they accept 2 to 3.
             double ratio = _barcode.LineRatio;
             if (ratio is >= 2 and <= 3 && _barcode.Type is BarcodeType.Barcode25i or BarcodeType.Barcode39)
                 barCode.WideNarrowRatio = ratio;
+
+            // EAN and UPC sizes include their quiet zones. For the other linear codes the shape keeps a quiet zone
+            // of 10 narrow bars on each side, so a border or neighbouring content does not touch the bars.
+            double units = _barcode.Type switch
+            {
+                BarcodeType.Barcode25i => 6 + barCode.WideNarrowRatio + (2 * barCode.WideNarrowRatio + 3) * code.Length,
+                BarcodeType.Barcode39 => 13 + 6 * barCode.WideNarrowRatio + (3 * barCode.WideNarrowRatio + 7) * code.Length,
+                BarcodeType.Barcode128 => ((Code128)barCode).GetModules().Length,
+                _ => 0,
+            };
+            if (units > 0)
+            {
+                double quietZone = 10 * size.Width / (units + 20);
+                size = new XSize(size.Width - 2 * quietZone, size.Height);
+                barCode.Size = size;
+                position = direction switch
+                {
+                    CodeDirection.BottomToTop => new XPoint(position.X, position.Y - quietZone),
+                    CodeDirection.TopToBottom => new XPoint(position.X, position.Y + quietZone),
+                    _ => new XPoint(position.X + quietZone, position.Y),
+                };
+            }
 
             bool eanUpc = _barcode.Type is BarcodeType.Ean13 or BarcodeType.Ean8 or BarcodeType.UpcA;
             if (!_barcode.Text)

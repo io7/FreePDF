@@ -2,11 +2,13 @@
 // See the LICENSE file in the solution root for more information.
 
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.DocumentObjectModel.Fields;
 using MigraDoc.DocumentObjectModel.Shapes;
 using MigraDoc.DocumentObjectModel.Shapes.Charts;
 using MigraDoc.DocumentObjectModel.Tables;
+using MigraDoc.Logging;
 using Font = MigraDoc.DocumentObjectModel.Font;
 using Image = MigraDoc.DocumentObjectModel.Shapes.Image;
 
@@ -123,10 +125,26 @@ namespace MigraDoc.RtfRendering
                 case Cell:
                     return new CellRenderer(domObj, docRenderer);
                 //Table end
+
+                case Barcode:
+                    return new SkippedBarcodeRenderer(domObj, docRenderer);
             }
             Debug.Assert(false, "Must not come here.");
             throw new InvalidOperationException("Unsupported type in RendererFactory.");
             //return null;
         }
+    }
+
+    /// <summary>
+    /// FreePDF: RTF has no barcode element; the barcode is left out with a warning instead of failing the document.
+    /// </summary>
+    sealed class SkippedBarcodeRenderer : RendererBase
+    {
+        internal SkippedBarcodeRenderer(DocumentObject domObj, RtfDocumentRenderer docRenderer)
+            : base(domObj, docRenderer)
+        { }
+
+        internal override void Render()
+            => MigraDocLogHost.RtfRenderingLogger.LogWarning("A barcode is left out of the RTF output; RTF cannot hold barcodes.");
     }
 }
