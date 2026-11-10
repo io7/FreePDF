@@ -44,6 +44,29 @@ well-formed Cross Industry Invoice; checking its content against EN 16931 and
 the profile's business rules is up to your invoicing software. CI validates
 the generated PDF/A-3 file with veraPDF.
 
+## Fillable forms: create, fill, flatten, sign, certify
+
+```csharp
+var form = document.Catalog.GetOrCreateAcroForm();
+form.AddTextField("name", page, new XRect(150, 70, 220, 22));
+form.AddCheckBox("agree", page, new XRect(150, 110, 14, 14));
+form.AddRadioButtonGroup("size", page, new[] { ("S", new XRect(150, 150, 14, 14)), ("M", new XRect(190, 150, 14, 14)) });
+form.AddComboBox("country", page, new XRect(150, 190, 150, 22), new[] { "Norway", "Sweden", "Denmark" });
+form.AddSignatureField("signature", page, new XRect(150, 240, 200, 50));
+document.Save("form.pdf");   // a fillable form
+
+// Later: fill it, then certify it so that only form filling keeps the signature valid.
+((PdfFormTextField)form.Fields["name"]!).Text = "Kari Nordmann";
+DigitalSignatureHandler.ForDocument(document, signer, new DigitalSignatureOptions
+{
+    FieldName = "signature",
+    Certification = PdfCertificationLevel.FormFilling,
+});
+```
+
+Rectangles are in drawing coordinates, as for `XGraphics`: points from the top
+left corner. `document.Flatten()` turns filled fields into page content.
+
 ## Accessible PDF (PDF/UA-1)
 
 The layout engine writes tagged PDF for PDF/UA-1, for documents that must be

@@ -97,6 +97,19 @@ default policy reports earlier signatures as changed when the signed field's
 widget is a separate object, or the field has several widgets or shares an
 appearance; fields that are their own widget pass.
 
+Since 7.9.0, `PdfForm` creates text, check box, radio button, combo box, list box
+and signature fields with appearances. Regression tests read created fields back
+with their types, widgets, rectangles and appearances, fill them after reopening,
+flatten, merge and sign them. Before the release, MuPDF and pypdf read the type,
+value and on states of every created field in new, filled and reopened-then-filled
+files, and MuPDF and poppler rendered them. Text and choice fields use Helvetica,
+which is not embedded, so PDF/A documents refuse them.
+`DigitalSignatureOptions.Certification` writes a certification signature
+(DocMDP); regression tests check the signature reference, the catalog's /Perms
+and FreePDF's own enforcement, and pyHanko read levels 1 to 3 from FreePDF's files
+and judged form filling after certification at levels 2 and 3 as permitted
+(VALID).
+
 Factur-X / ZUGFeRD output (`FacturXManager`) is checked for the PDF side: a
 PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 `/AF` and declared in the XMP extension schema. FreePDF only checks that the XML
