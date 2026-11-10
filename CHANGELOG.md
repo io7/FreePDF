@@ -1,5 +1,29 @@
 # FreePDF changelog
 
+## Unreleased
+
+- QR codes: `CodeQR` draws QR codes (model 2, versions 1 to 40, error
+  correction levels L, M, Q and H) as one vector path. The smallest version
+  that fits is chosen unless `Version` is set; digits and upper-case text use
+  the compact numeric and alphanumeric modes; text that is not ASCII is UTF-8,
+  marked with ECI 26 unless `Utf8Eci` is false. `GetModules()` returns the
+  module matrix for custom drawing.
+- Code 128: `Code128` picks code sets A, B and C for the shortest code and
+  supports GS1-128 through `Code128.Fnc1`.
+- EAN-13, EAN-8 and UPC-A: `Ean13`, `Ean8` and `UpcA` add or check the check
+  digit and draw the digits under the bars with long guard bars. `CodeType` and
+  `BarCode.FromType` know the new linear codes.
+- MigraDoc renders barcodes. `Barcode` elements were silently left out of the
+  PDF before; they now draw Interleaved 2 of 5, Code 39, Code 128 and the new
+  `BarcodeType` values Ean13, Ean8, UpcA and QRCode, horizontally or rotated by
+  `Orientation`, with text in the Normal style's font when `Text` is set.
+  `Section`, `Cell`, `TextFrame` and `HeaderFooter` get `AddBarcode()`.
+- PNG images with 1-, 2- or 4-bit grayscale and 2-bit palettes load in the
+  Core build; they threw "Unsupported bit depth". QR code generators often
+  write 1-bit grayscale. Interlaced low-bit grayscale PNGs are still refused.
+- Code 39 refuses an apostrophe, which has no bar pattern; it was accepted and
+  drawing then failed with `IndexOutOfRangeException`.
+
 ## 7.8.0
 
 - A justified paragraph with a tab, such as a list item, and soft hyphens no
