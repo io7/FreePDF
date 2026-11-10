@@ -81,6 +81,9 @@ are drawn as vector shapes, so they stay sharp in print. No image library is
 needed.
 
 ```csharp
+using PdfSharp;                    // DrawBarCode and DrawMatrixCode are extension methods here
+using PdfSharp.Drawing.BarCodes;   // CodeQR, CodeDataMatrix, Code128, Ean13, Ean8, UpcA
+
 var qr = new CodeQR("https://example.com/pay/2026-118", new XSize(90, 90));   // level M, version chosen to fit
 gfx.DrawMatrixCode(qr, new XPoint(40, 40));
 
