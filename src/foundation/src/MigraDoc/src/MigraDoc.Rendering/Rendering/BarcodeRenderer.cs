@@ -66,6 +66,22 @@ namespace MigraDoc.Rendering
                 _gfx.DrawMatrixCode(new CodeQR(code, size) { Direction = direction }, XBrushes.Black, position);
                 return;
             }
+            if (_barcode.Type == BarcodeType.DataMatrix)
+            {
+                // A square symbol, centred in the shape so its modules stay square.
+                double side = Math.Min(size.Width, size.Height);
+                var square = new XSize(side, side);
+                var offset = new XPoint((size.Width - side) / 2, (size.Height - side) / 2);
+                var start = direction switch
+                {
+                    CodeDirection.BottomToTop => new XPoint(position.X + offset.Y, position.Y - offset.X),
+                    CodeDirection.TopToBottom => new XPoint(position.X - offset.Y, position.Y + offset.X),
+                    _ => new XPoint(position.X + offset.X, position.Y + offset.Y),
+                };
+                var dataMatrix = new CodeDataMatrix(code, "", 0, 0, 1, square) { Direction = direction };
+                _gfx.DrawMatrixCode(dataMatrix, XBrushes.Black, start);
+                return;
+            }
 
             BarCode barCode = _barcode.Type switch
             {

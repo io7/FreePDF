@@ -13,9 +13,16 @@ using System.Windows.Media;
 namespace PdfSharp.Drawing.BarCodes
 {
     /// <summary>
-    /// Defines the DataMatrix 2D barcode. THIS IS AN EMPIRA INTERNAL IMPLEMENTATION. THE CODE IN
-    /// THE OPEN SOURCE VERSION IS A FAKE.
+    /// A Data Matrix ECC 200 code (ISO/IEC 16022), drawn as vector shapes.
     /// </summary>
+    /// <remarks>
+    /// <para>Rows and columns give the symbol size, for example 26 x 26 or 12 x 36; 0 x 0 picks the smallest square
+    /// size the text fits in. <see cref="CodeBase.Size"/> includes the <see cref="QuietZone"/>, in modules.</para>
+    /// <para>Text is written in ASCII encodation (two digits per codeword; Latin-1 letters with Upper Shift; other
+    /// text as UTF-8 marked with ECI 26), or in Base256 where the encoding asks for it. C40, Text, X12 and EDIFACT
+    /// requests are written in ASCII encodation, which every reader decodes the same way. <see cref="Code128.Fnc1"/>
+    /// writes FNC1, as GS1 DataMatrix needs first.</para>
+    /// </remarks>
     public class CodeDataMatrix : MatrixCode
     {
         /// <summary>
@@ -130,47 +137,53 @@ namespace PdfSharp.Drawing.BarCodes
         int _quietZone;
 
         /// <summary>
-        /// Renders the matrix code.
+        /// Encodes the text and returns the symbol's modules, finder and clock patterns included, without the
+        /// quiet zone, indexed [row, column], true for dark.
+        /// </summary>
+        public bool[,] GetModules() => DataMatrixEncoder.Encode(Text, Encoding, Rows, Columns);
+
+        /// <summary>
+        /// Renders the matrix code: the dark modules of each row, merged into runs, as one filled path. With a quiet
+        /// zone, the whole size is painted white first, as before.
         /// </summary>
         protected internal override void Render(XGraphics gfx, XBrush brush, XPoint position)
         {
+            if (Size.IsEmpty || Size.Width <= 0 || Size.Height <= 0)
+                throw new InvalidOperationException(BcgSR.EmptyBarCodeSize);
+
+            bool[,] modules = GetModules();
+            int rows = modules.GetLength(0);
+            int columns = modules.GetLength(1);
+            double moduleWidth = Size.Width / (columns + 2 * QuietZone);
+            double moduleHeight = Size.Height / (rows + 2 * QuietZone);
+
             XGraphicsState state = gfx.Save();
+            LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
 
-            switch (Direction)
-            {
-                case CodeDirection.RightToLeft:
-                    gfx.RotateAtTransform(180, position);
-                    break;
-
-                case CodeDirection.TopToBottom:
-                    gfx.RotateAtTransform(90, position);
-                    break;
-
-                case CodeDirection.BottomToTop:
-                    gfx.RotateAtTransform(-90, position);
-                    break;
-            }
-
-            XPoint pos = position + CalcDistance(Anchor, AnchorType.TopLeft, Size);
-
-            if (!HasMatrixImage) // Cannot use (MatrixImage == null) here.
-                MatrixImage = DataMatrixImage.GenerateMatrixImage(Text, Encoding, Rows, Columns, brush);
-
+            XPoint topLeft = position + CalcDistance(Anchor, AnchorType.TopLeft, Size);
             if (QuietZone > 0)
+                gfx.DrawRectangle(XBrushes.White, topLeft.X, topLeft.Y, Size.Width, Size.Height);
+
+            double left = topLeft.X + QuietZone * moduleWidth;
+            double top = topLeft.Y + QuietZone * moduleHeight;
+            var path = new XGraphicsPath { FillMode = XFillMode.Winding };
+            for (int row = 0; row < rows; row++)
             {
-                XSize sizeWithZone = new XSize(Size.Width, Size.Height);
-                sizeWithZone.Width = sizeWithZone.Width / (Columns + 2 * QuietZone) * Columns;
-                sizeWithZone.Height = sizeWithZone.Height / (Rows + 2 * QuietZone) * Rows;
-
-                XPoint posWithZone = new XPoint(pos.X, pos.Y);
-                posWithZone.X += Size.Width / (Columns + 2 * QuietZone) * QuietZone;
-                posWithZone.Y += Size.Height / (Rows + 2 * QuietZone) * QuietZone;
-
-                gfx.DrawRectangle(XBrushes.White, pos.X, pos.Y, Size.Width, Size.Height);
-                gfx.DrawImage(MatrixImage, posWithZone.X, posWithZone.Y, sizeWithZone.Width, sizeWithZone.Height);
+                int column = 0;
+                while (column < columns)
+                {
+                    if (!modules[row, column])
+                    {
+                        column++;
+                        continue;
+                    }
+                    int start = column;
+                    while (column < columns && modules[row, column])
+                        column++;
+                    path.AddRectangle(left + start * moduleWidth, top + row * moduleHeight, (column - start) * moduleWidth, moduleHeight);
+                }
             }
-            else
-                gfx.DrawImage(MatrixImage, pos.X, pos.Y, Size.Width, Size.Height);
+            gfx.DrawPath(brush, path);
 
             gfx.Restore(state);
         }
@@ -184,8 +197,8 @@ namespace PdfSharp.Drawing.BarCodes
             if (text == null)
                 throw new ArgumentNullException(nameof(text));
 
-            DataMatrixImage mImage = new DataMatrixImage(Text, Encoding, Rows, Columns, XBrushes.Black);
-            mImage.Iec16022Ecc200(Columns, Rows, Encoding, Text.Length, Text, 0, 0, 0);
+            // Throws when the size is not an ECC 200 size or the text does not fit it.
+            DataMatrixEncoder.Encode(text, Encoding ?? "", Rows, Columns);
         }
     }
 }

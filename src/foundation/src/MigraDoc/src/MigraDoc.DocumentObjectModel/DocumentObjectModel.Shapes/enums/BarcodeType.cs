@@ -44,5 +44,11 @@ namespace MigraDoc.DocumentObjectModel.Shapes
         /// QR code with error correction level M. The shape's size includes the quiet zone of 4 modules.
         /// </summary>
         QRCode,
+
+        /// <summary>
+        /// Data Matrix ECC 200 in the smallest square size that fits. The shape's size includes a quiet zone of
+        /// 1 module.
+        /// </summary>
+        DataMatrix,
     }
 }
