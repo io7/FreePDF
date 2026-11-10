@@ -59,6 +59,7 @@
     <Compile Include="..\MigraDoc.Rendering\Rendering\BordersRenderer.cs" Link="Rendering\BordersRenderer.cs" />
     <Compile Include="..\MigraDoc.Rendering\Rendering\ChartFormatInfo.cs" Link="Rendering\ChartFormatInfo.cs" />
     <Compile Include="..\MigraDoc.Rendering\Rendering\ChartRenderer.cs" Link="Rendering\ChartRenderer.cs" />
+    <Compile Include="..\MigraDoc.Rendering\Rendering\BarcodeRenderer.cs" Link="Rendering\BarcodeRenderer.cs" />
     <Compile Include="..\MigraDoc.Rendering\Rendering\ChartRenderInfo.cs" Link="Rendering\ChartRenderInfo.cs" />
     <Compile Include="..\MigraDoc.Rendering\Rendering\ColorHelper.cs" Link="Rendering\ColorHelper.cs" />
     <Compile Include="..\MigraDoc.Rendering\Rendering\DocumentRenderer.cs" Link="Rendering\DocumentRenderer.cs" />
@@ -121,6 +122,7 @@
     <ProjectReference Include="..\..\..\shared\src\PdfSharp.Shared\PdfSharp.Shared.csproj" />
     <ProjectReference Include="..\..\..\shared\src\PdfSharp.System\PdfSharp.System.csproj" />
     <ProjectReference Include="..\..\..\PDFsharp\src\PdfSharp-gdi\PdfSharp-gdi.csproj" />
+    <ProjectReference Include="..\..\..\PDFsharp\src\PdfSharp.BarCodes-gdi\PdfSharp.BarCodes-gdi.csproj" />
     <ProjectReference Include="..\..\..\PDFsharp\src\PdfSharp.Charting-gdi\PdfSharp.Charting-gdi.csproj" />
     <ProjectReference Include="..\MigraDoc.DocumentObjectModel\MigraDoc.DocumentObjectModel.csproj" />
   </ItemGroup>

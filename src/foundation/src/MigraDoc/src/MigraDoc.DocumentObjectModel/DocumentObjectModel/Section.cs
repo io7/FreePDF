@@ -119,6 +119,12 @@ namespace MigraDoc.DocumentObjectModel
         }
 
         /// <summary>
+        /// Adds a new barcode to the section.
+        /// </summary>
+        public Barcode AddBarcode()
+            => Elements.AddBarcode();
+
+        /// <summary>
         /// Adds a new table to the section.
         /// </summary>
         public Table AddTable()
