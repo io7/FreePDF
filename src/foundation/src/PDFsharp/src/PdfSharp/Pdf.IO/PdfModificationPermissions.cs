@@ -77,6 +77,18 @@ namespace PdfSharp.Pdf.IO
             return new PdfModificationPermissions(permission, locks, certified);
         }
 
+        /// <summary>
+        /// Gets a value indicating whether a certification or a lock limits the changes (P=1 to 3); otherwise only the
+        /// signed and locked fields themselves are protected.
+        /// </summary>
+        internal bool LimitsChanges => _permission != Unrestricted;
+
+        /// <summary>
+        /// The same permissions, but no more than the given level: for the signature verifier, which checks the changes
+        /// after an approval signature against P=3 (form filling, signing, annotating, validation data).
+        /// </summary>
+        internal PdfModificationPermissions AtMost(int level) => new(Math.Min(_permission, level), _locks, _certified);
+
         // A signature field whose /V is a signature dictionary.
         static bool IsSigned(FieldNode field, out PdfDictionary signature)
         {
@@ -511,12 +523,22 @@ namespace PdfSharp.Pdf.IO
             return Refused(
                 $"The signatures of this document permit {permits} ({(_certified ? "DocMDP" : "signature field lock")} P={_permission}), so saving would make " +
                 $"validators report them as broken: {change}. Nothing was written.",
-                $"{change} (the signatures permit {permits}, {(_certified ? "DocMDP" : "signature field lock")} P={_permission})");
+                change);
         }
 
         static InvalidOperationException ProtectionRefusal(string change)
-            => Refused($"A signature of this document protects what this save changes, so saving would make validators " +
+        {
+            var exception = Refused($"A signature of this document protects what this save changes, so saving would make validators " +
                    $"report that signature as broken: {change}. Nothing was written.", $"{change} (protected by a signature)");
+            exception.Data[ProtectedKey] = true;
+            return exception;
+        }
+
+        /// <summary>
+        /// The key under which a refusal's <see cref="Exception.Data"/> holds true when the change touches a signed or
+        /// locked field itself, which no signature permits.
+        /// </summary>
+        internal const string ProtectedKey = "FreePDF.Protected";
 
         /// <summary>
         /// The key under which a refusal's <see cref="Exception.Data"/> holds the description of the change alone, for the

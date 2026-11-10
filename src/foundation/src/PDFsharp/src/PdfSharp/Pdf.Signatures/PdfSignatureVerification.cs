@@ -1,6 +1,6 @@
 // FreePDF - MIT, see the LICENSE file in the solution root.
 
-using System.Net.Http;
+
 using System.Security.Cryptography.X509Certificates;
 
 namespace PdfSharp.Pdf.Signatures
@@ -148,7 +148,9 @@ namespace PdfSharp.Pdf.Signatures
         /// <summary>Gets the /SubFilter, without the slash.</summary>
         public string SubFilter { get; internal set; } = "";
 
-        /// <summary>Gets the PAdES baseline level reached.</summary>
+        /// <summary>
+        /// Gets the PAdES baseline level reached; <see cref="PdfPadesLevel.None"/> unless the status is Valid.
+        /// </summary>
         public PdfPadesLevel PadesLevel { get; internal set; }
 
         /// <summary>Gets the 1-based number of the revision the signature covers, counted in the file's updates.</summary>
@@ -191,6 +193,13 @@ namespace PdfSharp.Pdf.Signatures
         /// <summary>Gets the first later change the signature's permissions or locks forbid, or null.</summary>
         public string? ForbiddenChange { get; internal set; }
 
+        /// <summary>
+        /// Gets the first later change beyond filling in forms, signing, annotating and adding validation data, after a
+        /// signature that permits it (an approval signature without locks), or null. ISO 32000 permits such a change,
+        /// but the document no longer shows what was signed, so the status is at best Indeterminate.
+        /// </summary>
+        public string? UnexpectedChange { get; internal set; }
+
         /// <summary>Gets the overall status.</summary>
         public PdfSignatureStatus Status { get; internal set; }
 
@@ -198,5 +207,10 @@ namespace PdfSharp.Pdf.Signatures
         public IReadOnlyList<string> Reasons => _reasons;
 
         internal readonly List<string> _reasons = [];
+
+        // For the B-LTA check once all results are known: where the signed revision ends, the chains whose validation
+        // data a document time-stamp must cover, and the times their revocation data must cover.
+        internal int End;
+        internal List<(List<X509Certificate2> Chain, DateTimeOffset Time)> LongTermChains = [];
     }
 }

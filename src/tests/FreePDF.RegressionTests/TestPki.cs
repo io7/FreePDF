@@ -141,12 +141,15 @@ public sealed class TestPki : IDisposable
         }
         var certIdDer = answeredId.Encode();
         var now = DateTimeOffset.UtcNow;
+        // The issuing CA signs, or a responder certificate (RFC 6960 4.2.2.2): one the CA issued, or a forgery that
+        // only carries the CA's name.
+        var responder = Responder == OcspResponder.Issuer ? issuer : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated);
 
         var data = new AsnWriter(AsnEncodingRules.DER);
         using (data.PushSequence())                                                          // ResponseData
         {
             using (data.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))        // responderID byName
-                data.WriteEncodedValue(issuer.SubjectName.RawData);
+                data.WriteEncodedValue(responder.SubjectName.RawData);
             data.WriteGeneralizedTime(now, omitFractionalSeconds: true);                     // producedAt
             using (data.PushSequence())                                                      // responses
             using (data.PushSequence())                                                      // SingleResponse
@@ -171,7 +174,7 @@ public sealed class TestPki : IDisposable
             }
         }
         var tbs = data.Encode();
-        var signature = issuer.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var signature = responder.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
         var basic = new AsnWriter(AsnEncodingRules.DER);
         using (basic.PushSequence())
@@ -183,6 +186,12 @@ public sealed class TestPki : IDisposable
                 basic.WriteNull();
             }
             basic.WriteBitString(signature);
+            if (!ReferenceEquals(responder, issuer))
+            {
+                using (basic.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))   // certs
+                using (basic.PushSequence())
+                    basic.WriteEncodedValue(responder.RawData);
+            }
         }
 
         var response = new AsnWriter(AsnEncodingRules.DER);
@@ -200,6 +209,47 @@ public sealed class TestPki : IDisposable
     }
 
     enum OcspResponseStatus { Successful = 0 }
+
+    readonly Dictionary<(string, bool), X509Certificate2> _responders = new();
+
+    // A responder certificate with id-kp-OCSPSigning and id-pkix-ocsp-nocheck. The forgery is signed by a key of its
+    // own under a CA certificate that only copies the real CA's name.
+    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged)
+    {
+        if (_responders.TryGetValue((issuer.Thumbprint, forged), out var cached))
+            return cached;
+        var signingCa = issuer;
+        if (forged)
+        {
+            using var fakeKey = RSA.Create(2048);
+            var fakeRequest = new CertificateRequest(issuer.SubjectName, fakeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            fakeRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            signingCa = fakeRequest.CreateSelfSigned(CaFrom, CaUntil);
+        }
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF test OCSP responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
+        request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
+        using var issued = request.Create(signingCa.SubjectName, X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, RSASignaturePadding.Pkcs1),
+            CaFrom, CaUntil, Serial());
+        var responder = issued.CopyWithPrivateKey(key);
+        _responders[(issuer.Thumbprint, forged)] = responder;
+        return responder;
+    }
+
+    /// <summary>Who signs the OCSP responses.</summary>
+    public OcspResponder Responder { get; set; } = OcspResponder.Issuer;
+
+    public enum OcspResponder
+    {
+        /// <summary>The CA that issued the certificate.</summary>
+        Issuer,
+        /// <summary>A responder certificate that the CA issued.</summary>
+        Delegated,
+        /// <summary>A responder certificate with the CA's name as issuer, signed by another key.</summary>
+        ForgedDelegated,
+    }
 
     sealed class Handler(TestPki pki) : HttpMessageHandler
     {

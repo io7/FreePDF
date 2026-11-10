@@ -248,9 +248,13 @@ chain ends at a trusted root (the ones you give, or the system's), the claimed
 and the time-stamped signing time, revocation (from the DSS by default, online
 on request), the first later change its certification or field locks forbid,
 and the PAdES level reached. A certificate that has expired since counts if
-it was valid at the signature's time-stamp. `Status` is `Valid`, `Invalid`
-(changed bytes, a revoked certificate, a forbidden change) or `Indeterminate`
-(trust or revocation not established), with the reasons. It is a technical
+it was valid at the signature's time-stamp, and only a time-stamp from a
+trusted time-stamp authority counts. After an approval signature, a later
+update that changes more than form fields, signatures, annotations and
+validation data is reported as `UnexpectedChange`. `Status` is `Valid`,
+`Invalid` (changed bytes, a revoked certificate, a forbidden change) or
+`Indeterminate` (trust, revocation or later changes not established as
+harmless), with the reasons. It is a technical
 check: EU trusted lists, qualified status and signature policies are not
 checked. Time-stamps are checked on .NET 8 or later.
 

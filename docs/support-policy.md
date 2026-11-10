@@ -204,9 +204,20 @@ information is accepted by pyHanko (its policy allows such updates) and is a
 forbidden change for FreePDF, which follows ISO 32000-2 ("no changes" but
 validation data and document time-stamps); and a signer revoked before the
 signing time is "indeterminate" in pyHanko's AdES validation and "Invalid" in
-FreePDF. The verifier is a technical check: EU trusted lists, qualified
-status, signature policies and ETSI validation reports are not covered, and
-RSASSA-PSS signatures on OCSP responses and CRLs are not verified.
+FreePDF. Tests also cover attacks found in review: a time-stamp from an
+untrusted authority (its time is not used, so it cannot rescue an expired
+signer), a forged delegated OCSP responder (the responder certificate must be
+signed by the CA, carry id-kp-OCSPSigning and id-pkix-ocsp-nocheck, and be valid
+when the response was produced), a later trailer that points at another
+catalog, changed page content after an approval signature, a malformed
+signature dictionary, and a certificate not meant for signatures. The verifier
+is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
+signature in /Contents, delta and partitioned CRLs and unknown critical CRL
+extensions make a result Indeterminate or are not used, and a PAdES level is
+reported only for valid signatures. It is a technical check: EU trusted lists,
+qualified status, signature policies and ETSI validation reports are not
+covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are
+not verified.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the

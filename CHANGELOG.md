@@ -38,8 +38,12 @@
   the certificate has expired since), revocation from OCSP responses and CRLs
   in the DSS or online, the first later change its certification or field
   locks forbid (with the same rules as saves in Append mode), and the PAdES
-  level from B-B to B-LTA. Each result has a status (Valid, Invalid,
-  Indeterminate) and its reasons. Time-stamps are checked on .NET 8 and later.
+  level from B-B to B-LTA. Only time-stamps from trusted time-stamp
+  authorities count, delegated OCSP responders must be signed by the CA, and a
+  later update that replaces the catalog or, after an approval signature,
+  changes more than form fields, signatures, annotations and validation data
+  is reported. Each result has a status (Valid, Invalid, Indeterminate) and its
+  reasons. Time-stamps are checked on .NET 8 and later.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use
   a test authority (.NET 8 and later; on .NET Framework and .NET Standard,

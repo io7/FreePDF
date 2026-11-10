@@ -12,15 +12,15 @@ namespace PdfSharp.Pdf.Signatures
 {
     /// <summary>
     /// Checks the signatures and document time-stamps of a PDF file: that the bytes they cover are intact, who signed
-    /// and when, whether the signer's chain ends at a trusted root, revocation, later changes their permissions forbid,
-    /// and the PAdES level (ISO 32000-2 12.8, ETSI EN 319 142-1, RFC 5652, RFC 3161, RFC 6960, RFC 5280). It reports
-    /// facts and a technical status, not the legal effect of a signature; EU trusted lists and qualified status are not
-    /// checked.
+    /// and when, whether the signer's chain ends at a trusted root, revocation, later changes, and the PAdES level
+    /// (ISO 32000-2 12.8, ETSI EN 319 142-1, RFC 5652, RFC 3161, RFC 6960, RFC 5280). It reports facts and a technical
+    /// status, not the legal effect of a signature; EU trusted lists and qualified status are not checked.
     /// </summary>
     public static class PdfSignatureVerifier
     {
         /// <summary>
-        /// Checks every signature and document time-stamp of the file, in the order their fields are found.
+        /// Checks every signature and document time-stamp of the file, in the order their fields are found. A file that
+        /// cannot be opened throws; a signature that cannot be checked is reported as Indeterminate.
         /// </summary>
         public static async Task<IReadOnlyList<PdfSignatureVerification>> VerifyAsync(Stream file, PdfSignatureVerificationOptions? options = null,
             CancellationToken cancellationToken = default)
@@ -33,7 +33,8 @@ namespace PdfSharp.Pdf.Signatures
         }
 
         /// <summary>
-        /// Checks every signature and document time-stamp of the file, in the order their fields are found.
+        /// Checks every signature and document time-stamp of the file, in the order their fields are found. A file that
+        /// cannot be opened throws; a signature that cannot be checked is reported as Indeterminate.
         /// </summary>
         public static async Task<IReadOnlyList<PdfSignatureVerification>> VerifyAsync(byte[] file, PdfSignatureVerificationOptions? options = null,
             CancellationToken cancellationToken = default)
@@ -41,51 +42,82 @@ namespace PdfSharp.Pdf.Signatures
             if (file == null)
                 throw new ArgumentNullException(nameof(file));
             options ??= new PdfSignatureVerificationOptions();
-            var validationTime = options.ValidationTime ?? DateTimeOffset.UtcNow;
-            var trustedRoots = options.TrustedRoots?.ToList();
-
             using var document = PdfReader.Open(new MemoryStream(file, false), options.Password, PdfDocumentOpenMode.Import);
-            var revisionEnds = RevisionEnds(file);
-            var dss = ReadDss(document);
-            var extra = options.Online?.ExtraCertificates?.ToList() ?? [];
-            var fetcher = options.Revocation == PdfRevocationCheck.Online
-                ? new PdfDocumentSecurityStore.Fetcher(options.Online ?? new PdfValidationDataOptions(), cancellationToken)
-                : null;
+            var context = new Context(file, document, options, cancellationToken);
 
-            var found = Signatures(document);
-            var results = new List<(PdfSignatureVerification Result, int End)>();
-            foreach (var signature in found)
+            var results = new List<PdfSignatureVerification>();
+            foreach (var signature in Signatures(document))
             {
                 var result = new PdfSignatureVerification
                 {
                     FieldName = signature.Name,
-                    SubFilter = signature.Value.Elements.GetName("/SubFilter").TrimStart('/'),
-                    Revisions = revisionEnds.Count,
+                    SubFilter = NameOf(signature.Value, "/SubFilter").TrimStart('/'),
+                    Revisions = context.RevisionEnds.Count,
                 };
-                int end = await CheckAsync(file, document, signature, result, dss, extra, trustedRoots, validationTime, options,
-                    fetcher, revisionEnds).ConfigureAwait(false);
-                results.Add((result, end));
+                try
+                {
+                    await CheckAsync(context, signature, result).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    result._reasons.Add($"The signature could not be checked: {ex.Message}");
+                    result.Status = PdfSignatureStatus.Indeterminate;
+                    result.PadesLevel = PdfPadesLevel.None;
+                }
+                results.Add(result);
             }
 
-            // B-LTA: a valid document time-stamp in a later revision covers the DSS that made the signature B-LT.
-            foreach (var (result, end) in results)
+            // B-LTA: a trusted document time-stamp in a later revision covers a DSS that holds the validation data.
+            foreach (var result in results.Where(r => r.PadesLevel == PdfPadesLevel.BaselineLT))
             {
-                if (result.PadesLevel != PdfPadesLevel.BaselineLT)
-                    continue;
-                bool stamped = results.Any(other => other.Result.Kind == PdfSignatureKind.DocumentTimeStamp && other.Result.Intact
-                    && other.End > end && dss.Position is { } position && position < other.End);
-                if (stamped)
-                    result.PadesLevel = PdfPadesLevel.BaselineLTA;
+                foreach (var stamp in results.Where(s => s.Kind == PdfSignatureKind.DocumentTimeStamp && s.Intact && s.Trusted && s.End > result.End))
+                {
+                    if (CoveredDssHolds(context, stamp.End, result))
+                    {
+                        result.PadesLevel = PdfPadesLevel.BaselineLTA;
+                        break;
+                    }
+                }
             }
-            return results.Select(r => r.Result).ToList();
+            return results;
         }
 
-        static async Task<int> CheckAsync(byte[] file, PdfDocument document, FoundSignature signature, PdfSignatureVerification result,
-            Dss dss, List<X509Certificate2> extra, List<X509Certificate2>? trustedRoots, DateTimeOffset validationTime,
-            PdfSignatureVerificationOptions options, PdfDocumentSecurityStore.Fetcher? fetcher, List<int> revisionEnds)
+        sealed class Context
+        {
+            internal Context(byte[] file, PdfDocument document, PdfSignatureVerificationOptions options, CancellationToken cancellationToken)
+            {
+                File = file;
+                Document = document;
+                Options = options;
+                ValidationTime = options.ValidationTime ?? DateTimeOffset.UtcNow;
+                TrustedRoots = options.TrustedRoots?.ToList();
+                RevisionEnds = RevisionEnds(file);
+                Dss = ReadDss(document);
+                Extra = options.Online?.ExtraCertificates?.ToList() ?? [];
+                Fetcher = options.Revocation == PdfRevocationCheck.Online
+                    ? new PdfDocumentSecurityStore.Fetcher(options.Online ?? new PdfValidationDataOptions(), cancellationToken)
+                    : null;
+            }
+
+            internal byte[] File { get; }
+            internal PdfDocument Document { get; }
+            internal PdfSignatureVerificationOptions Options { get; }
+            internal DateTimeOffset ValidationTime { get; }
+            internal List<X509Certificate2>? TrustedRoots { get; }
+            internal List<int> RevisionEnds { get; }
+            internal Dss Dss { get; }
+            internal List<X509Certificate2> Extra { get; }
+            internal PdfDocumentSecurityStore.Fetcher? Fetcher { get; }
+        }
+
+        static async Task CheckAsync(Context context, FoundSignature signature, PdfSignatureVerification result)
         {
             var value = signature.Value;
-            result.Kind = value.Elements.GetName("/Type") == "/DocTimeStamp" ? PdfSignatureKind.DocumentTimeStamp
+            result.Kind = NameOf(value, "/Type") == "/DocTimeStamp" ? PdfSignatureKind.DocumentTimeStamp
                 : signature.CertificationLevel != null ? PdfSignatureKind.Certification
                 : PdfSignatureKind.Approval;
             result.CertificationLevel = signature.CertificationLevel;
@@ -93,121 +125,205 @@ namespace PdfSharp.Pdf.Signatures
             {
                 result.ClaimedSigningTime = value.Elements.GetDateTime("/M");
             }
-            catch (Exception ex) when (ex is FormatException or InvalidOperationException or ArgumentException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 result._reasons.Add("The /M signing time is not a PDF date.");
             }
+            // Anything that keeps the status from Valid without making it Invalid.
+            bool doubtful = false;
 
-            // The byte range: from 0, one gap that is exactly this signature's /Contents, ending at a revision.
-            if (!ByteRange(file, value, out var covered, out var contents, out var end, out var problem))
+            // The byte range: from 0, one gap that is exactly this signature's /Contents.
+            if (!ByteRange(context.File, value, out var covered, out var contents, out var end, out var cleanPadding, out var problem))
             {
                 result._reasons.Add(problem);
                 result.Status = PdfSignatureStatus.Invalid;
-                return 0;
+                return;
             }
-            int trimmedLength = TrimmedLength(file);
-            result.CoversWholeFile = end >= trimmedLength;
-            int revision = revisionEnds.FindIndex(e => e >= end);
-            result.Revision = revision < 0 ? revisionEnds.Count : revision + 1;
-            if (!revisionEnds.Contains(end) && !result.CoversWholeFile)
+            result.End = end;
+            if (!cleanPadding)
+            {
+                result._reasons.Add("The /Contents holds data after the signature, which the signature does not cover.");
+                doubtful = true;
+            }
+            result.CoversWholeFile = end >= TrimmedLength(context.File);
+            int revision = context.RevisionEnds.FindIndex(e => e >= end);
+            result.Revision = revision < 0 ? context.RevisionEnds.Count : revision + 1;
+            if (!context.RevisionEnds.Contains(end) && !result.CoversWholeFile)
+            {
                 result._reasons.Add("The byte range does not end at the end of a revision.");
+                doubtful = true;
+            }
 
-            // Integrity, signer, times.
+            // Integrity and the signer; a time-stamp's time is only a candidate until its authority is checked.
             SignerInfo? signerInfo = null;
             SignedCms? cms = null;
-            if (result.Kind == PdfSignatureKind.DocumentTimeStamp || result.SubFilter == "ETSI.RFC3161")
+            (DateTimeOffset Time, X509Certificate2 Authority, string HashOid)? stamp = null;
+            bool documentTimeStamp = result.Kind == PdfSignatureKind.DocumentTimeStamp || result.SubFilter == "ETSI.RFC3161";
+            if (documentTimeStamp)
             {
-                CheckDocumentTimeStamp(contents, covered, result);
+                stamp = CheckDocumentTimeStamp(contents, covered, result);
             }
             else if (result.SubFilter is "adbe.pkcs7.detached" or "ETSI.CAdES.detached" or "adbe.pkcs7.sha1")
             {
-                (cms, signerInfo) = CheckCms(contents, covered, result);
+                (cms, signerInfo, stamp) = CheckCms(contents, covered, result);
             }
             else
             {
                 result._reasons.Add($"The /SubFilter {result.SubFilter} is not supported.");
                 result.Status = PdfSignatureStatus.Indeterminate;
-                return end;
+                return;
             }
             if (!result.Intact)
             {
                 result.Status = PdfSignatureStatus.Invalid;
-                return end;
+                return;
+            }
+            var signer = result.Signer!;
+            // A signature time-stamp that is there but cannot be verified is a claim without proof.
+            if (stamp == null && signerInfo != null
+                && signerInfo.UnsignedAttributes.Cast<CryptographicAttributeObject>().Any(a => a.Oid.Value == "1.2.840.113549.1.9.16.2.14"))
+            {
+                doubtful = true;
             }
 
-            // The certificates to build chains from: the CMS, the DSS, the caller's.
-            var available = new List<X509Certificate2>(extra);
-            available.AddRange(dss.Certificates);
+            // Digests that no longer resist collisions.
+            var digest = documentTimeStamp ? stamp?.HashOid : signerInfo?.DigestAlgorithm.Value;
+            if (result.SubFilter == "adbe.pkcs7.sha1" || digest is "1.3.14.3.2.26" or "1.2.840.113549.2.5")
+            {
+                result._reasons.Add("The signature uses a weak digest (SHA-1 or MD5).");
+                doubtful = true;
+            }
+
+            var available = new List<X509Certificate2>(context.Extra);
+            available.AddRange(context.Dss.Certificates);
             if (cms != null)
                 available.AddRange(cms.Certificates.Cast<X509Certificate2>());
-            if (trustedRoots != null)
-                available.AddRange(trustedRoots);
+            if (context.TrustedRoots != null)
+                available.AddRange(context.TrustedRoots);
 
-            // The best proven time of the signature: its time-stamp, or else now.
-            var bestTime = result.TimeStampTime ?? validationTime;
-            var signer = result.Signer!;
-            var (chain, trusted, chainProblem, validNow) = BuildChain(signer, available, trustedRoots, validationTime);
-            if (!validNow && result.TimeStampTime is { } stampTime)
+            // What the certificate may be used for.
+            bool usable = documentTimeStamp ? IsTimeStampAuthority(signer, result) : IsSigningCertificate(signer, result);
+
+            // The signature time-stamp counts only when its authority is a trusted time-stamp authority at the token's time.
+            List<X509Certificate2>? stampChain = null;
+            if (!documentTimeStamp && stamp is { } candidate)
             {
-                // Expired (or not yet valid) now: valid at the time-stamp, which proves the signature existed then.
-                var atStamp = BuildChain(signer, available, trustedRoots, stampTime);
-                if (atStamp.ValidNow)
+                var authority = BuildChain(candidate.Authority, available, context.TrustedRoots, candidate.Time);
+                if (authority.Trusted && authority.ValidNow && IsTimeStampAuthority(candidate.Authority, result))
                 {
-                    (chain, trusted, chainProblem) = (atStamp.Chain, atStamp.Trusted, atStamp.Problem);
-                    result._reasons.Add($"The certificate is not valid at the validation time; it was at the time-stamp ({stampTime:u}).");
-                    validNow = true;
+                    result.TimeStampTime = candidate.Time;
+                    result.TimeStampAuthority = candidate.Authority;
+                    stampChain = authority.Chain;
+                }
+                else
+                {
+                    result._reasons.Add("The signature time-stamp is not used: its authority is not a trusted time-stamp authority" +
+                        (authority.Problem != null ? $" ({authority.Problem})." : "."));
+                    doubtful = true;
                 }
             }
-            result.Chain = chain;
-            result.Trusted = trusted && validNow;
-            if (chainProblem != null)
-                result._reasons.Add(chainProblem);
-            if (result.TimeStampAuthority is { } tsa && result.Kind != PdfSignatureKind.DocumentTimeStamp)
+            else if (documentTimeStamp && stamp is { } token)
             {
-                var tsaChain = BuildChain(tsa, available, trustedRoots, result.TimeStampTime ?? validationTime);
-                if (!tsaChain.Trusted || !tsaChain.ValidNow)
-                    result._reasons.Add($"The time-stamp authority's certificate is not trusted: {tsaChain.Problem ?? "not valid at the time-stamp"}.");
+                result.TimeStampTime = token.Time;
+                result.TimeStampAuthority = token.Authority;
             }
 
-            // Revocation of the chain below its root.
-            if (options.Revocation != PdfRevocationCheck.None)
-                result.Revocation = await CheckRevocationAsync(chain, dss, fetcher, bestTime, result).ConfigureAwait(false);
-            else
-                result.Revocation = PdfRevocationStatus.NotChecked;
-
-            // Later revisions: what the signature's permissions and locks forbid.
-            if (!result.CoversWholeFile)
-                result.ForbiddenChange = ForbiddenChange(file, end, document, options.Password);
-            if (result.ForbiddenChange != null)
-                result._reasons.Add($"A later update makes a change the signatures forbid: {result.ForbiddenChange}.");
-
-            // PAdES level, up to B-LT; B-LTA is decided once the document time-stamps are known.
-            if (result.SubFilter == "ETSI.CAdES.detached" && signerInfo != null && SigningCertificateMatches(signerInfo, signer, result))
+            // The chain at the validation time; for a signature, else at its trusted time-stamp, which proves it existed then.
+            var (chain, trusted, chainProblem, validNow) = BuildChain(signer, available, context.TrustedRoots, context.ValidationTime);
+            if (!validNow && !documentTimeStamp && result.TimeStampTime is { } stampTime)
             {
-                result.PadesLevel = PdfPadesLevel.BaselineB;
-                if (result.TimeStampTime != null)
+                var atStamp = BuildChain(signer, available, context.TrustedRoots, stampTime);
+                if (atStamp.ValidNow)
                 {
-                    result.PadesLevel = PdfPadesLevel.BaselineT;
-                    if (dss.Present && result.Revocation == PdfRevocationStatus.Good && chain.All(c => dss.Holds(c)))
-                        result.PadesLevel = PdfPadesLevel.BaselineLT;
+                    (chain, trusted, chainProblem, validNow) = atStamp;
+                    result._reasons.Add($"The certificate is not valid at the validation time; it was at the time-stamp ({stampTime:u}).");
+                }
+            }
+            if (!validNow)
+                result._reasons.Add($"The certificate is not valid at {(result.TimeStampTime ?? context.ValidationTime):u}.");
+            result.Chain = chain;
+            result.Trusted = trusted && validNow && usable;
+            if (chainProblem != null)
+                result._reasons.Add(chainProblem);
+
+            // Revocation below the roots: the signer's chain at the best proven time.
+            var bestTime = result.TimeStampTime ?? context.ValidationTime;
+            var fromDss = PdfRevocationStatus.NotChecked;
+            if (context.Options.Revocation != PdfRevocationCheck.None)
+            {
+                fromDss = ChainRevocation(chain, context.Dss, bestTime, context.ValidationTime, null);
+                result.Revocation = context.Fetcher != null && fromDss == PdfRevocationStatus.Unknown
+                    ? await OnlineRevocationAsync(context, chain, bestTime, result).ConfigureAwait(false)
+                    : ChainRevocation(chain, context.Dss, bestTime, context.ValidationTime, result);
+            }
+
+            // Later revisions: what the signature's permissions forbid, or what changes the signed content.
+            if (!result.CoversWholeFile)
+            {
+                var (forbidden, unexpected, laterProblem) = LaterChanges(context, end);
+                result.ForbiddenChange = forbidden;
+                result.UnexpectedChange = unexpected;
+                if (forbidden != null)
+                    result._reasons.Add($"A later update makes a change the signatures forbid: {forbidden}.");
+                if (unexpected != null)
+                    result._reasons.Add($"A later update changes more than form fields, signatures, annotations and validation data: {unexpected}.");
+                if (laterProblem != null)
+                {
+                    result._reasons.Add(laterProblem);
+                    doubtful = true;
                 }
             }
 
             result.Status = result.ForbiddenChange != null || result.Revocation == PdfRevocationStatus.Revoked
                 ? PdfSignatureStatus.Invalid
-                : result.Trusted && result.Revocation != PdfRevocationStatus.Unknown
+                : result.Trusted && result.Revocation != PdfRevocationStatus.Unknown && !doubtful && result.UnexpectedChange == null
                     ? PdfSignatureStatus.Valid
                     : PdfSignatureStatus.Indeterminate;
-            return end;
+
+            // The PAdES level of a valid signature. B-LT needs the DSS alone to hold the chains and their revocation data;
+            // B-LTA is decided once the document time-stamps are known.
+            if (result.Status != PdfSignatureStatus.Valid || result.SubFilter != "ETSI.CAdES.detached" || signerInfo == null
+                || !SigningCertificateMatches(signerInfo, signer, result))
+            {
+                return;
+            }
+            result.PadesLevel = PdfPadesLevel.BaselineB;
+            if (result.TimeStampTime is not { } signedAt || stampChain == null)
+                return;
+            result.PadesLevel = PdfPadesLevel.BaselineT;
+            result.LongTermChains = [(chain, bestTime), (stampChain, signedAt)];
+            if (context.Dss.Present && result.LongTermChains.All(c => DssCovers(context.Dss, c.Chain, c.Time, context.ValidationTime)))
+                result.PadesLevel = PdfPadesLevel.BaselineLT;
+        }
+
+        // The DSS holds every certificate of the chain and revocation data that shows it not revoked at the time.
+        static bool DssCovers(Dss dss, List<X509Certificate2> chain, DateTimeOffset time, DateTimeOffset validationTime)
+            => chain.All(dss.Holds) && ChainRevocation(chain, dss, time, validationTime, null) == PdfRevocationStatus.Good;
+
+        // The DSS of the revision a document time-stamp covers holds the validation data of the signature.
+        static bool CoveredDssHolds(Context context, int stampEnd, PdfSignatureVerification result)
+        {
+            try
+            {
+                using var revision = PdfReader.Open(new MemoryStream(context.File, 0, stampEnd, false), context.Options.Password, PdfDocumentOpenMode.Import);
+                var dss = ReadDss(revision);
+                return dss.Present && result.LongTermChains.All(c => DssCovers(dss, c.Chain, c.Time, context.ValidationTime));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return false;
+            }
         }
 
         // ===== Byte range =====
 
-        static bool ByteRange(byte[] file, PdfDictionary value, out byte[] covered, out byte[] contents, out int end, out string problem)
+        static bool ByteRange(byte[] file, PdfDictionary value, out byte[] covered, out byte[] contents, out int end, out bool cleanPadding,
+            out string problem)
         {
             covered = [];
             contents = [];
             end = 0;
+            cleanPadding = true;
             problem = "";
             var array = Resolve(value.Elements["/ByteRange"]) as PdfArray;
             var numbers = array?.Elements.Select(item => Resolve(item) switch
@@ -222,9 +338,9 @@ namespace PdfSharp.Pdf.Signatures
                 return false;
             }
             long a = numbers[0]!.Value, b = numbers[1]!.Value, c = numbers[2]!.Value, d = numbers[3]!.Value;
-            if (a != 0 || b < 2 || c <= b + 1 || c + d > file.Length)
+            if (a != 0 || b < 2 || c <= b + 1 || c + d > file.Length || (c - b) % 2 != 0)
             {
-                problem = "The /ByteRange does not start at 0, has no gap, or runs past the end of the file.";
+                problem = "The /ByteRange does not start at 0, has no even gap, or runs past the end of the file.";
                 return false;
             }
             if (file[b] != '<' || file[c - 1] != '>')
@@ -252,11 +368,12 @@ namespace PdfSharp.Pdf.Signatures
             covered = new byte[b + d];
             Array.Copy(file, 0, covered, 0, b);
             Array.Copy(file, c, covered, b, d);
-            // /Contents is padded with zeros after the DER value.
+            // /Contents is padded with zeros after the DER value; anything else there is not signed.
             try
             {
                 var length = new AsnReader(hex, AsnEncodingRules.BER).ReadEncodedValue().Length;
                 contents = hex.AsSpan(0, length).ToArray();
+                cleanPadding = hex.Skip(length).All(b => b == 0);
             }
             catch (AsnContentException)
             {
@@ -305,7 +422,8 @@ namespace PdfSharp.Pdf.Signatures
 
         // ===== CMS signatures =====
 
-        static (SignedCms? Cms, SignerInfo? SignerInfo) CheckCms(byte[] contents, byte[] covered, PdfSignatureVerification result)
+        static (SignedCms? Cms, SignerInfo? SignerInfo, (DateTimeOffset, X509Certificate2, string)? Stamp) CheckCms(byte[] contents,
+            byte[] covered, PdfSignatureVerification result)
         {
             SignedCms cms;
             try
@@ -315,11 +433,10 @@ namespace PdfSharp.Pdf.Signatures
                     // The CMS signs the SHA-1 digest of the covered bytes as its encapsulated content.
                     cms = new SignedCms();
                     cms.Decode(contents);
-                    using var sha1 = SHA1.Create();
-                    if (!cms.ContentInfo.Content.AsSpan().SequenceEqual(sha1.ComputeHash(covered)))
+                    if (!cms.ContentInfo.Content.AsSpan().SequenceEqual(Hash(HashAlgorithmName.SHA1, covered)))
                     {
                         result._reasons.Add("The signed SHA-1 digest does not match the covered bytes.");
-                        return (cms, null);
+                        return (cms, null, null);
                     }
                 }
                 else
@@ -331,19 +448,19 @@ namespace PdfSharp.Pdf.Signatures
             catch (CryptographicException ex)
             {
                 result._reasons.Add($"The signature is not a CMS SignedData FreePDF can read: {ex.Message}");
-                return (null, null);
+                return (null, null, null);
             }
             if (cms.SignerInfos.Count != 1)
             {
                 result._reasons.Add($"The CMS has {cms.SignerInfos.Count} signers; PDF signatures have one.");
-                return (cms, null);
+                return (cms, null, null);
             }
             var signerInfo = cms.SignerInfos[0];
             result.Signer = signerInfo.Certificate;
             if (result.Signer == null)
             {
                 result._reasons.Add("The signer's certificate is not in the CMS.");
-                return (cms, signerInfo);
+                return (cms, signerInfo, null);
             }
             try
             {
@@ -354,56 +471,71 @@ namespace PdfSharp.Pdf.Signatures
             catch (CryptographicException ex)
             {
                 result._reasons.Add($"The signature does not verify over the covered bytes: {ex.Message}");
-                return (cms, signerInfo);
+                return (cms, signerInfo, null);
             }
-            CheckSignatureTimeStamp(signerInfo, result);
-            return (cms, signerInfo);
+            return (cms, signerInfo, SignatureTimeStamp(signerInfo, result));
         }
 
-        // The signature time-stamp (RFC 3161 token over the signature value), when there is one.
-        static void CheckSignatureTimeStamp(SignerInfo signerInfo, PdfSignatureVerification result)
+        // The signature time-stamp (RFC 3161 token over the signature value), when there is one and it verifies.
+        static (DateTimeOffset, X509Certificate2, string)? SignatureTimeStamp(SignerInfo signerInfo, PdfSignatureVerification result)
         {
             var attribute = signerInfo.UnsignedAttributes.Cast<CryptographicAttributeObject>()
                 .FirstOrDefault(a => a.Oid.Value == "1.2.840.113549.1.9.16.2.14");
             if (attribute == null || attribute.Values.Count == 0)
-                return;
+                return null;
 #if NET8_0_OR_GREATER
-            if (!Rfc3161TimestampToken.TryDecode(attribute.Values[0].RawData, out var token, out _))
+            try
             {
-                result._reasons.Add("The signature time-stamp is not an RFC 3161 token.");
-                return;
+                if (!Rfc3161TimestampToken.TryDecode(attribute.Values[0].RawData, out var token, out _))
+                {
+                    result._reasons.Add("The signature time-stamp is not an RFC 3161 token.");
+                    return null;
+                }
+                if (!token.VerifySignatureForSignerInfo(signerInfo, out var authority) || authority == null)
+                {
+                    result._reasons.Add("The signature time-stamp does not verify against the signature.");
+                    return null;
+                }
+                return (token.TokenInfo.Timestamp, authority, token.TokenInfo.HashAlgorithmId.Value ?? "");
             }
-            if (!token.VerifySignatureForSignerInfo(signerInfo, out var tsa) || tsa == null)
+            catch (CryptographicException ex)
             {
-                result._reasons.Add("The signature time-stamp does not verify against the signature.");
-                return;
+                result._reasons.Add($"The signature time-stamp cannot be read: {ex.Message}");
+                return null;
             }
-            result.TimeStampTime = token.TokenInfo.Timestamp;
-            result.TimeStampAuthority = tsa;
 #else
             result._reasons.Add("Time-stamps are checked on .NET 8 or later only.");
+            return null;
 #endif
         }
 
-        static void CheckDocumentTimeStamp(byte[] contents, byte[] covered, PdfSignatureVerification result)
+        static (DateTimeOffset, X509Certificate2, string)? CheckDocumentTimeStamp(byte[] contents, byte[] covered, PdfSignatureVerification result)
         {
 #if NET8_0_OR_GREATER
-            if (!Rfc3161TimestampToken.TryDecode(contents, out var token, out _))
+            try
             {
-                result._reasons.Add("The document time-stamp is not an RFC 3161 token.");
-                return;
+                if (!Rfc3161TimestampToken.TryDecode(contents, out var token, out _))
+                {
+                    result._reasons.Add("The document time-stamp is not an RFC 3161 token.");
+                    return null;
+                }
+                if (!token.VerifySignatureForData(covered, out var authority) || authority == null)
+                {
+                    result._reasons.Add("The document time-stamp does not match the covered bytes.");
+                    return null;
+                }
+                result.Intact = true;
+                result.Signer = authority;
+                return (token.TokenInfo.Timestamp, authority, token.TokenInfo.HashAlgorithmId.Value ?? "");
             }
-            if (!token.VerifySignatureForData(covered, out var tsa) || tsa == null)
+            catch (CryptographicException ex)
             {
-                result._reasons.Add("The document time-stamp does not match the covered bytes.");
-                return;
+                result._reasons.Add($"The document time-stamp cannot be read: {ex.Message}");
+                return null;
             }
-            result.Intact = true;
-            result.Signer = tsa;
-            result.TimeStampAuthority = tsa;
-            result.TimeStampTime = token.TokenInfo.Timestamp;
 #else
             result._reasons.Add("Document time-stamps are checked on .NET 8 or later only.");
+            return null;
 #endif
         }
 
@@ -415,22 +547,24 @@ namespace PdfSharp.Pdf.Signatures
                 bool v2 = attribute.Oid.Value == "1.2.840.113549.1.9.16.2.47";
                 if (!v2 && attribute.Oid.Value != "1.2.840.113549.1.9.16.2.12")
                     continue;
+                if (attribute.Values.Count == 0)
+                    break;
                 try
                 {
                     var certId = new AsnReader(attribute.Values[0].RawData, AsnEncodingRules.DER).ReadSequence().ReadSequence().ReadSequence();
-                    var algorithm = HashAlgorithmName.SHA1;
+                    HashAlgorithmName? algorithm = HashAlgorithmName.SHA1;
                     if (v2)
                     {
                         algorithm = HashAlgorithmName.SHA256;
                         if (certId.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
-                            algorithm = HashFromOid(certId.ReadSequence().ReadObjectIdentifier()) ?? default;
+                            algorithm = HashFromOid(certId.ReadSequence().ReadObjectIdentifier());
                     }
-                    if (algorithm == default)
+                    if (algorithm is not { } hash)
                     {
                         result._reasons.Add("The signing-certificate attribute uses an unknown hash.");
                         return false;
                     }
-                    if (Hash(algorithm, signer.RawData).AsSpan().SequenceEqual(certId.ReadOctetString()))
+                    if (Hash(hash, signer.RawData).AsSpan().SequenceEqual(certId.ReadOctetString()))
                         return true;
                     result._reasons.Add("The signing-certificate attribute names another certificate than the signer's.");
                     return false;
@@ -445,7 +579,45 @@ namespace PdfSharp.Pdf.Signatures
             return false;
         }
 
-        // ===== Chains =====
+        // ===== Certificates =====
+
+        const string TimeStampingUsage = "1.3.6.1.5.5.7.3.8";
+        const string OcspSigningUsage = "1.3.6.1.5.5.7.3.9";
+
+        // A certificate for signing documents: digital signature or non-repudiation when key usage is given, and not one
+        // whose extended key usages are only for TLS servers, code, time-stamps or OCSP.
+        static bool IsSigningCertificate(X509Certificate2 certificate, PdfSignatureVerification result)
+        {
+            if (certificate.Extensions["2.5.29.15"] is X509KeyUsageExtension usage
+                && (usage.KeyUsages & (X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.NonRepudiation)) == 0)
+            {
+                result._reasons.Add("The signer's certificate is not for digital signatures (key usage).");
+                return false;
+            }
+            if (certificate.Extensions["2.5.29.37"] is X509EnhancedKeyUsageExtension extended)
+            {
+                var purposes = extended.EnhancedKeyUsages.Cast<Oid>().Select(o => o.Value).ToList();
+                string[] otherPurposes = ["1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.3", TimeStampingUsage, OcspSigningUsage];
+                if (purposes.Count > 0 && purposes.All(p => otherPurposes.Contains(p)))
+                {
+                    result._reasons.Add("The signer's certificate is for other purposes (extended key usage).");
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // RFC 3161 2.3: a time-stamp authority's certificate has the timeStamping extended key usage.
+        static bool IsTimeStampAuthority(X509Certificate2 certificate, PdfSignatureVerification result)
+        {
+            if (certificate.Extensions["2.5.29.37"] is X509EnhancedKeyUsageExtension extended
+                && extended.EnhancedKeyUsages.Cast<Oid>().Any(o => o.Value == TimeStampingUsage))
+            {
+                return true;
+            }
+            result._reasons.Add($"'{certificate.Subject}' is not a time-stamp authority's certificate (no timeStamping extended key usage).");
+            return false;
+        }
 
         // The chain from the certificate up, whether its root is trusted, and whether it is valid at the time.
         static (List<X509Certificate2> Chain, bool Trusted, string? Problem, bool ValidNow) BuildChain(X509Certificate2 leaf,
@@ -470,11 +642,11 @@ namespace PdfSharp.Pdf.Signatures
                 chain.ChainPolicy.ExtraStore.Add(certificate);
             bool built = chain.Build(leaf);
             var elements = chain.ChainElements.Cast<X509ChainElement>().Select(e => PdfDocumentSecurityStore.LoadCertificate(e.Certificate.RawData)).ToList();
-            var root = elements.LastOrDefault();
             var flags = chain.ChainStatus.Aggregate(X509ChainStatusFlags.NoError, (all, status) => all | status.Status);
             bool timeValid = (flags & X509ChainStatusFlags.NotTimeValid) == 0;
 #if !NET5_0_OR_GREATER
             // Without custom root trust, the root must be one of the given ones.
+            var root = elements.LastOrDefault();
             if (trustedRoots != null && root != null && !trustedRoots.Any(r => r.Thumbprint == root.Thumbprint))
                 return (elements, false, "The chain does not end at one of the trusted roots.", timeValid);
             if (trustedRoots != null)
@@ -488,24 +660,61 @@ namespace PdfSharp.Pdf.Signatures
             return (elements, false, $"The certificate chain is not trusted: {(problems.Length > 0 ? problems : other.ToString())}.", timeValid);
         }
 
+        // The issuer's signature on a certificate: its tbsCertificate, signatureAlgorithm and signatureValue.
+        static bool IsSignedBy(X509Certificate2 certificate, X509Certificate2 issuer)
+        {
+            try
+            {
+                var outer = new AsnReader(certificate.RawData, AsnEncodingRules.DER).ReadSequence();
+                var tbs = outer.ReadEncodedValue().ToArray();
+                var algorithm = outer.ReadSequence().ReadObjectIdentifier();
+                var signature = outer.ReadBitString(out _);
+                return certificate.IssuerName.RawData.AsSpan().SequenceEqual(issuer.SubjectName.RawData)
+                       && VerifySignature(issuer, algorithm, tbs, signature);
+            }
+            catch (AsnContentException)
+            {
+                return false;
+            }
+        }
+
         // ===== Revocation =====
 
-        static async Task<PdfRevocationStatus> CheckRevocationAsync(List<X509Certificate2> chain, Dss dss,
-            PdfDocumentSecurityStore.Fetcher? fetcher, DateTimeOffset bestTime, PdfSignatureVerification result)
+        // The revocation status of a chain below its root, from the DSS; the problems go to the result when given.
+        static PdfRevocationStatus ChainRevocation(List<X509Certificate2> chain, Dss dss, DateTimeOffset bestTime, DateTimeOffset validationTime,
+            PdfSignatureVerification? result)
         {
+            var status = PdfRevocationStatus.Good;
+            for (int index = 0; index + 1 < chain.Count; index++)
+            {
+                var found = Revocation(chain[index], chain[index + 1], dss.OcspResponses, dss.Crls, bestTime, validationTime);
+                if (found.Problem != null)
+                    result?._reasons.Add(found.Problem);
+                if (found.Status == PdfRevocationStatus.Revoked)
+                    return PdfRevocationStatus.Revoked;
+                if (found.Status == PdfRevocationStatus.Unknown)
+                    status = PdfRevocationStatus.Unknown;
+            }
+            return status;
+        }
+
+        // The DSS first, then the responders and CRLs the certificates name.
+        static async Task<PdfRevocationStatus> OnlineRevocationAsync(Context context, List<X509Certificate2> chain, DateTimeOffset bestTime,
+            PdfSignatureVerification result)
+        {
+            var fetcher = context.Fetcher!;
             var status = PdfRevocationStatus.Good;
             for (int index = 0; index + 1 < chain.Count; index++)
             {
                 var certificate = chain[index];
                 var issuer = chain[index + 1];
-                var found = Revocation(certificate, issuer, dss.OcspResponses, dss.Crls, bestTime);
-                if (found.Status == PdfRevocationStatus.Unknown && fetcher != null)
+                var found = Revocation(certificate, issuer, context.Dss.OcspResponses, context.Dss.Crls, bestTime, context.ValidationTime);
+                if (found.Status == PdfRevocationStatus.Unknown)
                 {
                     var ocsp = await fetcher.OcspAsync(certificate, issuer).ConfigureAwait(false);
                     var crls = ocsp == null ? await fetcher.CrlsAsync(certificate).ConfigureAwait(false) : [];
-                    found = Revocation(certificate, issuer, ocsp == null ? [] : [ocsp.Value.Response], crls, bestTime);
-                    foreach (var problem in fetcher.Problems)
-                        result._reasons.Add(problem);
+                    found = Revocation(certificate, issuer, ocsp == null ? [] : [ocsp.Value.Response], crls, bestTime, context.ValidationTime);
+                    result._reasons.AddRange(fetcher.Problems);
                     fetcher.Problems.Clear();
                 }
                 if (found.Problem != null)
@@ -518,73 +727,108 @@ namespace PdfSharp.Pdf.Signatures
             return status;
         }
 
-        // The status of one certificate from OCSP responses, then CRLs. Data issued before the best signature time does
-        // not show the status at signing (EN 319 102-1 freshness), so it is not used.
+        // The status of one certificate from verified OCSP responses, then CRLs. Data counts when it was issued at or
+        // after the best signature time (it shows the certificate was not revoked then), or when its validity covers the
+        // validation time.
         static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
-            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime)
+            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, DateTimeOffset validationTime)
         {
             string? problem = null;
+            bool Fresh(DateTimeOffset thisUpdate, DateTimeOffset? nextUpdate)
+                => thisUpdate >= bestTime.AddSeconds(-1)
+                   || (nextUpdate is { } next && thisUpdate <= validationTime && validationTime <= next);
+
             foreach (var response in ocspResponses)
             {
-                var answer = Ocsp.Check(response, certificate, issuer);
-                if (answer == null)
+                if (Ocsp.Check(response, certificate, issuer) is not { } answer)
                     continue;
-                if (answer.Value.Revoked && answer.Value.RevocationTime <= bestTime)
-                    return (PdfRevocationStatus.Revoked, $"'{certificate.Subject}' was revoked at {answer.Value.RevocationTime:u} (OCSP).");
-                if (answer.Value.Revoked)
-                    return (PdfRevocationStatus.Good, $"'{certificate.Subject}' was revoked at {answer.Value.RevocationTime:u}, after the signature (OCSP).");
-                if (answer.Value.ThisUpdate >= bestTime.AddSeconds(-1) || answer.Value.ProducedAt >= bestTime.AddSeconds(-1))
+                if (answer.RevocationTime is { } revoked)
+                {
+                    return revoked <= bestTime
+                        ? (PdfRevocationStatus.Revoked, $"'{certificate.Subject}' was revoked at {revoked:u} (OCSP).")
+                        : (PdfRevocationStatus.Good, $"'{certificate.Subject}' was revoked at {revoked:u}, after the signature (OCSP).");
+                }
+                if (Fresh(answer.ThisUpdate, answer.NextUpdate))
                     return (PdfRevocationStatus.Good, null);
-                problem = $"The OCSP response for '{certificate.Subject}' is older than the signature.";
+                problem = $"The OCSP response for '{certificate.Subject}' is older than the signature and no longer current.";
             }
             foreach (var crl in crls)
             {
-                var answer = Crl.Check(crl, certificate, issuer);
-                if (answer == null)
+                if (Crl.Check(crl, certificate, issuer) is not { } answer)
                     continue;
-                if (answer.Value.RevocationTime is { } revoked && revoked <= bestTime)
-                    return (PdfRevocationStatus.Revoked, $"'{certificate.Subject}' was revoked at {revoked:u} (CRL).");
-                if (answer.Value.RevocationTime is { } later)
-                    return (PdfRevocationStatus.Good, $"'{certificate.Subject}' was revoked at {later:u}, after the signature (CRL).");
-                if (answer.Value.ThisUpdate >= bestTime.AddSeconds(-1))
+                if (answer.RevocationTime is { } revoked)
+                {
+                    return revoked <= bestTime
+                        ? (PdfRevocationStatus.Revoked, $"'{certificate.Subject}' was revoked at {revoked:u} (CRL).")
+                        : (PdfRevocationStatus.Good, $"'{certificate.Subject}' was revoked at {revoked:u}, after the signature (CRL).");
+                }
+                if (Fresh(answer.ThisUpdate, answer.NextUpdate))
                     return (PdfRevocationStatus.Good, null);
-                problem = $"The CRL for '{certificate.Subject}' is older than the signature.";
+                problem = $"The CRL for '{certificate.Subject}' is older than the signature and no longer current.";
             }
             return (PdfRevocationStatus.Unknown, problem ?? $"No revocation data for '{certificate.Subject}'.");
         }
 
         // ===== Later changes =====
 
-        static string? ForbiddenChange(byte[] file, int end, PdfDocument document, string? password)
+        // The first change after the signed revision that its permissions forbid; else, when only the signed fields are
+        // protected (an approval signature), the first change beyond P=3; or a problem that kept the check from running.
+        static (string? Forbidden, string? Unexpected, string? Problem) LaterChanges(Context context, int end)
         {
-            var revisionBytes = file.AsSpan(0, end).ToArray();
-            using var revision = PdfReader.Open(new MemoryStream(revisionBytes, false), password, PdfDocumentOpenMode.Import);
-            var permissions = PdfModificationPermissions.Read(revision);
-            if (permissions == null)
-                return null;
-            var written = new List<PdfReference>();
-            foreach (var iref in document.IrefTable.TransitiveClosure(document.Trailer))
-            {
-                if (iref.Value is not { } value)
-                    continue;
-                if (revision.Internals.GetObject(iref.ObjectID) is not { } old)
-                {
-                    written.Add(iref);
-                    continue;
-                }
-                var before = PdfIncrementalUpdate.TryHash(revision, old);
-                var after = PdfIncrementalUpdate.TryHash(document, value);
-                if (before == null || after == null || !PdfIncrementalUpdate.Same(before, after))
-                    written.Add(iref);
-            }
+            var document = context.Document;
+            var revisionBytes = context.File.AsSpan(0, end).ToArray();
+            PdfDocument revision;
             try
             {
-                permissions.Check(document, revisionBytes, written, password);
-                return null;
+                revision = PdfReader.Open(new MemoryStream(revisionBytes, false), context.Options.Password, PdfDocumentOpenMode.Import);
             }
-            catch (InvalidOperationException ex) when (ex.Data[PdfModificationPermissions.RefusedChangeKey] is string change)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return change;
+                return (null, null, $"The signed revision cannot be read on its own: {ex.Message}");
+            }
+            using (revision)
+            {
+                var permissions = PdfModificationPermissions.Read(revision);
+                if (permissions == null)
+                    return (null, null, "The signed revision has no signed signature field.");
+
+                // A later trailer may point at another catalog or encryption dictionary, which no changed object shows.
+                string? replaced = null;
+                if (revision.Catalog.ObjectID != document.Catalog.ObjectID)
+                    replaced = "replacing the document catalog (trailer /Root)";
+                else if ((revision.Trailer.Elements["/Encrypt"] as PdfReference)?.ObjectID != (document.Trailer.Elements["/Encrypt"] as PdfReference)?.ObjectID)
+                    replaced = "replacing the encryption dictionary (trailer /Encrypt)";
+
+                var written = new List<PdfReference>();
+                foreach (var iref in document.IrefTable.TransitiveClosure(document.Trailer))
+                {
+                    if (iref.Value is not { } value)
+                        continue;
+                    if (revision.Internals.GetObject(iref.ObjectID) is not { } old)
+                    {
+                        written.Add(iref);
+                        continue;
+                    }
+                    var before = PdfIncrementalUpdate.TryHash(revision, old);
+                    var after = PdfIncrementalUpdate.TryHash(document, value);
+                    if (before == null || after == null || !PdfIncrementalUpdate.Same(before, after))
+                        written.Add(iref);
+                }
+
+                var rules = permissions.LimitsChanges ? permissions : permissions.AtMost(3);
+                if (replaced != null)
+                    return permissions.LimitsChanges ? (replaced, null, null) : (null, replaced, null);
+                try
+                {
+                    rules.Check(document, revisionBytes, written, context.Options.Password);
+                    return (null, null, null);
+                }
+                catch (InvalidOperationException ex) when (ex.Data[PdfModificationPermissions.RefusedChangeKey] is string change)
+                {
+                    // A signed field itself is always protected; otherwise an approval signature permits the change.
+                    bool forbidden = permissions.LimitsChanges || ex.Data[PdfModificationPermissions.ProtectedKey] is true;
+                    return forbidden ? (change, null, null) : (null, change, null);
+                }
             }
         }
 
@@ -593,7 +837,7 @@ namespace PdfSharp.Pdf.Signatures
         sealed record FoundSignature(string Name, PdfDictionary Value, int? CertificationLevel);
 
         // The signature fields with a value, with fully qualified names, and the certification level of the one the
-        // catalog's /Perms /DocMDP names.
+        // catalog's /Perms /DocMDP names or whose /Reference has the DocMDP transform.
         static List<FoundSignature> Signatures(PdfDocument document)
         {
             var result = new List<FoundSignature>();
@@ -610,7 +854,7 @@ namespace PdfSharp.Pdf.Signatures
                 var (item, parent) = pending.Pop();
                 if (Resolve(item) is not PdfDictionary field || !visited.Add(field))
                     continue;
-                var partial = field.Elements.GetString("/T");
+                var partial = Resolve(field.Elements["/T"]) is PdfString t ? t.Value : "";
                 var name = partial.Length == 0 ? parent : parent.Length == 0 ? partial : parent + "." + partial;
                 if (Resolve(field.Elements["/V"]) is PdfDictionary value && value.Elements.ContainsKey("/ByteRange"))
                 {
@@ -626,9 +870,11 @@ namespace PdfSharp.Pdf.Signatures
             return result;
         }
 
+        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+
         static bool HasDocMdpReference(PdfDictionary value)
             => Resolve(value.Elements["/Reference"]) is PdfArray references
-               && references.Elements.Any(r => (Resolve(r) as PdfDictionary)?.Elements.GetName("/TransformMethod") == "/DocMDP");
+               && references.Elements.Any(r => Resolve(r) is PdfDictionary reference && NameOf(reference, "/TransformMethod") == "/DocMDP");
 
         static int DocMdpLevel(PdfDictionary value)
         {
@@ -636,7 +882,7 @@ namespace PdfSharp.Pdf.Signatures
             {
                 foreach (var item in references.Elements)
                 {
-                    if (Resolve(item) is PdfDictionary reference && reference.Elements.GetName("/TransformMethod") == "/DocMDP")
+                    if (Resolve(item) is PdfDictionary reference && NameOf(reference, "/TransformMethod") == "/DocMDP")
                     {
                         var parameters = Resolve(reference.Elements["/TransformParams"]) as PdfDictionary;
                         var p = Resolve(parameters?.Elements["/P"]) is PdfInteger integer ? integer.Value : 2;
@@ -650,7 +896,6 @@ namespace PdfSharp.Pdf.Signatures
         sealed class Dss
         {
             internal bool Present { get; init; }
-            internal long? Position { get; init; }
             internal List<X509Certificate2> Certificates { get; } = [];
             internal List<byte[]> OcspResponses { get; } = [];
             internal List<byte[]> Crls { get; } = [];
@@ -661,10 +906,9 @@ namespace PdfSharp.Pdf.Signatures
 
         static Dss ReadDss(PdfDocument document)
         {
-            var item = document.Catalog.Elements["/DSS"];
-            if (Resolve(item) is not PdfDictionary dictionary)
+            if (Resolve(document.Catalog.Elements["/DSS"]) is not PdfDictionary dictionary)
                 return new Dss();
-            var dss = new Dss { Present = true, Position = (item as PdfReference)?.Position };
+            var dss = new Dss { Present = true };
             foreach (var data in Streams(dictionary, "/Certs"))
             {
                 try
@@ -711,7 +955,7 @@ namespace PdfSharp.Pdf.Signatures
             return hash.GetHashAndReset();
         }
 
-        // A signature of a CRL or an OCSP response: RSA with PKCS #1 v1.5 or ECDSA, with SHA-1 to SHA-512.
+        // A signature of a certificate, a CRL or an OCSP response: RSA with PKCS #1 v1.5 or ECDSA, with SHA-1 to SHA-512.
         internal static bool VerifySignature(X509Certificate2 signer, string algorithmOid, byte[] data, byte[] signature)
         {
             var (hash, ecdsa) = algorithmOid switch
@@ -744,7 +988,7 @@ namespace PdfSharp.Pdf.Signatures
                 return key.VerifyData(data, DerToP1363(signature, (key.KeySize + 7) / 8), hash);
 #endif
             }
-            catch (CryptographicException)
+            catch (Exception ex) when (ex is CryptographicException or AsnContentException)
             {
                 return false;
             }
@@ -769,16 +1013,21 @@ namespace PdfSharp.Pdf.Signatures
         }
 #endif
 
-        internal static DateTimeOffset ReadTime(AsnReader reader)
+        static DateTimeOffset ReadTime(AsnReader reader)
             => reader.PeekTag().HasSameClassAndValue(Asn1Tag.UtcTime) ? reader.ReadUtcTime() : reader.ReadGeneralizedTime();
+
+        static bool IsTime(Asn1Tag tag) => tag.HasSameClassAndValue(Asn1Tag.UtcTime) || tag.HasSameClassAndValue(Asn1Tag.GeneralizedTime);
+
+        static bool IsCa(X509Certificate2 certificate)
+            => certificate.Extensions["2.5.29.19"] is X509BasicConstraintsExtension { CertificateAuthority: true };
 
         // ===== OCSP (RFC 6960) =====
 
         static class Ocsp
         {
             // The answer of a verified response about the certificate, or null if the response is not about it, not
-            // successful, or not signed by the issuer or a responder the issuer delegated to.
-            internal static (bool Revoked, DateTimeOffset RevocationTime, DateTimeOffset ThisUpdate, DateTimeOffset ProducedAt)? Check(byte[] der,
+            // successful, says unknown, or is not signed by the issuer or a responder the issuer authorized.
+            internal static (DateTimeOffset? RevocationTime, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate)? Check(byte[] der,
                 X509Certificate2 certificate, X509Certificate2 issuer)
             {
                 try
@@ -808,29 +1057,32 @@ namespace PdfSharp.Pdf.Signatures
                     var responderId = data.ReadEncodedValue().ToArray();
                     var producedAt = data.ReadGeneralizedTime();
                     var responses = data.ReadSequence();
-                    (bool, DateTimeOffset, DateTimeOffset)? answer = null;
+                    (DateTimeOffset?, DateTimeOffset, DateTimeOffset?)? answer = null;
                     while (responses.HasData && answer == null)
                     {
                         var single = responses.ReadSequence();
                         if (!IsAbout(single.ReadSequence(), certificate, issuer))
                             continue;
                         var tag = single.PeekTag();
-                        if (tag.TagClass != TagClass.ContextSpecific || tag.TagValue == 2)
+                        if (tag.TagClass != TagClass.ContextSpecific || tag.TagValue is not (0 or 1))
                             return null;   // unknown
-                        bool revoked = tag.TagValue == 1;
-                        var revocationTime = default(DateTimeOffset);
-                        if (revoked)
+                        DateTimeOffset? revocationTime = null;
+                        if (tag.TagValue == 1)
                             revocationTime = single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadGeneralizedTime();
                         else
                             single.ReadNull(new Asn1Tag(TagClass.ContextSpecific, 0));
-                        answer = (revoked, revocationTime, single.ReadGeneralizedTime());
+                        var thisUpdate = single.ReadGeneralizedTime();
+                        DateTimeOffset? nextUpdate = null;
+                        if (single.HasData && single.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                            nextUpdate = single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadGeneralizedTime();
+                        answer = (revocationTime, thisUpdate, nextUpdate);
                     }
-                    if (answer == null || Responder(responderId, issuer, certificates) is not { } responder
+                    if (answer == null || Responder(responderId, issuer, certificates, producedAt) is not { } responder
                         || !VerifySignature(responder, algorithm, tbsData, signature))
                     {
                         return null;
                     }
-                    return (answer.Value.Item1, answer.Value.Item2, answer.Value.Item3, producedAt);
+                    return answer;
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
@@ -852,16 +1104,25 @@ namespace PdfSharp.Pdf.Signatures
                     && Hash(algorithm.Value, issuer.PublicKey.EncodedKeyValue.RawData).AsSpan().SequenceEqual(keyHash);
             }
 
-            // The responder: the issuer itself, or a certificate the issuer issued for OCSP signing (RFC 6960 4.2.2.2).
-            static X509Certificate2? Responder(byte[] responderId, X509Certificate2 issuer, List<X509Certificate2> certificates)
+            // The responder (RFC 6960 4.2.2.2): the issuer itself, or a certificate the issuer signed for OCSP signing
+            // (id-kp-OCSPSigning), valid when the response was produced, with id-pkix-ocsp-nocheck so that its own
+            // revocation need not be checked.
+            static X509Certificate2? Responder(byte[] responderId, X509Certificate2 issuer, List<X509Certificate2> certificates,
+                DateTimeOffset producedAt)
             {
-                foreach (var candidate in new[] { issuer }.Concat(certificates))
+                if (Names(responderId, issuer))
+                    return issuer;
+                foreach (var candidate in certificates)
                 {
                     if (!Names(responderId, candidate))
                         continue;
-                    if (candidate.RawData.AsSpan().SequenceEqual(issuer.RawData))
-                        return candidate;
-                    if (IsDelegatedResponder(candidate, issuer))
+                    bool authorized = candidate.Extensions["2.5.29.37"] is X509EnhancedKeyUsageExtension usage
+                                      && usage.EnhancedKeyUsages.Cast<Oid>().Any(oid => oid.Value == OcspSigningUsage);
+                    bool noCheck = candidate.Extensions["1.3.6.1.5.5.7.48.1.5"] != null;
+                    bool keyUsage = candidate.Extensions["2.5.29.15"] is not X509KeyUsageExtension ku
+                                    || (ku.KeyUsages & (X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.NonRepudiation)) != 0;
+                    bool valid = candidate.NotBefore.ToUniversalTime() <= producedAt.UtcDateTime && producedAt.UtcDateTime <= candidate.NotAfter.ToUniversalTime();
+                    if (authorized && noCheck && keyUsage && valid && IsSignedBy(candidate, issuer))
                         return candidate;
                 }
                 return null;
@@ -884,37 +1145,21 @@ namespace PdfSharp.Pdf.Signatures
                 }
                 return false;
             }
-
-            static bool IsDelegatedResponder(X509Certificate2 candidate, X509Certificate2 issuer)
-            {
-                if (candidate.Extensions["2.5.29.37"] is not X509EnhancedKeyUsageExtension usage
-                    || !usage.EnhancedKeyUsages.Cast<Oid>().Any(oid => oid.Value == "1.3.6.1.5.5.7.3.9"))
-                {
-                    return false;
-                }
-                if (!candidate.IssuerName.RawData.AsSpan().SequenceEqual(issuer.SubjectName.RawData))
-                    return false;
-                // Signed by the issuer: build the two-certificate chain and see that the issuer is next.
-                using var chain = new X509Chain();
-                chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-                chain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllFlags;
-#if NET5_0_OR_GREATER
-                chain.ChainPolicy.DisableCertificateDownloads = true;
-#endif
-                chain.ChainPolicy.ExtraStore.Add(issuer);
-                chain.Build(candidate);
-                return chain.ChainElements.Count > 1 && chain.ChainElements[1].Certificate.RawData.AsSpan().SequenceEqual(issuer.RawData);
-            }
         }
 
         // ===== CRL (RFC 5280 5.1) =====
 
         static class Crl
         {
-            // From a CRL of the certificate's issuer, signed by it: when it was issued and when the certificate was
-            // revoked, if it is listed; null if the CRL is not the issuer's or does not verify.
-            internal static (DateTimeOffset ThisUpdate, DateTimeOffset? RevocationTime)? Check(byte[] der, X509Certificate2 certificate,
-                X509Certificate2 issuer)
+            // CRL extensions this reader understands; a CRL with another critical extension is not used (RFC 5280 5.2).
+            static readonly string[] KnownExtensions =
+                ["2.5.29.20", "2.5.29.35", "2.5.29.28", "2.5.29.27", "2.5.29.46", "1.3.6.1.5.5.7.1.1"];
+
+            // From a complete CRL of the certificate's issuer, signed by it, whose scope includes the certificate: when it
+            // was issued, its next update, and when the certificate was revoked, if it is listed; null if the CRL cannot
+            // be used for it.
+            internal static (DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, DateTimeOffset? RevocationTime)? Check(byte[] der,
+                X509Certificate2 certificate, X509Certificate2 issuer)
             {
                 try
                 {
@@ -930,11 +1175,15 @@ namespace PdfSharp.Pdf.Signatures
                     var name = tbs.ReadEncodedValue();
                     if (!name.Span.SequenceEqual(certificate.IssuerName.RawData) || !name.Span.SequenceEqual(issuer.SubjectName.RawData))
                         return null;
+                    // The issuer must be allowed to sign CRLs, and must have signed this one.
+                    if (issuer.Extensions["2.5.29.15"] is X509KeyUsageExtension usage && (usage.KeyUsages & X509KeyUsageFlags.CrlSign) == 0)
+                        return null;
                     if (!VerifySignature(issuer, algorithm, tbsData, signature))
                         return null;
+
                     var thisUpdate = ReadTime(tbs);
-                    if (tbs.HasData && (tbs.PeekTag().HasSameClassAndValue(Asn1Tag.UtcTime) || tbs.PeekTag().HasSameClassAndValue(Asn1Tag.GeneralizedTime)))
-                        ReadTime(tbs);                                       // nextUpdate
+                    DateTimeOffset? nextUpdate = tbs.HasData && IsTime(tbs.PeekTag()) ? ReadTime(tbs) : null;
+                    DateTimeOffset? revocationTime = null;
                     var serial = new BigInteger(certificate.GetSerialNumber());
                     if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
                     {
@@ -942,16 +1191,115 @@ namespace PdfSharp.Pdf.Signatures
                         while (revoked.HasData)
                         {
                             var entry = revoked.ReadSequence();
-                            if (entry.ReadInteger() == serial)
-                                return (thisUpdate, ReadTime(entry));
+                            if (entry.ReadInteger() != serial)
+                                continue;
+                            var time = ReadTime(entry);
+                            // removeFromCRL (8) in a delta CRL undoes a hold; it is not a revocation.
+                            if (!(entry.HasData && ReasonCode(entry.ReadSequence()) == 8))
+                                revocationTime = time;
                         }
                     }
-                    return (thisUpdate, null);
+                    if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0))
+                        && !ScopeIncludes(tbs.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadSequence(), certificate))
+                    {
+                        return null;
+                    }
+                    return (thisUpdate, nextUpdate, revocationTime);
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
                     return null;
                 }
+            }
+
+            static int? ReasonCode(AsnReader extensions)
+            {
+                while (extensions.HasData)
+                {
+                    var extension = extensions.ReadSequence();
+                    if (extension.ReadObjectIdentifier() != "2.5.29.21")
+                        continue;
+                    if (extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
+                        extension.ReadBoolean();
+                    var value = new AsnReader(extension.ReadOctetString(), AsnEncodingRules.DER).ReadEnumeratedBytes().Span;
+                    return value.Length == 1 ? value[0] : null;
+                }
+                return null;
+            }
+
+            // A complete CRL whose issuing distribution point, if any, covers the certificate: not a delta CRL, no
+            // unknown critical extension, no reasons subset, not indirect, the right kind of certificate, and a
+            // distribution point the certificate names.
+            static bool ScopeIncludes(AsnReader extensions, X509Certificate2 certificate)
+            {
+                while (extensions.HasData)
+                {
+                    var extension = extensions.ReadSequence();
+                    var oid = extension.ReadObjectIdentifier();
+                    bool critical = extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean) && extension.ReadBoolean();
+                    var value = extension.ReadOctetString();
+                    if (oid == "2.5.29.27")
+                        return false;   // deltaCRLIndicator
+                    if (critical && !KnownExtensions.Contains(oid))
+                        return false;
+                    if (oid != "2.5.29.28")
+                        continue;
+                    var point = new AsnReader(value, AsnEncodingRules.DER).ReadSequence();
+                    var names = new List<byte[]>();
+                    while (point.HasData)
+                    {
+                        var tag = point.PeekTag();
+                        if (tag.TagClass != TagClass.ContextSpecific)
+                            return false;
+                        switch (tag.TagValue)
+                        {
+                            case 0:   // distributionPoint, with fullName [0] GeneralNames
+                                var dp = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
+                                if (dp.HasData && dp.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                                {
+                                    var full = dp.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
+                                    while (full.HasData)
+                                        names.Add(full.ReadEncodedValue().ToArray());
+                                }
+                                break;
+                            case 1:   // onlyContainsUserCerts
+                                if (point.ReadBoolean(new Asn1Tag(TagClass.ContextSpecific, 1)) && IsCa(certificate))
+                                    return false;
+                                break;
+                            case 2:   // onlyContainsCACerts
+                                if (point.ReadBoolean(new Asn1Tag(TagClass.ContextSpecific, 2)) && !IsCa(certificate))
+                                    return false;
+                                break;
+                            default:  // onlySomeReasons, indirectCRL, onlyContainsAttributeCerts
+                                return false;
+                        }
+                    }
+                    if (names.Count > 0 && !CertificateNames(certificate).Any(n => names.Any(m => m.AsSpan().SequenceEqual(n))))
+                        return false;
+                }
+                return true;
+            }
+
+            // The full names (GeneralName encodings) of the certificate's CRL distribution points.
+            static List<byte[]> CertificateNames(X509Certificate2 certificate)
+            {
+                var result = new List<byte[]>();
+                if (certificate.Extensions["2.5.29.31"] is not { } extension)
+                    return result;
+                var points = new AsnReader(extension.RawData, AsnEncodingRules.DER).ReadSequence();
+                while (points.HasData)
+                {
+                    var point = points.ReadSequence();
+                    if (!point.HasData || !point.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                        continue;
+                    var dp = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
+                    if (!dp.HasData || !dp.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                        continue;
+                    var full = dp.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
+                    while (full.HasData)
+                        result.Add(full.ReadEncodedValue().ToArray());
+                }
+                return result;
             }
         }
     }

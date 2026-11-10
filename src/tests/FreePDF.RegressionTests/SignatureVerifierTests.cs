@@ -232,9 +232,183 @@ public class SignatureVerifierTests
             Assert.Null(result.ForbiddenChange);
     }
 
+    // ===== Attacks and edge cases from the review =====
+
+    // A time-stamp from an authority that is not trusted gives no time: the signature is not valid "as of" it.
+    [Fact]
+    public async Task A_time_stamp_from_an_untrusted_authority_is_not_used()
+    {
+        using var certificate = SelfSigned();
+        using var authority = new TestTimeStampAuthority(new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero));
+        var pdf = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)
+        {
+            Format = PdfSignatureFormat.Pades,
+            TimeStampClient = authority.RespondAsync,
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Null(result.TimeStampTime);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("signature time-stamp is not used"));
+    }
+
+    // An expired signer with a time-stamp made by anyone (here a self-made authority) is not valid.
+    [Fact]
+    public async Task An_expired_signer_is_not_rescued_by_an_untrusted_time_stamp()
+    {
+        using var pki = new TestPki();
+        using var forger = new TestTimeStampAuthority();   // valid key, self-signed, not in the PKI
+        var pdf = Sign(new PdfSharpDefaultSigner(pki.Signer, PdfMessageDigestType.SHA256)
+        {
+            Format = PdfSignatureFormat.Pades,
+            TimeStampClient = forger.RespondAsync,
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.None,
+            ValidationTime = DateTimeOffset.UtcNow.AddDays(60),
+            Online = new PdfValidationDataOptions { ExtraCertificates = [pki.Intermediate] },
+        }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.False(result.Trusted);
+        Assert.Null(result.TimeStampTime);
+    }
+
+    // RFC 3161: a time-stamp authority's certificate has the timeStamping extended key usage.
+    [Fact]
+    public async Task A_time_stamp_authority_without_the_time_stamping_usage_is_not_used()
+    {
+        using var certificate = SelfSigned();
+        using var tsaKey = RSA.Create(2048);
+        var tsaRequest = new CertificateRequest("CN=FreePDF not a TSA", tsaKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        tsaRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        using var tsaCertificate = tsaRequest.CreateSelfSigned(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2036, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var authority = new TestTimeStampAuthority(new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero), tsaCertificate);
+        // .NET refuses such a token when it requests one, so this signer attaches it as other tools might.
+        var pdf = Sign(new RawTimeStampSigner(certificate, authority));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
+            new PdfSignatureVerificationOptions { TrustedRoots = [certificate, tsaCertificate] }));
+
+        // .NET's token reader already refuses such an authority; either way the time is not used.
+        Assert.Null(result.TimeStampTime);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("time-stamp"));
+    }
+
+    // OCSP signed by a responder certificate: accepted when the CA issued it, not when it only carries the CA's name.
+    [Theory]
+    [InlineData(TestPki.OcspResponder.Delegated, PdfRevocationStatus.Good, PdfSignatureStatus.Valid)]
+    [InlineData(TestPki.OcspResponder.ForgedDelegated, PdfRevocationStatus.Unknown, PdfSignatureStatus.Indeterminate)]
+    public async Task A_delegated_ocsp_responder_must_be_issued_by_the_ca(TestPki.OcspResponder responder, PdfRevocationStatus revocation,
+        PdfSignatureStatus status)
+    {
+        using var pki = new TestPki { Responder = responder };
+        var lta = await SignLta(pki);
+
+        var signature = (await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0];
+
+        Assert.Equal(revocation, signature.Revocation);
+        Assert.Equal(status, signature.Status);
+    }
+
+    // A later trailer that points at another catalog (the shadow attack): no changed object shows it.
+    [Theory]
+    [InlineData(null, PdfSignatureStatus.Indeterminate)]
+    [InlineData(PdfCertificationLevel.FormFilling, PdfSignatureStatus.Invalid)]
+    public async Task A_replaced_catalog_is_reported(PdfCertificationLevel? level, PdfSignatureStatus status)
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades }, level);
+        var text = Latin1(signed);
+        var pages = Regex.Matches(text, @"/Pages\s+(\d+\s+\d+\s+R)").Cast<Match>().Last().Groups[1].Value;
+        var form = Regex.Matches(text, @"/AcroForm\s+(\d+\s+\d+\s+R)").Cast<Match>().Last().Groups[1].Value;
+        var perms = Regex.Matches(text, @"/Perms\s+(<<[^>]*>>|\d+\s+\d+\s+R)").Cast<Match>().LastOrDefault()?.Groups[1].Value;
+        int number = Size(signed);
+        var updated = AppendUpdate(signed, [(number, $"<< /Type /Catalog /Pages {pages} /AcroForm {form}{(perms != null ? " /Perms " + perms : "")} >>")],
+            root: $"{number} 0 R");
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.True(result.Intact);
+        Assert.Equal(status, result.Status);
+        Assert.Contains("catalog", (result.ForbiddenChange ?? result.UnexpectedChange)!);
+    }
+
+    // After an approval signature, ISO 32000 permits any update; one that changes the page content is not Valid.
+    [Fact]
+    public async Task Changed_page_content_after_an_approval_signature_is_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var content = int.Parse(Regex.Match(Latin1(signed), @"/Contents\s*\[?\s*(\d+)\s+0\s+R").Groups[1].Value);
+        const string stream = "0 0 1 rg 36 36 100 100 re f";
+        var updated = AppendUpdate(signed, [(content, $"<< /Length {stream.Length} >>\nstream\n{stream}\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.True(result.Intact);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.NotNull(result.UnexpectedChange);
+        Assert.Null(result.ForbiddenChange);
+    }
+
+    // A malformed signature dictionary is reported, and does not stop the check.
+    [Fact]
+    public async Task A_malformed_signature_dictionary_is_reported_not_thrown()
+    {
+        var pdf = TestPdf.Create([
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /FT /Sig /T (Broken) /V 5 0 R /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 3 0 R >>",
+            "<< /Type 3 /SubFilter 5 /ByteRange [0 10 20 30] /Contents <00> /M 42 >>",
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.NotEmpty(result.Reasons);
+    }
+
+    // A certificate whose key usage does not include digital signatures does not make a valid signature.
+    [Fact]
+    public async Task A_certificate_not_for_signatures_is_not_valid()
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF encryption only", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyEncipherment, true));
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var pdf = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.Contains(result.Reasons, r => r.Contains("key usage"));
+    }
+
+    // B-LTA needs a document time-stamp from a trusted authority; an untrusted one leaves the signature at B-LT.
+    [Fact]
+    public async Task A_document_time_stamp_from_an_untrusted_authority_does_not_make_b_lta()
+    {
+        using var pki = new TestPki();
+        using var outsider = new TestTimeStampAuthority();
+        var lta = await SignLta(pki, outsider);
+
+        var results = await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] });
+
+        Assert.Equal(PdfPadesLevel.BaselineLT, results[0].PadesLevel);
+        Assert.False(results[1].Trusted);
+        Assert.NotEqual(PdfSignatureStatus.Valid, results[1].Status);
+    }
+
     // ===== Helpers =====
 
-    static async Task<byte[]> SignLta(TestPki pki)
+    static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
     {
         var bt = SignBT(pki);
         using var client = pki.CreateClient();
@@ -250,7 +424,8 @@ public class SignatureVerifierTests
         using var authority = new TestTimeStampAuthority(null, pki.TimeStampAuthority);
         using (var document = PdfReader.Open(new MemoryStream(lt), PdfDocumentOpenMode.Append))
         {
-            DigitalSignatureHandler.ForDocument(document, new PdfTimeStampSigner(authority.RespondAsync), new DigitalSignatureOptions());
+            DigitalSignatureHandler.ForDocument(document, new PdfTimeStampSigner((documentTimeStampAuthority ?? authority).RespondAsync),
+                new DigitalSignatureOptions());
             using var output = new MemoryStream();
             await document.SaveAsync(output);
             return output.ToArray();
@@ -284,17 +459,63 @@ public class SignatureVerifierTests
     // document information dictionary.
     static byte[] AppendInformationUpdate(byte[] pdf, string title)
     {
+        int number = Size(pdf);
+        return AppendUpdate(pdf, [(number, $"<< /Title ({title}) >>")], info: $"{number} 0 R");
+    }
+
+    static int Size(byte[] pdf) => int.Parse(Regex.Matches(Latin1(pdf), @"/Size\s+(\d+)").Cast<Match>().Last().Groups[1].Value);
+
+    // An incremental update written by hand: the objects, a cross-reference section for them, and a trailer that keeps
+    // the file's /Root and /Info unless given.
+    static byte[] AppendUpdate(byte[] pdf, (int Number, string Body)[] objects, string? root = null, string? info = null)
+    {
         var text = Latin1(pdf);
         var startXref = Regex.Matches(text, @"startxref\s+(\d+)").Cast<Match>().Last().Groups[1].Value;
-        var size = int.Parse(Regex.Matches(text, @"/Size\s+(\d+)").Cast<Match>().Last().Groups[1].Value);
-        var root = Regex.Matches(text, @"/Root\s+(\d+\s+\d+\s+R)").Cast<Match>().Last().Groups[1].Value;
-        var update = new StringBuilder();
-        int objectOffset = pdf.Length + 1;
-        update.Append('\n').Append($"{size} 0 obj\n<< /Title ({title}) >>\nendobj\n");
+        root ??= Regex.Matches(text, @"/Root\s+(\d+\s+\d+\s+R)").Cast<Match>().Last().Groups[1].Value;
+        info ??= Regex.Matches(text, @"/Info\s+(\d+\s+\d+\s+R)").Cast<Match>().LastOrDefault()?.Groups[1].Value;
+        int size = Math.Max(Size(pdf), objects.Max(o => o.Number) + 1);
+        var update = new StringBuilder("\n");
+        var offsets = new List<(int Number, int Offset)>();
+        foreach (var (number, body) in objects)
+        {
+            offsets.Add((number, pdf.Length + update.Length));
+            update.Append($"{number} 0 obj\n{body}\nendobj\n");
+        }
         int xrefOffset = pdf.Length + update.Length;
-        update.Append($"xref\n{size} 1\n{objectOffset:D10} 00000 n\r\n");
-        update.Append($"trailer\n<< /Size {size + 1} /Root {root} /Info {size} 0 R /Prev {startXref} >>\nstartxref\n{xrefOffset}\n%%EOF\n");
+        update.Append("xref\n");
+        foreach (var (number, offset) in offsets.OrderBy(o => o.Number))
+            update.Append($"{number} 1\n{offset:D10} 00000 n\r\n");
+        update.Append($"trailer\n<< /Size {size} /Root {root}{(info != null ? " /Info " + info : "")} /Prev {startXref} >>\n");
+        update.Append($"startxref\n{xrefOffset}\n%%EOF\n");
         return pdf.Concat(Encoding.ASCII.GetBytes(update.ToString())).ToArray();
+    }
+
+    // An adbe.pkcs7.detached signer that puts the authority's token into the signature-time-stamp attribute without
+    // .NET's checks of the reply (which refuse an authority without the timeStamping usage).
+    sealed class RawTimeStampSigner(X509Certificate2 certificate, TestTimeStampAuthority authority) : IDigitalSigner
+    {
+        public string CertificateName => certificate.Subject;
+
+        public async Task<int> GetSignatureSizeAsync() => (await GetSignatureAsync(new MemoryStream([0]))).Length + 16384;
+
+        public async Task<byte[]> GetSignatureAsync(Stream stream)
+        {
+            var content = new byte[stream.Length];
+            stream.Position = 0;
+            stream.ReadExactly(content);
+            var cms = new System.Security.Cryptography.Pkcs.SignedCms(new System.Security.Cryptography.Pkcs.ContentInfo(content), detached: true);
+            cms.ComputeSignature(new System.Security.Cryptography.Pkcs.CmsSigner(certificate) { DigestAlgorithm = new Oid("2.16.840.1.101.3.4.2.1") }, true);
+            var signerInfo = cms.SignerInfos[0];
+            var request = System.Security.Cryptography.Pkcs.Rfc3161TimestampRequest.CreateFromSignerInfo(signerInfo, HashAlgorithmName.SHA256,
+                requestSignerCertificates: true);
+            var reply = await authority.RespondAsync(request.Encode());
+            // TimeStampResp ::= SEQUENCE { status PKIStatusInfo, timeStampToken ContentInfo }
+            var sequence = new System.Formats.Asn1.AsnReader(reply, System.Formats.Asn1.AsnEncodingRules.DER).ReadSequence();
+            sequence.ReadSequence();
+            var token = sequence.ReadEncodedValue().ToArray();
+            signerInfo.AddUnsignedAttribute(new AsnEncodedData("1.2.840.113549.1.9.16.2.14", token));
+            return cms.Encode();
+        }
     }
 
     static X509Certificate2 SelfSigned()
