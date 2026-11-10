@@ -79,6 +79,13 @@ public class PadesLongTermTests
         Assert.True(Rfc3161TimestampToken.TryDecode(der, out var token, out _));
         Assert.True(token!.VerifySignatureForData(covered, out _));
         Assert.True(covered.Length > withDss.Length);
+
+        // The PAdES signature still verifies over the bytes it covers.
+        var (signedBytes, signature) = Signature(lta, 0);
+        var cms = new SignedCms(new ContentInfo(signedBytes), detached: true);
+        cms.Decode(signature);
+        cms.CheckSignature(verifySignatureOnly: true);
+        Assert.Equal(Certificate.Thumbprint, cms.SignerInfos[0].Certificate!.Thumbprint);
     }
 
     // At P=1 (no changes) validation data and document time-stamps are still permitted; a signature is not.
@@ -162,13 +169,17 @@ public class PadesLongTermTests
     static (byte[] Pdf, int Result) Update(byte[] original, Action<PdfDocument> change)
         => Update(original, document => { change(document); return 0; });
 
-    // The bytes the last signature's /ByteRange covers, and its /Contents without the zero padding.
-    static (byte[] Covered, byte[] Der) LastSignature(byte[] pdf)
+    static (byte[] Covered, byte[] Der) LastSignature(byte[] pdf) => Signature(pdf, -1);
+
+    // The bytes a signature's /ByteRange covers, and its /Contents without the zero padding; index -1 is the last.
+    static (byte[] Covered, byte[] Der) Signature(byte[] pdf, int index)
     {
         var text = Text(pdf);
-        var range = Regex.Matches(text, @"/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]").Cast<Match>().Last();
+        var ranges = Regex.Matches(text, @"/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]").Cast<Match>().ToList();
+        var range = ranges[index < 0 ? ranges.Count - 1 : index];
         var n = Enumerable.Range(1, 4).Select(i => int.Parse(range.Groups[i].Value)).ToArray();
-        Assert.Equal(pdf.Length, n[2] + n[3]);
+        if (index < 0)
+            Assert.Equal(pdf.Length, n[2] + n[3]);   // The last signature covers the whole file.
         var covered = pdf.Take(n[1]).Concat(pdf.Skip(n[2]).Take(n[3])).ToArray();
         var hex = text.Substring(n[1] + 1, n[2] - n[1] - 2);
         var der = Convert.FromHexString(hex);

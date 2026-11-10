@@ -433,11 +433,21 @@ namespace PdfSharp.Pdf.IO
         }
 
         // A new signature field (or its widget) whose value is a document time-stamp (ISO 32000-2 12.8.5).
+        // A new signature field holding a document time-stamp (ISO 32000-2 12.8.5): /Type /DocTimeStamp with
+        // /SubFilter /ETSI.RFC3161, and nothing that changes permissions or acts: no transform /Reference, no field
+        // lock and no action.
         static bool IsDocumentTimeStamp(Snapshot now, PdfItem item)
         {
             if (item is not PdfReference reference || !now.Fields.TryGetValue(reference.ObjectID, out var field))
                 return false;
-            return Resolve(field.Dictionary.Elements["/V"]) is PdfDictionary value && value.Elements.GetName("/Type") == "/DocTimeStamp";
+            if (field.Type != "/Sig" || Resolve(field.Dictionary.Elements["/V"]) is not PdfDictionary value)
+                return false;
+            return value.Elements.GetName("/Type") == "/DocTimeStamp"
+                && value.Elements.GetName("/SubFilter") == "/ETSI.RFC3161"
+                && !value.Elements.ContainsKey("/Reference")
+                && !field.Dictionary.Elements.ContainsKey("/Lock")
+                && !field.Dictionary.Elements.ContainsKey("/A")
+                && !field.Dictionary.Elements.ContainsKey("/AA");
         }
 
         void CheckKeys(Snapshot old, Snapshot now, PdfObject oldObject, PdfObject newObject, string description, HashSet<string> allowed)
@@ -593,6 +603,10 @@ namespace PdfSharp.Pdf.IO
                 Info = (document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference)?.ObjectID;
                 Metadata = (document.Catalog.Elements[PdfCatalog.Keys.Metadata] as PdfReference)?.ObjectID;
                 CollectDss(document.Catalog.Elements["/DSS"]);
+                // An object the document also reaches without the DSS (a page's content, a field) is not validation
+                // data, whatever the DSS refers to.
+                if (DssObjects.Count > 0)
+                    DssObjects.ExceptWith(ReachableWithoutDss(document));
                 var formItem = document.Catalog.Elements[PdfCatalog.Keys.AcroForm];
                 Form = (formItem as PdfReference)?.ObjectID;
                 FieldArray = ((Resolve(formItem) as PdfDictionary)?.Elements[PdfAcroFormKeys.Fields] as PdfReference)?.ObjectID;
@@ -653,6 +667,46 @@ namespace PdfSharp.Pdf.IO
             internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
             internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();
             internal HashSet<PdfObjectID> DssObjects { get; } = new();
+
+            // The indirect objects reachable from the trailer when the catalog's /DSS is left out.
+            static HashSet<PdfObjectID> ReachableWithoutDss(PdfDocument document)
+            {
+                var result = new HashSet<PdfObjectID>();
+                var catalog = document.Catalog.ObjectID;
+                var pending = new Stack<PdfItem>();
+                foreach (var item in document.Trailer.Elements.Values)
+                {
+                    if (item != null)
+                        pending.Push(item);
+                }
+                while (pending.Count > 0)
+                {
+                    var current = pending.Pop();
+                    if (current is PdfReference reference)
+                    {
+                        if (!result.Add(reference.ObjectID) || reference.Value is not { } value)
+                            continue;
+                        current = value;
+                    }
+                    if (current is PdfDictionary dictionary)
+                    {
+                        bool isCatalog = dictionary.Reference?.ObjectID == catalog;
+                        foreach (var key in dictionary.Elements.Keys)
+                        {
+                            if (isCatalog && key == "/DSS")
+                                continue;
+                            if (dictionary.Elements[key] is { } child)
+                                pending.Push(child);
+                        }
+                    }
+                    else if (current is PdfArray array)
+                    {
+                        foreach (var child in array.Elements)
+                            pending.Push(child);
+                    }
+                }
+                return result;
+            }
 
             // The indirect objects of the document security store: the DSS, its arrays and VRI dictionaries, and the
             // streams of certificates, OCSP responses and CRLs.
@@ -786,7 +840,7 @@ namespace PdfSharp.Pdf.IO
         // At P=1 the catalog may only gain or change its document security store and the ESIC extension declaration
         // (EN 319 142-1 5.6, also for a document time-stamp), and the form only new document time-stamp fields.
         static readonly HashSet<string> CatalogKeysAtP1 = new(StringComparer.Ordinal) { "/DSS", "/Extensions" };
-        static readonly HashSet<string> FormKeysAtP1 = new(StringComparer.Ordinal) { "/Fields" };
+        static readonly HashSet<string> FormKeysAtP1 = new(StringComparer.Ordinal) { "/Fields", "/SigFlags" };
         static readonly HashSet<string> FormKeys = new(StringComparer.Ordinal) { "/Fields", "/SigFlags", "/DR", "/NeedAppearances" };
         static readonly HashSet<string> PageKeys = new(StringComparer.Ordinal) { "/Annots" };
 

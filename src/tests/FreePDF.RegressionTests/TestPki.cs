@@ -11,7 +11,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace FreePDF.RegressionTests;
 
-sealed class TestPki : IDisposable
+public sealed class TestPki : IDisposable
 {
     public const string OcspUrl = "http://pki.test/ocsp";
     public const string RootCrlUrl = "http://pki.test/root.crl";
@@ -41,6 +41,22 @@ sealed class TestPki : IDisposable
 
     /// <summary>HTTP status for OCSP requests; 200 answers them.</summary>
     public HttpStatusCode OcspStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>What the OCSP responder answers.</summary>
+    public OcspAnswer Answer { get; set; } = OcspAnswer.Status;
+
+    /// <summary>When set, the CRL addresses return these bytes instead of a CRL.</summary>
+    public byte[]? CrlBody { get; set; }
+
+    public enum OcspAnswer
+    {
+        /// <summary>Good, or revoked when the serial number is in <see cref="Revoked"/>.</summary>
+        Status,
+        /// <summary>Unknown (RFC 6960 4.2.1).</summary>
+        Unknown,
+        /// <summary>An answer about another serial number only.</summary>
+        OtherCertificate,
+    }
 
     public int OcspRequests { get; private set; }
     public int CrlRequests { get; private set; }
@@ -99,13 +115,31 @@ sealed class TestPki : IDisposable
     {
         var request = new AsnReader(requestDer, AsnEncodingRules.DER).ReadSequence().ReadSequence();   // OCSPRequest, TBSRequest
         var single = request.ReadSequence().ReadSequence();                                            // requestList, Request
-        var certIdDer = single.ReadEncodedValue().ToArray();
-        var certId = new AsnReader(certIdDer, AsnEncodingRules.DER).ReadSequence();
-        certId.ReadSequence();
+        var certId = single.ReadSequence();
+        var hashAlgorithm = certId.ReadSequence().ReadObjectIdentifier();
         var nameHash = certId.ReadOctetString();
-        certId.ReadOctetString();
+        var keyHash = certId.ReadOctetString();
         var serial = certId.ReadIntegerBytes().ToArray();
-        var issuer = new[] { Root, Intermediate }.Single(ca => SHA1.HashData(ca.SubjectName.RawData).AsSpan().SequenceEqual(nameHash));
+        if (hashAlgorithm != "1.3.14.3.2.26")
+            throw new InvalidDataException("The test responder answers SHA-1 CertIDs.");
+        // RFC 6960 4.1.1: the issuer's name hash and the hash of its public key's BIT STRING value.
+        var issuer = new[] { Root, Intermediate }.SingleOrDefault(ca => SHA1.HashData(ca.SubjectName.RawData).AsSpan().SequenceEqual(nameHash)
+            && SHA1.HashData(ca.PublicKey.EncodedKeyValue.RawData).AsSpan().SequenceEqual(keyHash))
+            ?? throw new InvalidDataException("No CA of the test PKI has this name and key hash.");
+        if (Answer == OcspAnswer.OtherCertificate)
+            serial = [0x01, 0x02, 0x03];
+        // The CertID is written again, with the AlgorithmIdentifier's parameters left out as some responders do: the
+        // client must match it by its fields.
+        var answeredId = new AsnWriter(AsnEncodingRules.DER);
+        using (answeredId.PushSequence())
+        {
+            using (answeredId.PushSequence())
+                answeredId.WriteObjectIdentifier(hashAlgorithm);
+            answeredId.WriteOctetString(nameHash);
+            answeredId.WriteOctetString(keyHash);
+            answeredId.WriteIntegerUnsigned(serial);
+        }
+        var certIdDer = answeredId.Encode();
         var now = DateTimeOffset.UtcNow;
 
         var data = new AsnWriter(AsnEncodingRules.DER);
@@ -118,7 +152,11 @@ sealed class TestPki : IDisposable
             using (data.PushSequence())                                                      // SingleResponse
             {
                 data.WriteEncodedValue(certIdDer);
-                if (Revoked.Any(r => r.AsSpan().SequenceEqual(serial)))
+                if (Answer == OcspAnswer.Unknown)
+                {
+                    data.WriteNull(new Asn1Tag(TagClass.ContextSpecific, 2));                 // unknown
+                }
+                else if (Revoked.Any(r => r.AsSpan().SequenceEqual(serial)))
                 {
                     using (data.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))  // revoked
                         data.WriteGeneralizedTime(now.AddMinutes(-10), omitFractionalSeconds: true);
@@ -179,7 +217,7 @@ sealed class TestPki : IDisposable
             if (url == RootCrlUrl || url == IntermediateCrlUrl)
             {
                 pki.CrlRequests++;
-                return Reply(pki.Crl(url == RootCrlUrl ? pki.Root : pki.Intermediate), "application/pkix-crl");
+                return Reply(pki.CrlBody ?? pki.Crl(url == RootCrlUrl ? pki.Root : pki.Intermediate), "application/pkix-crl");
             }
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }

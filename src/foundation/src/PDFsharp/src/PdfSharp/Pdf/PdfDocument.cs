@@ -556,30 +556,15 @@ namespace PdfSharp.Pdf
             internals.Catalog.Elements.Add(PdfCatalog.Keys.OutputIntents, outputIntentsArray);
         }
 
-        /// <summary>
-        /// Dispatches PrepareForSave to the objects that need it.
-        /// </summary>
-        void PrepareForSave()
+        // The Creator is called “Application” in Acrobat; the Producer “Created by”.
+        void SetCreatorAndProducer()
         {
-            // The Creator is called “Application” in Acrobat.
-            // The Producer is call “Created by” in Acrobat.
-
             // Set Creator if value is undefined. This is the 'application' in Adobe Reader.
-            //if (Info.Elements[PdfDocumentInformation.Keys.Creator] is null) // TODO #US373 Just a null check.
             if (!Info.Elements.HasValue(PdfDocumentInformation.Keys.Creator)) // #US373
                 Info.Creator = PdfSharpProductVersionInformation.Producer;
 
-            // We set Producer if it is not yet set.
-#if true // TODO clean up
-            var pdfProducer = DefaultProducer;
-#else
-            var pdfProducer = PdfSharpProductVersionInformation.Creator;
-#if DEBUG
-            // Add OS suffix only in DEBUG build.
-            pdfProducer += $" under {RuntimeInformation.OSDescription}";
-#endif
-#endif
             // Keep original producer if file was imported. This is “PDF created by” in Adobe Reader.
+            var pdfProducer = DefaultProducer;
             string producer = Info.Producer;
             if (producer.Length == 0)
             {
@@ -593,6 +578,17 @@ namespace PdfSharp.Pdf
             }
 
             Info.Elements.SetString(PdfDocumentInformation.Keys.Producer, producer);
+        }
+
+        /// <summary>
+        /// Dispatches PrepareForSave to the objects that need it.
+        /// </summary>
+        void PrepareForSave()
+        {
+            // FreePDF: an update under a "no changes" certification (P=1) that only adds validation data leaves the
+            // document information as it is, or absent, as it was.
+            if (IncrementalUpdate is not { KeepsDocumentInformation: true })
+                SetCreatorAndProducer();
 
             // An opened file is not treated as PDF/A, but a save must not break the PDF/A conformance its XMP claims.
             // Fonts need to know it too.

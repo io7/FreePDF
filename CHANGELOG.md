@@ -25,8 +25,11 @@
   data itself: the chains of the document's signatures, signature time-stamps
   and document time-stamps, and for each certificate below a root an OCSP
   response (RFC 6960) from the responder it names, or else its CRLs (RFC 5280),
-  through an `HttpClient` you can supply. Its report lists what it could not
-  get. The core assembly now references System.Security.Cryptography.Pkcs,
+  through an `HttpClient` you can supply. The default client reaches only
+  public addresses unless `AllowPrivateNetworks` is set, answers are limited
+  to `MaxResponseSize` (32 MiB), at most four addresses of a kind are asked
+  per certificate, and a cancellation token stops it. Its report lists what it
+  could not get. The core assembly now references System.Security.Cryptography.Pkcs,
   which every FreePDF package already depended on.
 - `PdfSharpDefaultSigner.TimeStampClient` sends the RFC 3161 time-stamp
   request instead of an HTTP POST, for example to add authentication or to use

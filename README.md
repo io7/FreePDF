@@ -222,8 +222,12 @@ using (var document = PdfReader.Open("signed.pdf", PdfDocumentOpenMode.Append))
 `AddValidationDataAsync` asks the OCSP responders the certificates name and
 falls back to their CRL distribution points; give it intermediate and root
 certificates the signatures do not carry, and an `HttpClient` of your own for
-a proxy. It does not judge the answers: `Problems` lists what it could not get
-and certificates OCSP reports as revoked. To add data you fetched yourself, use
+a proxy. The addresses come from the certificates, which whoever signed the
+document chose: the default client reaches only public addresses (set
+`AllowPrivateNetworks` for an internal CA), takes at most `MaxResponseSize`
+bytes per answer (32 MiB) and stops at the cancellation token. It does not
+judge the answers: `Problems` lists what it could not get and certificates
+OCSP reports as revoked. To add data you fetched yourself, use
 `PdfDocumentSecurityStore.Add`. Both kinds of update leave the signed bytes as
 they are and are permitted under every certification level, "no changes"
 included. A document time-stamp is an invisible field; it needs .NET 8 or

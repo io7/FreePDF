@@ -1,8 +1,10 @@
 // FreePDF - MIT, see the LICENSE file in the solution root.
 
 using System.Formats.Asn1;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
@@ -17,8 +19,10 @@ namespace PdfSharp.Pdf.Signatures
     public sealed class PdfValidationDataOptions
     {
         /// <summary>
-        /// Gets the client for OCSP requests and CRL downloads; set it to add a proxy or authentication, or to answer
-        /// the requests yourself. The default is a shared client with a 30-second timeout.
+        /// Gets the client for OCSP requests and CRL downloads; set it to add a proxy or authentication, to restrict
+        /// where requests may go, or to answer them yourself. Its handler then decides which addresses it reaches.
+        /// The default is a shared client with a 30-second timeout that only reaches public addresses, unless
+        /// <see cref="AllowPrivateNetworks"/> is set.
         /// </summary>
         public HttpClient? HttpClient { get; init; }
 
@@ -27,6 +31,23 @@ namespace PdfSharp.Pdf.Signatures
         /// chains with.
         /// </summary>
         public IEnumerable<X509Certificate2>? ExtraCertificates { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the default client may reach loopback, link-local and private network
+        /// addresses, for example an internal CA's responder. The addresses come from the certificates in the
+        /// document, which anyone who signed it chose; leave it false for documents from others.
+        /// </summary>
+        public bool AllowPrivateNetworks { get; init; }
+
+        /// <summary>
+        /// Gets the largest OCSP response or CRL accepted, in bytes. The default is 32 MiB.
+        /// </summary>
+        public int MaxResponseSize
+        {
+            get => _maxResponseSize;
+            init => _maxResponseSize = value > 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
+        }
+        readonly int _maxResponseSize = 32 * 1024 * 1024;
     }
 
     /// <summary>
@@ -66,8 +87,8 @@ namespace PdfSharp.Pdf.Signatures
 
         /// <summary>
         /// Gets what could not be done: a chain that ends below a root, a certificate without revocation data, a
-        /// failed request, or a certificate that OCSP reports as revoked. Empty when every certificate below a root has
-        /// revocation data.
+        /// failed or refused request, or a certificate that OCSP reports as revoked. Empty when every certificate below
+        /// a root has revocation data.
         /// </summary>
         public IReadOnlyList<string> Problems { get; }
     }
@@ -77,24 +98,25 @@ namespace PdfSharp.Pdf.Signatures
         /// <summary>
         /// Collects validation data for the document's signatures and document time-stamps and adds it to the DSS
         /// (PAdES B-LT, ETSI EN 319 142-1): the certificates of their chains, and for each certificate below a root an
-        /// OCSP response (RFC 6960) from the responder its certificate names, or else the CRLs (RFC 5280) of its
+        /// OCSP response (RFC 6960) from the responder its certificate names, or else a CRL (RFC 5280) from each of its
         /// distribution points. The certificates come from the signatures, their signature time-stamps and
         /// <see cref="PdfValidationDataOptions.ExtraCertificates"/>. Open the document in Append mode and save it after.
-        /// The responses are not checked: their signatures and the certificates' status are for the validator to judge.
+        /// The responses are not verified: their signatures and the certificates' status are for the validator to
+        /// judge. The addresses asked come from the certificates; see <see cref="PdfValidationDataOptions"/>.
         /// </summary>
-        public static async Task<PdfValidationDataReport> AddValidationDataAsync(PdfDocument document, PdfValidationDataOptions? options = null)
+        public static async Task<PdfValidationDataReport> AddValidationDataAsync(PdfDocument document, PdfValidationDataOptions? options = null,
+            CancellationToken cancellationToken = default)
         {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
             options ??= new PdfValidationDataOptions();
-            var http = options.HttpClient ?? SharedHttp;
-            var problems = new List<string>();
+            var fetcher = new Fetcher(options, cancellationToken);
 
             // The certificates the CMS structures carry, and the ones that signed them.
             var available = new List<X509Certificate2>();
             var signers = new List<X509Certificate2>();
             foreach (var contents in SignatureContents(document))
-                ReadCms(contents, available, signers);
+                ReadCms(contents, available, signers, 0);
             if (options.ExtraCertificates != null)
                 available.AddRange(options.ExtraCertificates);
 
@@ -113,27 +135,27 @@ namespace PdfSharp.Pdf.Signatures
                 }
                 var last = chain[chain.Count - 1];
                 if (!IsSelfIssued(last))
-                    problems.Add($"The chain of '{signer.Subject}' ends at '{last.Subject}', which is not a root; add its issuer to ExtraCertificates.");
+                    fetcher.Problems.Add($"The chain of '{signer.Subject}' ends at '{last.Subject}', which is not a root; add its issuer to ExtraCertificates.");
             }
 
             var ocspResponses = new List<byte[]>();
             var crls = new List<byte[]>();
-            var extraCertificates = new List<X509Certificate2>();
+            var responderCertificates = new List<X509Certificate2>();
             foreach (var certificate in chainCertificates)
             {
                 if (IsSelfIssued(certificate) || !issuers.TryGetValue(certificate.Thumbprint, out var issuer))
                     continue;
-                var ocsp = await FetchOcspAsync(http, certificate, issuer, problems).ConfigureAwait(false);
+                var ocsp = await fetcher.OcspAsync(certificate, issuer).ConfigureAwait(false);
                 if (ocsp != null)
                 {
                     ocspResponses.Add(ocsp.Value.Response);
-                    extraCertificates.AddRange(ocsp.Value.ResponderCertificates);
+                    responderCertificates.AddRange(ocsp.Value.ResponderCertificates);
                     continue;
                 }
-                var fetched = await FetchCrlsAsync(http, certificate, problems).ConfigureAwait(false);
+                var fetched = await fetcher.CrlsAsync(certificate).ConfigureAwait(false);
                 if (fetched.Count == 0)
                 {
-                    problems.Add($"No revocation data for '{certificate.Subject}'.");
+                    fetcher.Problems.Add($"No revocation data for '{certificate.Subject}'.");
                     continue;
                 }
                 foreach (var crl in fetched)
@@ -143,13 +165,10 @@ namespace PdfSharp.Pdf.Signatures
                 }
             }
 
-            var allCertificates = chainCertificates.Concat(extraCertificates).Select(c => c.RawData);
+            var allCertificates = chainCertificates.Concat(responderCertificates).Select(c => c.RawData);
             int added = Add(document, allCertificates, ocspResponses, crls);
-            return new PdfValidationDataReport(added, chainCertificates, ocspResponses.Count, crls.Count, problems);
+            return new PdfValidationDataReport(added, chainCertificates, ocspResponses.Count, crls.Count, fetcher.Problems);
         }
-
-        // One client for all requests: no new connection per request, and a bounded wait.
-        static readonly HttpClient SharedHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
 
         const string SignatureTimeStampOid = "1.2.840.113549.1.9.16.2.14";
         const string AuthorityInfoAccessOid = "1.3.6.1.5.5.7.1.1";
@@ -157,6 +176,12 @@ namespace PdfSharp.Pdf.Signatures
         const string CrlDistributionPointsOid = "2.5.29.31";
         const string OcspBasicResponseOid = "1.3.6.1.5.5.7.48.1.1";
         const string Sha1Oid = "1.3.14.3.2.26";
+
+        // At most this many addresses of one kind are asked per certificate; a certificate may list any number.
+        const int MaxUrlsPerCertificate = 4;
+
+        // A signature's time-stamp is a CMS inside the CMS; deeper nesting is not followed.
+        const int MaxCmsDepth = 3;
 
         // The /Contents of every signature and document time-stamp in the form: field values with /ByteRange.
         static List<byte[]> SignatureContents(PdfDocument document)
@@ -191,8 +216,10 @@ namespace PdfSharp.Pdf.Signatures
 
         // The certificates of a signature's CMS and of its signature time-stamps; the signers of both. A document
         // time-stamp's CMS is the token itself.
-        static void ReadCms(byte[] contents, List<X509Certificate2> available, List<X509Certificate2> signers)
+        static void ReadCms(byte[] contents, List<X509Certificate2> available, List<X509Certificate2> signers, int depth)
         {
+            if (depth > MaxCmsDepth)
+                return;
             SignedCms cms;
             try
             {
@@ -215,7 +242,7 @@ namespace PdfSharp.Pdf.Signatures
                     if (attribute.Oid.Value != SignatureTimeStampOid)
                         continue;
                     foreach (var value in attribute.Values)
-                        ReadCms(value.RawData, available, signers);
+                        ReadCms(value.RawData, available, signers, depth + 1);
                 }
             }
         }
@@ -246,72 +273,162 @@ namespace PdfSharp.Pdf.Signatures
         static bool IsSelfIssued(X509Certificate2 certificate)
             => certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData);
 
-        static async Task<(byte[] Response, List<X509Certificate2> ResponderCertificates)?> FetchOcspAsync(HttpClient http,
-            X509Certificate2 certificate, X509Certificate2 issuer, List<string> problems)
+        // The HTTP requests of one call: the client, the limits, the problems found.
+        sealed class Fetcher(PdfValidationDataOptions options, CancellationToken cancellationToken)
         {
-            var urls = AccessLocations(certificate, OcspAccessMethodOid);
-            if (urls.Count == 0)
-                return null;
-            var request = OcspRequest(certificate, issuer, out var certId);
-            foreach (var url in urls)
+            internal List<string> Problems { get; } = [];
+
+            readonly HttpClient _http = options.HttpClient ?? DefaultClient;
+            // A client of the caller's decides where it goes; the default one only goes to public addresses unless allowed.
+            readonly bool _checkAddresses = options.HttpClient == null && !options.AllowPrivateNetworks;
+
+            internal async Task<(byte[] Response, List<X509Certificate2> ResponderCertificates)?> OcspAsync(X509Certificate2 certificate,
+                X509Certificate2 issuer)
             {
-                try
+                var urls = AccessLocations(certificate, OcspAccessMethodOid);
+                if (urls.Count == 0)
+                    return null;
+                var request = OcspRequest(certificate, issuer, out var certId);
+                foreach (var url in urls)
                 {
-                    using var content = new ByteArrayContent(request);
-                    content.Headers.ContentType = new MediaTypeHeaderValue("application/ocsp-request");
-                    using var response = await http.PostAsync(url, content).ConfigureAwait(false);
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        problems.Add($"The OCSP responder {url} answered {(int)response.StatusCode} for '{certificate.Subject}'.");
+                    var bytes = await SendAsync(url, request, certificate, "OCSP request").ConfigureAwait(false);
+                    if (bytes == null)
                         continue;
-                    }
-                    var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                     var status = ReadOcspResponse(bytes, certId, out var responderCertificates, out var error);
                     if (status == null)
                     {
-                        problems.Add($"The OCSP responder {url} gave no usable answer for '{certificate.Subject}': {error}.");
+                        Problems.Add($"The OCSP responder {url} gave no usable answer for '{certificate.Subject}': {error}.");
+                        continue;
+                    }
+                    if (status == OcspCertStatus.Unknown)
+                    {
+                        Problems.Add($"The OCSP responder {url} does not know '{certificate.Subject}'.");
                         continue;
                     }
                     if (status == OcspCertStatus.Revoked)
-                        problems.Add($"The OCSP responder {url} reports '{certificate.Subject}' as revoked.");
-                    if (status == OcspCertStatus.Unknown)
-                    {
-                        problems.Add($"The OCSP responder {url} does not know '{certificate.Subject}'.");
-                        continue;
-                    }
+                        Problems.Add($"The OCSP responder {url} reports '{certificate.Subject}' as revoked.");
                     return (bytes, responderCertificates);
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-                {
-                    problems.Add($"The OCSP request to {url} for '{certificate.Subject}' failed: {ex.Message}");
-                }
+                return null;
             }
-            return null;
-        }
 
-        static async Task<List<byte[]>> FetchCrlsAsync(HttpClient http, X509Certificate2 certificate, List<string> problems)
-        {
-            var result = new List<byte[]>();
-            foreach (var url in CrlLocations(certificate))
+            // A CRL from each distribution point; the addresses of one point are alternatives.
+            internal async Task<List<byte[]>> CrlsAsync(X509Certificate2 certificate)
             {
-                try
+                var result = new List<byte[]>();
+                foreach (var point in CrlDistributionPoints(certificate))
                 {
-                    var bytes = await http.GetByteArrayAsync(url).ConfigureAwait(false);
-                    // A CRL is a DER SEQUENCE (RFC 5280 5.1); a PEM or an HTML error page is not.
-                    if (bytes.Length > 1 && bytes[0] == 0x30)
+                    foreach (var url in point.Urls)
                     {
+                        var bytes = await SendAsync(url, null, certificate, "CRL download").ConfigureAwait(false);
+                        if (bytes == null)
+                            continue;
+                        if (!IsCrl(bytes, point.IndirectIssuer ? null : certificate.IssuerName.RawData))
+                        {
+                            Problems.Add($"The CRL at {url} for '{certificate.Subject}' is not a CRL of its issuer in DER.");
+                            continue;
+                        }
                         result.Add(bytes);
                         break;
                     }
-                    problems.Add($"The CRL at {url} for '{certificate.Subject}' is not DER-encoded.");
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                return result;
+            }
+
+            // A POST of an OCSP request, or a GET; the body, or null after noting the problem.
+            async Task<byte[]?> SendAsync(Uri url, byte[]? ocspRequest, X509Certificate2 certificate, string what)
+            {
+                try
                 {
-                    problems.Add($"The CRL download from {url} for '{certificate.Subject}' failed: {ex.Message}");
+                    if (_checkAddresses && !await IsPublicAsync(url).ConfigureAwait(false))
+                    {
+                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' was not made: it is not a public address " +
+                            "(set AllowPrivateNetworks, or pass an HttpClient, to reach it).");
+                        return null;
+                    }
+                    using var message = new HttpRequestMessage(ocspRequest == null ? HttpMethod.Get : HttpMethod.Post, url);
+                    if (ocspRequest != null)
+                    {
+                        message.Content = new ByteArrayContent(ocspRequest);
+                        message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/ocsp-request");
+                    }
+                    using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' was answered with {(int)response.StatusCode}.");
+                        return null;
+                    }
+                    var body = await ReadLimitedAsync(response.Content, options.MaxResponseSize).ConfigureAwait(false);
+                    if (body == null)
+                        Problems.Add($"The {what} to {url} for '{certificate.Subject}' returned more than {options.MaxResponseSize} bytes.");
+                    return body;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException
+                                               or IOException or SocketException)
+                {
+                    Problems.Add($"The {what} to {url} for '{certificate.Subject}' failed: {ex.Message}");
+                    return null;
                 }
             }
-            return result;
+
+            async Task<byte[]?> ReadLimitedAsync(HttpContent content, int limit)
+            {
+                if (content.Headers.ContentLength > limit)
+                    return null;
+                using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var buffer = new MemoryStream();
+                var chunk = new byte[81920];
+                int read;
+                while ((read = await stream.ReadAsync(chunk, 0, chunk.Length, cancellationToken).ConfigureAwait(false)) > 0)
+                {
+                    if (buffer.Length + read > limit)
+                        return null;
+                    buffer.Write(chunk, 0, read);
+                }
+                return buffer.ToArray();
+            }
+
+            // Every address the host has must be public: not loopback, link-local, private, shared, multicast or
+            // reserved.
+            async Task<bool> IsPublicAsync(Uri url)
+            {
+                var addresses = IPAddress.TryParse(url.DnsSafeHost, out var literal)
+                    ? [literal]
+                    : await Dns.GetHostAddressesAsync(url.IdnHost).ConfigureAwait(false);
+                return addresses.Length > 0 && addresses.All(IsPublicAddress);
+            }
         }
+
+        static bool IsPublicAddress(IPAddress address)
+        {
+            if (address.IsIPv4MappedToIPv6)
+                address = address.MapToIPv4();
+            if (IPAddress.IsLoopback(address))
+                return false;
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var b = address.GetAddressBytes();
+                return !(b[0] == 0 || b[0] == 10 || b[0] == 127 || b[0] >= 224
+                         || (b[0] == 100 && (b[1] & 0xC0) == 64)      // 100.64.0.0/10, shared address space
+                         || (b[0] == 169 && b[1] == 254)             // link-local
+                         || (b[0] == 172 && (b[1] & 0xF0) == 16)     // 172.16.0.0/12
+                         || (b[0] == 192 && b[1] == 168));           // 192.168.0.0/16
+            }
+            if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                var b = address.GetAddressBytes();
+                return !(address.Equals(IPAddress.IPv6Any) || address.IsIPv6LinkLocal || address.IsIPv6SiteLocal
+                         || address.IsIPv6Multicast || (b[0] & 0xFE) == 0xFC);   // fc00::/7, unique local
+            }
+            return false;
+        }
+
+        // One client for all calls: no new connection per request, and a bounded wait.
+        static readonly HttpClient DefaultClient = new() { Timeout = TimeSpan.FromSeconds(30) };
 
         // The HTTP locations of an access method in the authority information access extension (RFC 5280 4.2.2.1).
         static List<Uri> AccessLocations(X509Certificate2 certificate, string accessMethod)
@@ -322,7 +439,7 @@ namespace PdfSharp.Pdf.Signatures
             try
             {
                 var descriptions = new AsnReader(extension.RawData, AsnEncodingRules.DER).ReadSequence();
-                while (descriptions.HasData)
+                while (descriptions.HasData && result.Count < MaxUrlsPerCertificate)
                 {
                     var description = descriptions.ReadSequence();
                     var method = description.ReadObjectIdentifier();
@@ -337,30 +454,46 @@ namespace PdfSharp.Pdf.Signatures
             return result;
         }
 
-        // The HTTP locations of the full names in the CRL distribution points extension (RFC 5280 4.2.1.13).
-        static List<Uri> CrlLocations(X509Certificate2 certificate)
+        // The distribution points of the CRL distribution points extension (RFC 5280 4.2.1.13) with HTTP full names; a
+        // point that names a cRLIssuer is an indirect CRL, issued by another than the certificate's issuer.
+        static List<(List<Uri> Urls, bool IndirectIssuer)> CrlDistributionPoints(X509Certificate2 certificate)
         {
-            var result = new List<Uri>();
+            var result = new List<(List<Uri>, bool)>();
             if (certificate.Extensions[CrlDistributionPointsOid] is not { } extension)
                 return result;
             try
             {
                 var points = new AsnReader(extension.RawData, AsnEncodingRules.DER).ReadSequence();
-                while (points.HasData)
+                while (points.HasData && result.Count < MaxUrlsPerCertificate)
                 {
                     var point = points.ReadSequence();
-                    // distributionPoint [0] DistributionPointName; fullName [0] GeneralNames.
-                    if (!point.HasData || !point.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
-                        continue;
-                    var name = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, isConstructed: true));
-                    if (!name.HasData || !name.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
-                        continue;
-                    var generalNames = name.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, isConstructed: true));
-                    while (generalNames.HasData)
+                    var urls = new List<Uri>();
+                    bool indirect = false;
+                    while (point.HasData)
                     {
-                        if (HttpUri(generalNames.ReadEncodedValue().Span) is { } uri)
-                            result.Add(uri);
+                        var tag = point.PeekTag();
+                        // distributionPoint [0] DistributionPointName, with fullName [0] GeneralNames.
+                        if (tag.HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                        {
+                            var name = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, isConstructed: true));
+                            if (!name.HasData || !name.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                                continue;
+                            var generalNames = name.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, isConstructed: true));
+                            while (generalNames.HasData && urls.Count < MaxUrlsPerCertificate)
+                            {
+                                if (HttpUri(generalNames.ReadEncodedValue().Span) is { } uri)
+                                    urls.Add(uri);
+                            }
+                        }
+                        else
+                        {
+                            // reasons [1], cRLIssuer [2].
+                            indirect |= tag.HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 2));
+                            point.ReadEncodedValue();
+                        }
                     }
+                    if (urls.Count > 0)
+                        result.Add((urls, indirect));
                 }
             }
             catch (AsnContentException)
@@ -376,7 +509,34 @@ namespace PdfSharp.Pdf.Signatures
             if (!reader.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 6)))
                 return null;
             var text = reader.ReadCharacterString(UniversalTagNumber.IA5String, new Asn1Tag(TagClass.ContextSpecific, 6));
-            return System.Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https") ? uri : null;
+            return Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https") ? uri : null;
+        }
+
+        // A DER CertificateList (RFC 5280 5.1): tbsCertList, signatureAlgorithm and signatureValue, nothing after it;
+        // its issuer, when given, must be the expected one.
+        static bool IsCrl(byte[] der, byte[]? expectedIssuer)
+        {
+            try
+            {
+                var outer = new AsnReader(der, AsnEncodingRules.DER);
+                var list = outer.ReadSequence();
+                if (outer.HasData)
+                    return false;
+                var tbs = list.ReadSequence();
+                list.ReadSequence();
+                list.ReadBitString(out _);
+                if (list.HasData)
+                    return false;
+                if (tbs.PeekTag().HasSameClassAndValue(Asn1Tag.Integer))
+                    tbs.ReadInteger();                  // version
+                tbs.ReadSequence();                     // signature
+                var issuer = tbs.ReadEncodedValue();    // issuer
+                return expectedIssuer == null || issuer.Span.SequenceEqual(expectedIssuer);
+            }
+            catch (AsnContentException)
+            {
+                return false;
+            }
         }
 
         // An OCSPRequest (RFC 6960 4.1.1) for one certificate, without a nonce or a signature, as RFC 5019 profiles it.
@@ -397,7 +557,7 @@ namespace PdfSharp.Pdf.Signatures
                     // The hash of the issuer's subjectPublicKey BIT STRING value.
                     writer.WriteOctetString(sha1.ComputeHash(issuer.PublicKey.EncodedKeyValue.RawData));
                 }
-                // GetSerialNumber is little-endian two's complement.
+                // GetSerialNumber is the INTEGER's bytes, little-endian, with its sign byte.
                 writer.WriteInteger(new BigInteger(certificate.GetSerialNumber()));
             }
             certId = writer.Encode();

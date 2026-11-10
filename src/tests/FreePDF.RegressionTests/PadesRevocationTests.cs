@@ -73,6 +73,72 @@ public class PadesRevocationTests
         Assert.DoesNotContain(report.Problems, problem => problem.StartsWith("No revocation data"));
     }
 
+    [Theory]
+    [InlineData(TestPki.OcspAnswer.Unknown, "does not know")]
+    [InlineData(TestPki.OcspAnswer.OtherCertificate, "no answer for the certificate")]
+    public async Task An_unusable_ocsp_answer_falls_back_to_the_crl(TestPki.OcspAnswer answer, string problem)
+    {
+        using var pki = new TestPki { Answer = answer };
+
+        var (_, report) = await AddValidationData(SignBT(pki), pki);
+
+        Assert.Equal(0, report.OcspResponses);
+        Assert.Equal(2, report.Crls);
+        Assert.Contains(report.Problems, p => p.Contains(problem));
+        Assert.DoesNotContain(report.Problems, p => p.StartsWith("No revocation data"));
+    }
+
+    [Fact]
+    public async Task A_download_that_is_no_crl_is_not_taken()
+    {
+        using var pki = new TestPki { OcspStatus = HttpStatusCode.InternalServerError, CrlBody = [0x30, 0x03, 0x02, 0x01, 0x01] };
+
+        var (_, report) = await AddValidationData(SignBT(pki), pki);
+
+        Assert.Equal(0, report.Crls);
+        Assert.Contains(report.Problems, p => p.Contains("is not a CRL"));
+        Assert.Contains(report.Problems, p => p.StartsWith("No revocation data for 'CN=FreePDF test signer"));
+    }
+
+    [Fact]
+    public async Task A_response_larger_than_the_limit_is_not_taken()
+    {
+        using var pki = new TestPki();
+        using var document = PdfReader.Open(new MemoryStream(SignBT(pki)), PdfDocumentOpenMode.Append);
+        using var client = pki.CreateClient();
+
+        var report = await PdfDocumentSecurityStore.AddValidationDataAsync(document, new PdfValidationDataOptions
+        {
+            HttpClient = client,
+            ExtraCertificates = [pki.Root, pki.Intermediate],
+            MaxResponseSize = 100,
+        });
+
+        Assert.Equal(0, report.OcspResponses + report.Crls);
+        Assert.Contains(report.Problems, p => p.Contains("more than 100 bytes"));
+    }
+
+    // The addresses come from the certificates; the default client does not go to loopback or private networks.
+    [Fact]
+    public async Task The_default_client_does_not_reach_private_addresses()
+    {
+        using var pki = new TestPki();
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF private responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509AuthorityInformationAccessExtension(["http://127.0.0.1:9/ocsp"], null));
+        request.CertificateExtensions.Add(CertificateRevocationListBuilder.BuildCrlDistributionPointExtension(["http://10.0.0.1/ca.crl"]));
+        using var issued = request.Create(pki.Intermediate, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1), [0x01, 0x02]);
+        using var certificate = issued.CopyWithPrivateKey(key);
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        using var document = PdfReader.Open(new MemoryStream(signed), PdfDocumentOpenMode.Append);
+
+        var report = await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+            new PdfValidationDataOptions { ExtraCertificates = [pki.Root, pki.Intermediate] });
+
+        Assert.Contains(report.Problems, p => p.Contains("http://127.0.0.1:9/ocsp") && p.Contains("not a public address"));
+        Assert.Contains(report.Problems, p => p.Contains("http://10.0.0.1/ca.crl") && p.Contains("not a public address"));
+    }
+
     // Without the intermediate and the root, the chain stops at the signer.
     [Fact]
     public async Task A_chain_without_its_root_is_reported()
