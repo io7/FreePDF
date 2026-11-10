@@ -157,13 +157,7 @@ namespace PdfSharp.Drawing.BarCodes
             double moduleWidth = Size.Width / (columns + 2 * QuietZone);
             double moduleHeight = Size.Height / (rows + 2 * QuietZone);
 
-            XGraphicsState state = gfx.Save();
-            LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
-
             XPoint topLeft = position + CalcDistance(Anchor, AnchorType.TopLeft, Size);
-            if (QuietZone > 0)
-                gfx.DrawRectangle(XBrushes.White, topLeft.X, topLeft.Y, Size.Width, Size.Height);
-
             double left = topLeft.X + QuietZone * moduleWidth;
             double top = topLeft.Y + QuietZone * moduleHeight;
             var path = new XGraphicsPath { FillMode = XFillMode.Winding };
@@ -183,9 +177,18 @@ namespace PdfSharp.Drawing.BarCodes
                     path.AddRectangle(left + start * moduleWidth, top + row * moduleHeight, (column - start) * moduleWidth, moduleHeight);
                 }
             }
-            gfx.DrawPath(brush, path);
-
-            gfx.Restore(state);
+            XGraphicsState state = gfx.Save();
+            try
+            {
+                LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
+                if (QuietZone > 0)
+                    gfx.DrawRectangle(XBrushes.White, topLeft.X, topLeft.Y, Size.Width, Size.Height);
+                gfx.DrawPath(brush, path);
+            }
+            finally
+            {
+                gfx.Restore(state);
+            }
         }
 
         /// <summary>

@@ -84,13 +84,26 @@ public class DataMatrixTests
     [InlineData("A", new byte[] { 66 })]                                   // ASCII value + 1
     [InlineData("1234", new byte[] { 142, 164 })]                          // digit pairs
     [InlineData("é", new byte[] { 235, 106 })]                            // Upper Shift, then 0xE9 - 127
-    [InlineData("ñ0101", new byte[] { 232, 131, 131 })]               // FNC1, then "01" "01"
+    [InlineData("ñ", new byte[] { 235, 0xF1 - 127 })]                    // a real ñ is a Latin-1 letter, not FNC1
     public void Ascii_encodation_writes_the_standard_codewords(string text, byte[] expected)
     {
         var symbol = new CodeDataMatrix(text, "", 0, 0, 0, new XSize(100, 100)).GetModules();
 
         Assert.Equal(expected, DataMatrixReader.Codewords(symbol, 1, 1).Take(expected.Length));
     }
+
+    // GS1 DataMatrix: FNC1 (232) comes first; FNC1 is no reason for an ECI, which would break GS1.
+    [Fact]
+    public void Fnc1_starts_a_gs1_data_matrix_without_eci()
+    {
+        var symbol = new CodeDataMatrix(Code128.Fnc1 + "0101", "", 0, 0, 0, new XSize(100, 100)).GetModules();
+
+        Assert.Equal(new byte[] { 232, 131, 131 }, DataMatrixReader.Codewords(symbol, 1, 1).Take(3));
+    }
+
+    [Fact]
+    public void A_lone_surrogate_is_refused()
+        => Assert.ThrowsAny<ArgumentException>(() => new CodeDataMatrix("a" + (char)0xDC00 + "€", 0));
 
     // Text beyond Latin-1 is UTF-8 after ECI 26 (codewords 241, 27).
     [Fact]

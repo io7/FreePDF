@@ -116,21 +116,20 @@ namespace PdfSharp.Drawing.BarCodes
             double module = side / (count + 2 * QuietZone);
 
             XGraphicsState state = gfx.Save();
-            switch (Direction)
+            try
             {
-                case CodeDirection.RightToLeft:
-                    gfx.RotateAtTransform(180, position);
-                    break;
-
-                case CodeDirection.TopToBottom:
-                    gfx.RotateAtTransform(90, position);
-                    break;
-
-                case CodeDirection.BottomToTop:
-                    gfx.RotateAtTransform(-90, position);
-                    break;
+                LinearCodeRenderer.ApplyDirection(gfx, Direction, position);
+                DrawModules(gfx, brush, position, modules, side, module);
             }
+            finally
+            {
+                gfx.Restore(state);
+            }
+        }
 
+        void DrawModules(XGraphics gfx, XBrush brush, XPoint position, bool[,] modules, double side, double module)
+        {
+            int count = modules.GetLength(0);
             XPoint topLeft = position + CalcDistance(Anchor, AnchorType.TopLeft, Size);
             double left = topLeft.X + (Size.Width - side) / 2 + QuietZone * module;
             double top = topLeft.Y + (Size.Height - side) / 2 + QuietZone * module;
@@ -154,8 +153,6 @@ namespace PdfSharp.Drawing.BarCodes
                 }
             }
             gfx.DrawPath(brush, path);
-
-            gfx.Restore(state);
         }
 
         /// <summary>

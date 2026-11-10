@@ -69,6 +69,9 @@ namespace PdfSharp.Drawing.BarCodes
         const int Base256Latch = 231;
         const int Utf8Eci = 26;
 
+        // Throws for a lone surrogate instead of writing U+FFFD in its place.
+        static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
         /// <summary>
         /// The character that stands for FNC1, as for Code 128.
         /// </summary>
@@ -112,7 +115,7 @@ namespace PdfSharp.Drawing.BarCodes
         /// </summary>
         static byte[] EncodeData(string text, string encoding)
         {
-            bool latin1 = text.All(ch => ch <= 255);
+            bool latin1 = text.All(ch => ch <= 255 || ch == Fnc1);
             var result = new List<byte>(text.Length + 4);
             if (!latin1)
             {
@@ -170,7 +173,7 @@ namespace PdfSharp.Drawing.BarCodes
             => index < encoding.Length && Char.ToLowerInvariant(encoding[index]) == 'b';
 
         static byte[] Bytes(string text, bool latin1)
-            => latin1 ? text.Select(ch => (byte)ch).ToArray() : Encoding.UTF8.GetBytes(text);
+            => latin1 ? text.Select(ch => (byte)ch).ToArray() : StrictUtf8.GetBytes(text);
 
         /// <summary>
         /// Base256: the latch, a length of one (up to 249) or two codewords, the bytes, all after the latch randomized
