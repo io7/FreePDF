@@ -713,6 +713,94 @@ public class SignatureVerifierTests
         Assert.Contains("visible signature field", result.UnexpectedChange);
     }
 
+    // The same with the field type inherited from a grandparent field (ISO 32000-1 12.7.3.1).
+    [Fact]
+    public async Task A_visible_empty_signature_widget_that_inherits_its_type_is_reported()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades });
+        var updated = Update(signed, document =>
+        {
+            var grandparent = new PdfDictionary(document);
+            grandparent.Elements.SetName("/FT", "/Sig");
+            grandparent.Elements.SetString("/T", "Group");
+            document.Internals.AddObject(grandparent);
+            var parent = new PdfDictionary(document);
+            parent.Elements.SetString("/T", "Inner");
+            parent.Elements["/Parent"] = grandparent.Reference;
+            document.Internals.AddObject(parent);
+            var widget = CoveringWidget(document);
+            widget.Elements["/Parent"] = parent.Reference;
+            parent.Elements["/Kids"] = new PdfArray(document, widget.Reference!);
+            grandparent.Elements["/Kids"] = new PdfArray(document, parent.Reference!);
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(widget.Reference!);
+            document.Catalog.GetAcroForm()!.Elements.GetArray("/Fields")!.Elements.Add(grandparent.Reference!);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.Equal(PdfSignatureStatus.Indeterminate, result.Status);
+        Assert.NotNull(result.UnexpectedChange);   // refused as a widget the rules do not take, or as a visible empty signature field
+    }
+
+    // An empty signature field that was there when signing gets a new appearance stream later: the widget dictionary is
+    // unchanged, the stream it refers to is not.
+    [Fact]
+    public async Task A_new_appearance_for_an_existing_empty_signature_field_is_reported()
+    {
+        using var certificate = SelfSigned();
+        PdfObjectID appearanceId;
+        byte[] signed;
+        using (var document = new PdfDocument())
+        {
+            var page = document.AddPage();
+            using (var gfx = XGraphics.FromPdfPage(page))
+                gfx.DrawString("PAdES verifier test", new XFont("FreePDF Synthetic", 12), XBrushes.Black, 36, 100);
+            var widget = CoveringWidget(document, appearance: "");
+            appearanceId = ((PdfSharp.Pdf.Advanced.PdfReference)((PdfDictionary)widget.Elements["/AP"]!).Elements["/N"]!).ObjectID;
+            page.Elements["/Annots"] = new PdfArray(document, widget.Reference!);
+            document.Catalog.GetOrCreateAcroForm().Elements["/Fields"] = new PdfArray(document, widget.Reference!);
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256) { Format = PdfSignatureFormat.Pades },
+                new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Reason = "Test" });
+            using var output = new MemoryStream();
+            document.Save(output);
+            signed = output.ToArray();
+        }
+        var updated = Update(signed, document =>
+            ((PdfDictionary)document.Internals.GetObject(appearanceId)!).Stream!.Value = "1 1 1 rg 0 0 595 842 re f"u8.ToArray());
+
+        var results = await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] });
+
+        var signature = Assert.Single(results);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, signature.Status);
+        Assert.Contains("visible signature field", signature.UnexpectedChange);
+    }
+
+    // An empty signature widget the size of the page, with an appearance stream that paints over it.
+    static PdfDictionary CoveringWidget(PdfDocument document, string appearance = "1 1 1 rg 0 0 595 842 re f")
+    {
+        var stream = new PdfDictionary(document);
+        stream.Elements.SetName("/Type", "/XObject");
+        stream.Elements.SetName("/Subtype", "/Form");
+        stream.Elements["/BBox"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+        stream.CreateStream(System.Text.Encoding.ASCII.GetBytes(appearance));
+        document.Internals.AddObject(stream);
+        var widget = new PdfDictionary(document);
+        widget.Elements.SetName("/Type", "/Annot");
+        widget.Elements.SetName("/Subtype", "/Widget");
+        widget.Elements["/Rect"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(595), new PdfInteger(842));
+        widget.Elements["/AP"] = new PdfDictionary(document) { Elements = { ["/N"] = stream.Reference! } };
+        widget.Elements["/P"] = document.Pages[0].Reference;
+        widget.Elements.SetInteger("/F", 4);
+        if (appearance.Length == 0)
+        {
+            widget.Elements.SetName("/FT", "/Sig");
+            widget.Elements.SetString("/T", "Later");
+        }
+        document.Internals.AddObject(widget);
+        return widget;
+    }
+
     // Every signing-certificate attribute must name the signer: a matching v1 does not cover a v2 for another certificate.
     [Fact]
     public async Task A_second_signing_certificate_attribute_for_another_certificate_is_invalid()

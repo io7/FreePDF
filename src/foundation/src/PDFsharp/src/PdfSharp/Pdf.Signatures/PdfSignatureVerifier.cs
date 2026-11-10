@@ -1014,12 +1014,10 @@ namespace PdfSharp.Pdf.Signatures
                     return (change, null, null);
                 if (!permissions.LimitsChanges && Refusal(permissions.AtMost(2)) is { } unexpected)
                     return (null, unexpected, null);
-                // Adding an empty signature field is permitted, but one that shows something can cover what was signed.
-                foreach (var iref in written)
-                {
-                    if (iref.Value is PdfDictionary widget && IsVisibleEmptySignatureWidget(widget))
-                        return (null, $"adding a visible signature field without a signature (object {iref.ObjectNumber})", null);
-                }
+                // Adding or changing an empty signature field is permitted, but one that shows something can cover what
+                // was signed: every such widget on the pages whose dictionary, parents or appearance changed counts.
+                if (ChangedEmptySignatureWidget(document, written) is { } widgetChange)
+                    return (null, widgetChange, null);
                 return (null, null, null);
 
                 string? Refusal(PdfModificationPermissions rules)
@@ -1037,21 +1035,103 @@ namespace PdfSharp.Pdf.Signatures
             }
         }
 
-        // A signature field's widget (the field itself, or a kid of one) with no signature value that shows something: an
-        // appearance or a background colour, on a rectangle with area, not hidden.
+        // A visible widget of a signature field without a signature (field type and value inherited through /Parent, ISO
+        // 32000-1 12.7.3.1) that a later update added or changed: its dictionary, its parents, or anything its appearance
+        // or appearance characteristics refer to.
+        static string? ChangedEmptySignatureWidget(PdfDocument document, List<PdfReference> written)
+        {
+            var changed = new HashSet<PdfObjectID>(written.Select(r => r.ObjectID));
+            for (int index = 0; index < document.PageCount; index++)
+            {
+                if (Resolve(document.Pages[index].Elements["/Annots"]) is not PdfArray annotations)
+                    continue;
+                foreach (var item in annotations.Elements)
+                {
+                    if (Resolve(item) is not PdfDictionary widget || !IsVisibleEmptySignatureWidget(widget))
+                        continue;
+                    if (DependsOnChanged(item, widget, changed))
+                        return $"adding or changing a visible signature field without a signature on page {index + 1}";
+                }
+            }
+            return null;
+        }
+
         static bool IsVisibleEmptySignatureWidget(PdfDictionary widget)
         {
             if (NameOf(widget, "/Subtype") != "/Widget")
                 return false;
-            var field = NameOf(widget, "/FT") == "/Sig" ? widget : Resolve(widget.Elements["/Parent"]) as PdfDictionary;
-            if (field == null || NameOf(field, "/FT") != "/Sig" || Resolve(field.Elements["/V"]) is PdfDictionary)
+            if (Inherited(widget, "/FT") is not PdfName { Value: "/Sig" } || Inherited(widget, "/V") is PdfDictionary)
                 return false;
-            int flags = Resolve(widget.Elements["/F"]) is PdfInteger f ? f.Value : 0;
+            int flags = Number(Resolve(widget.Elements["/F"])) is { } f ? (int)f : 0;
             if ((flags & 2) != 0)
                 return false;
             bool shows = widget.Elements.ContainsKey("/AP")
                          || (Resolve(widget.Elements["/MK"]) as PdfDictionary)?.Elements.ContainsKey("/BG") == true;
             return shows && HasArea(widget);
+        }
+
+        // An inheritable field entry: the widget's, else its parents' (at most 32 levels, against loops).
+        static PdfItem? Inherited(PdfDictionary dictionary, string key)
+        {
+            var current = dictionary;
+            for (int level = 0; current != null && level < 32; level++)
+            {
+                if (Resolve(current.Elements[key]) is { } value and not PdfNull and not PdfNullObject)
+                    return value;
+                current = Resolve(current.Elements["/Parent"]) as PdfDictionary;
+            }
+            return null;
+        }
+
+        // The widget, its parents and everything its /AP and /MK refer to (at most 10000 objects): one of them changed.
+        static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed)
+        {
+            var seen = new HashSet<PdfObjectID>();
+            var pending = new Stack<PdfItem>();
+            pending.Push(widgetItem);
+            for (var parent = widget.Elements["/Parent"]; parent != null && seen.Count < 64;)
+            {
+                pending.Push(parent);
+                parent = (Resolve(parent) as PdfDictionary)?.Elements["/Parent"];
+                if (parent is PdfReference r && seen.Contains(r.ObjectID))
+                    break;
+            }
+            foreach (var key in new[] { "/AP", "/MK" })
+            {
+                if (widget.Elements[key] is { } value)
+                    pending.Push(value);
+            }
+            while (pending.Count > 0 && seen.Count < 10000)
+            {
+                var item = pending.Pop();
+                if (item is PdfReference reference)
+                {
+                    if (changed.Contains(reference.ObjectID))
+                        return true;
+                    if (!seen.Add(reference.ObjectID) || reference.Value is not { } value)
+                        continue;
+                    // A parent's own entries are inherited values; its kids and page are not this widget's.
+                    if (value is PdfDictionary dictionary && !ReferenceEquals(dictionary, widget) && dictionary.Elements.ContainsKey("/Kids"))
+                        continue;
+                    item = value;
+                }
+                if (item is PdfDictionary dictionaryItem)
+                {
+                    foreach (var key in dictionaryItem.Elements.Keys)
+                    {
+                        if (key is "/Parent" or "/P" or "/Kids")
+                            continue;
+                        if (dictionaryItem.Elements[key] is { } child)
+                            pending.Push(child);
+                    }
+                }
+                else if (item is PdfArray array)
+                {
+                    foreach (var child in array.Elements)
+                        pending.Push(child);
+                }
+            }
+            return false;
         }
 
         // A widget's /Rect with area; any entry that is not a number counts as area, to be safe.
@@ -1259,13 +1339,17 @@ namespace PdfSharp.Pdf.Signatures
                 return raw.Length <= limit ? raw : null;
             bool flate = filter is PdfName { Value: "/FlateDecode" }
                          || filter is PdfArray { Elements.Count: 1 } single && Resolve(single.Elements[0]) is PdfName { Value: "/FlateDecode" };
-            // Parameters that change nothing (an empty dictionary, predictor 1) are plain Flate; predictors are not read.
-            if (Resolve(stream.Elements["/DecodeParms"]) is PdfDictionary parameters
+            // Parameters that change nothing (none, null, an empty dictionary, predictor 1) are plain Flate; predictors are
+            // not read.
+            var parameterItem = Resolve(stream.Elements["/DecodeParms"]);
+            if (parameterItem is PdfNull or PdfNullObject)
+                parameterItem = null;
+            if (parameterItem is PdfDictionary parameters
                 && parameters.Elements.Keys.Any(k => k != "/Predictor" || Number(Resolve(parameters.Elements[k])) != 1))
             {
                 return null;
             }
-            if (!flate || stream.Elements["/DecodeParms"] is not (null or PdfDictionary or PdfReference) || raw.Length < 2)
+            if (!flate || parameterItem is not (null or PdfDictionary) || raw.Length < 2)
                 return null;
             try
             {
@@ -1412,6 +1496,7 @@ namespace PdfSharp.Pdf.Signatures
                     var producedAt = data.ReadGeneralizedTime();
                     var responses = data.ReadSequence();
                     (DateTimeOffset?, int?, DateTimeOffset, DateTimeOffset?)? answer = null;
+                    DateTimeOffset? singleCutoff = null;
                     while (responses.HasData && answer == null)
                     {
                         var single = responses.ReadSequence();
@@ -1441,6 +1526,8 @@ namespace PdfSharp.Pdf.Signatures
                         DateTimeOffset? nextUpdate = null;
                         if (single.HasData && single.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
                             nextUpdate = single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadGeneralizedTime();
+                        if (single.HasData && single.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)))
+                            singleCutoff = ArchiveCutoff(single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence());
                         answer = (revocationTime, reason, thisUpdate, nextUpdate);
                     }
                     if (answer == null || Responder(responderId, issuer, certificates, producedAt) is not { } responder
@@ -1448,25 +1535,13 @@ namespace PdfSharp.Pdf.Signatures
                     {
                         return null;
                     }
-                    // responseExtensions [1]: archiveCutoff (RFC 6960 4.4.4), the responder keeps the status of
-                    // certificates that expired at or after it.
-                    DateTimeOffset? archiveCutoff = null;
+                    // archiveCutoff (RFC 6960 4.4.4): the responder keeps the status of certificates that expired at or
+                    // after it. It belongs in the single response's extensions; the response's own are read too.
+                    var archiveCutoff = singleCutoff;
                     while (responses.HasData)
                         responses.ReadEncodedValue();
-                    if (data.HasData && data.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)))
-                    {
-                        var extensions = data.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence();
-                        while (extensions.HasData)
-                        {
-                            var extension = extensions.ReadSequence();
-                            var oid = extension.ReadObjectIdentifier();
-                            if (extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
-                                extension.ReadBoolean();
-                            var value = extension.ReadOctetString();
-                            if (oid == "1.3.6.1.5.5.7.48.1.6")
-                                archiveCutoff = new AsnReader(value, AsnEncodingRules.DER).ReadGeneralizedTime();
-                        }
-                    }
+                    if (archiveCutoff == null && data.HasData && data.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)))
+                        archiveCutoff = ArchiveCutoff(data.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence());
                     var found = answer.Value;
                     return (found.Item1, found.Item2, found.Item3, found.Item4, archiveCutoff);
                 }
@@ -1474,6 +1549,22 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     return null;
                 }
+            }
+
+            // The archiveCutoff extension's time in an Extensions SEQUENCE, if it is there.
+            static DateTimeOffset? ArchiveCutoff(AsnReader extensions)
+            {
+                while (extensions.HasData)
+                {
+                    var extension = extensions.ReadSequence();
+                    var oid = extension.ReadObjectIdentifier();
+                    if (extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
+                        extension.ReadBoolean();
+                    var value = extension.ReadOctetString();
+                    if (oid == "1.3.6.1.5.5.7.48.1.6")
+                        return new AsnReader(value, AsnEncodingRules.DER).ReadGeneralizedTime();
+                }
+                return null;
             }
 
             // CertID: the issuer's name and key hashes and the serial number (RFC 6960 4.1.1).

@@ -223,7 +223,11 @@ by Claude agents, two by Codex) found these. Files signed and countersigned by
 pyHanko 0.38.1 verify as Valid. The verifier is conservative: SHA-1 and MD5 digests, unverifiable time-stamps, data after the
 signature in /Contents, delta and partitioned CRLs and unknown critical CRL
 extensions make a result Indeterminate or are not used, and a PAdES level is
-reported only for valid signatures. It is a technical check: EU trusted lists,
+reported only for valid signatures. A visible empty signature field added or
+changed after a signature makes that signature Indeterminate until the field
+is signed. The appearance streams that filling in a form field writes (which
+ISO 32000 permits after a signature) are not inspected for what they draw. It
+is a technical check: EU trusted lists,
 qualified status, signature policies and ETSI validation reports are not
 covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are
 not verified.
