@@ -158,9 +158,10 @@ table split across pages is one Table element, with heading rows repeated on
 later pages as artifacts. PDF/UA-2 is not covered.
 
 The signing checks verify cryptographic integrity and tamper detection using
-synthetic self-signed certificates. They do not establish trusted identity,
-revocation checking, the behaviour of real timestamp authorities, PAdES/LTV or
-a legal signature status. No FIPS certification is claimed. MD5 exists only for
+synthetic self-signed certificates and, since 7.10.0, a test PKI with an
+in-process OCSP responder, CRLs and an offline time-stamp authority. They do
+not cover real certificate authorities' and time-stamp authorities' services,
+EU trusted lists or a legal signature status. No FIPS certification is claimed. MD5 exists only for
 legacy PDF-format operations and checksums, never as the recommended signature
 digest.
 
@@ -234,7 +235,7 @@ not verified.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
-layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.9. Placeholder inherited types are not
+layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.10. Placeholder inherited types are not
 evidence that those features are complete.
 
 ## Maintenance and security

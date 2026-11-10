@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <FreePDFVersionMajor>7</FreePDFVersionMajor>
-    <FreePDFVersionMinor>9</FreePDFVersionMinor>
+    <FreePDFVersionMinor>10</FreePDFVersionMinor>
     <FreePDFVersionPatch>0</FreePDFVersionPatch>
     <FreePDFVersionLabel></FreePDFVersionLabel>
     <SemVer>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch)</SemVer>
