@@ -103,6 +103,25 @@ PDF/A-3b file validated by veraPDF, with the invoice XML embedded, listed in
 is a well-formed Cross Industry Invoice; it does not validate invoice content
 against EN 16931, a profile or a national CIUS such as XRechnung.
 
+Since 7.9.0, QR codes (`CodeQR`), Data Matrix ECC 200 (`CodeDataMatrix`),
+Code 128 (`Code128`, also GS1-128), EAN-13, EAN-8 and UPC-A are encoded from
+their ISO/IEC standards and drawn as vector shapes, also by MigraDoc's
+`Barcode` element. Regression tests compare QR
+codewords with a published example, check the Reed-Solomon codewords of
+interleaved blocks and the format and version information, and compare Code 128
+symbol values and EAN/UPC check digits with worked examples. Before the release,
+every QR version 1 to 40 at every error correction level and in each mode, at full
+capacity, and text with UTF-8, control characters and payment-code content, was
+decoded by an independent reader (zxing-cpp), also with one copy of the format or
+version information destroyed; drawn codes of each type were decoded from pages
+rendered by MuPDF and poppler. Data Matrix regression tests compare the
+codewords of the standard's encodation example and of ASCII, Upper Shift, ECI,
+FNC1 and Base256 encodation, and check finders, clocks and the Reed-Solomon
+blocks of 52 x 52 and 144 x 144; before the release, symbols of all 30 sizes at
+full capacity and with Latin-1, UTF-8, GS1 and Base256 content were decoded by
+zxing-cpp, and drawn symbols from MuPDF and poppler renders. Whether a printed
+code scans also depends on its size, contrast, quiet zone and print quality.
+
 Tagged PDF/UA-1 output from the layout engine (`PdfDocumentRenderer.TaggedPdf`)
 covers headings (outline levels 1 to 6), paragraphs, lists, tables with heading
 rows, images and charts with alternative text, hyperlinks and text frames;

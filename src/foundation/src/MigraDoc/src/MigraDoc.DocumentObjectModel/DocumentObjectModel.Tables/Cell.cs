@@ -114,6 +114,12 @@ namespace MigraDoc.DocumentObjectModel.Tables
             => Elements.AddChart();
 
         /// <summary>
+        /// Adds a new barcode to the cell.
+        /// </summary>
+        public Barcode AddBarcode()
+            => Elements.AddBarcode();
+
+        /// <summary>
         /// Adds a new Image to the cell.
         /// </summary>
         public Image AddImage(string fileName)

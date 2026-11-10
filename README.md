@@ -44,6 +44,37 @@ well-formed Cross Industry Invoice; checking its content against EN 16931 and
 the profile's business rules is up to your invoicing software. CI validates
 the generated PDF/A-3 file with veraPDF.
 
+## QR codes and bar codes
+
+QR codes, Data Matrix, Code 128 (including GS1-128), EAN-13, EAN-8 and UPC-A
+are drawn as vector shapes, so they stay sharp in print. No image library is
+needed.
+
+```csharp
+var qr = new CodeQR("https://example.com/pay/2026-118", new XSize(90, 90));   // level M, version chosen to fit
+gfx.DrawMatrixCode(qr, new XPoint(40, 40));
+
+gfx.DrawBarCode(new Code128("PO-2026-000123", new XSize(160, 40)) { TextLocation = TextLocation.Below },
+    XBrushes.Black, new XFont("Arial", 9), new XPoint(40, 160));
+gfx.DrawBarCode(new Ean13("590123412345", new XSize(113 * 1.5, 80)), new XPoint(40, 230));   // check digit added
+```
+
+In MigraDoc, add a barcode to a section, cell, text frame, header or footer:
+
+```csharp
+var barcode = section.AddBarcode();
+barcode.Type = BarcodeType.QRCode;   // also DataMatrix, Barcode128, Ean13, Ean8, UpcA, Barcode39, Barcode25i
+barcode.Code = "https://example.com/pay/2026-118";
+barcode.Width = barcode.Height = Unit.FromCentimeter(3);
+```
+
+The size of a QR code includes its quiet zone, and the size of an EAN or UPC
+code includes the quiet zones that hold its outer digits; in MigraDoc the
+shape's size includes the quiet zones of every type. Text that is not
+ASCII goes into QR codes as UTF-8 with the standard's ECI marker; set
+`Utf8Eci = false` for payment apps that expect plain UTF-8. Each code type was
+checked against an independent decoder; see the [support policy](docs/support-policy.md).
+
 ## Accessible PDF (PDF/UA-1)
 
 The layout engine writes tagged PDF for PDF/UA-1, for documents that must be

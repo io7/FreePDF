@@ -105,9 +105,17 @@ namespace PdfSharp.Internal.Imaging
             switch (colorType)
             {
                 case 0:
-                    // Each pixel is a grayscale sample. 1,2,4,8,16. The decoder reduces 16-bit samples to 8 bits.
+                    // Each pixel is a grayscale sample. 1,2,4,8,16. The decoder scales 1-, 2- and 4-bit samples up to
+                    // 8 bits and reduces 16-bit samples to 8 bits.
                     switch (bitDepth)
                     {
+                        case 1:
+                        case 2:
+                        case 4:
+                            if (interlaceMethod != 0)
+                                throw new InvalidOperationException($"Unsupported interlaced PNG with {bitDepth}-bit grayscale samples.");
+                            ii.ImageFormat = ImageFormats.Gray8;
+                            break;
                         case 8:
                         case 16:
                             ii.ImageFormat = ImageFormats.Gray8;
@@ -140,6 +148,9 @@ namespace PdfSharp.Internal.Imaging
                         case 1:
                             ii.ImageFormat = ImageFormats.Indexed1;
                             break;
+                        case 2:
+                            // Embedded with 4 bits per index: PDF allows 2, but the 4-bit path already handles
+                            // packing, palettes and transparency.
                         case 4:
                             ii.ImageFormat = ImageFormats.Indexed4;
                             break;
