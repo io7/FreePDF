@@ -193,6 +193,21 @@ the signer's 2-day certificate had expired; the B-T file without a DSS found no
 chain. Real CAs' responders, delegated OCSP responders and partitioned or delta
 CRLs were not tested. poppler's pdfsig does not recognise document time-stamps.
 
+Since 7.10.0, `PdfSignatureVerifier` checks signatures. Regression tests cover
+valid, untrusted and tampered signatures, signature time-stamps, B-LTA in the
+test PKI with revocation from the DSS, an expired signer validated at its
+time-stamp, a revoked signer, missing revocation data, online revocation,
+countersignatures, and later updates allowed at P=2 and forbidden at P=1. On a
+corpus of such files pyHanko 0.38.1 gave the same verdicts, with two
+differences: after a P=1 certification, an update that adds document
+information is accepted by pyHanko (its policy allows such updates) and is a
+forbidden change for FreePDF, which follows ISO 32000-2 ("no changes" but
+validation data and document time-stamps); and a signer revoked before the
+signing time is "indeterminate" in pyHanko's AdES validation and "Invalid" in
+FreePDF. The verifier is a technical check: EU trusted lists, qualified
+status, signature policies and ETSI validation reports are not covered, and
+RSASSA-PSS signatures on OCSP responses and CRLs are not verified.
+
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
 layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.9. Placeholder inherited types are not

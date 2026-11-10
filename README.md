@@ -233,6 +233,27 @@ they are and are permitted under every certification level, "no changes"
 included. A document time-stamp is an invisible field; it needs .NET 8 or
 later.
 
+### Checking signatures
+
+```csharp
+var results = await PdfSignatureVerifier.VerifyAsync(File.ReadAllBytes("signed.pdf"),
+    new PdfSignatureVerificationOptions { TrustedRoots = [root] });
+foreach (var signature in results)
+    Console.WriteLine($"{signature.FieldName}: {signature.Status} {signature.PadesLevel} {string.Join("; ", signature.Reasons)}");
+```
+
+For each signature and document time-stamp, `PdfSignatureVerifier` reports
+whether the bytes it covers are intact, the signer and the chain, whether the
+chain ends at a trusted root (the ones you give, or the system's), the claimed
+and the time-stamped signing time, revocation (from the DSS by default, online
+on request), the first later change its certification or field locks forbid,
+and the PAdES level reached. A certificate that has expired since counts if
+it was valid at the signature's time-stamp. `Status` is `Valid`, `Invalid`
+(changed bytes, a revoked certificate, a forbidden change) or `Indeterminate`
+(trust or revocation not established), with the reasons. It is a technical
+check: EU trusted lists, qualified status and signature policies are not
+checked. Time-stamps are checked on .NET 8 or later.
+
 ## Project status
 
 FreePDF **7.0** adopts the verified MIT `7.0.0-preview-1` source, carries
