@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.10.0
 
 - PAdES baseline signatures: `PdfSharpDefaultSigner` with
   `Format = PdfSignatureFormat.Pades` writes ETSI.CAdES.detached signatures
