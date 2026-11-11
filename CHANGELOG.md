@@ -229,7 +229,14 @@
     /Kids, through which a page could be replaced; or a stamp's or an empty
     signature widget's indirect /F flags, which a change from Hidden to 0
     revealed. The root of the page tree placed in a page's /Annots as a stamp
-    could be rewritten as an annotation.
+    could be rewritten as an annotation. The page tree's indirect /Kids arrays
+    count as the page tree, also where a file makes one a page's /Annots.
+  - A page's annotations that stay must keep their order (a later one is drawn
+    over an earlier one); a new order needs the annotation level. The order was
+    not compared, so a stamp moved after a filled-in field could cover it and
+    leave the signature Valid.
+  - The checks that tell the roles apart no longer fail on a resource map with
+    entries named /AP and /Subtype.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

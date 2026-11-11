@@ -1761,6 +1761,93 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // The page tree's indirect /Kids array is also the first page's /Annots. The signature is in an invisible field
+    // outside that array, and after it an update swaps the two pages in the array. The array got the rule for /Annots,
+    // which compares the annotations without their order.
+    [Fact]
+    public async Task A_kids_array_that_is_also_an_annots_array_keeps_the_page_order()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >>",
+            "<< /Type /Pages /Kids 5 0 R /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R /Annots 5 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 8 0 R >>",
+            "[3 0 R 4 0 R]",
+            "<< /Type /Annot /Subtype /Widget /FT /Sig /T (sig) /Rect [0 0 0 0] >>",
+            "<< /Length 24 >>\nstream\n0 0 1 rg 0 0 612 792 re f\nendstream",
+            "<< /Length 24 >>\nstream\n1 0 0 rg 0 0 612 792 re f\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, "sig");
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        Assert.Matches(@"/Kids\s*5 0 R", Regex.Matches(Latin1(signed), @"(?s)(?<!\d)2 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value);
+        var updated = AppendUpdate(signed, [(5, "[4 0 R 3 0 R]")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A white stamp lies under a filled-in field in the page's /Annots (later entries are drawn over earlier ones). After
+    // the signature an update moves the stamp after the field, so that it covers the field. The rule for /Annots compared
+    // the annotations without their order.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reordered_annotations_are_a_change(bool certified)
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Approved) /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R >> >>",
+            "<< /Type /Annot /Subtype /Stamp /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 24 >>\nstream\n1 1 1 rg 0 0 612 792 re f\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: certified ? PdfCertificationLevel.FormFilling : null);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var page = Regex.Matches(Latin1(signed), @"(?s)(?<!\d)3 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var swapped = Regex.Replace(page, @"5 0 R\s+4 0 R", "4 0 R 5 0 R");
+        Assert.NotEqual(page, swapped);
+        var updated = AppendUpdate(signed, [(3, swapped)]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A page's XObject resources are named /AP and /Subtype, which is legal. The walks that tell an object's roles apart
+    // read /Subtype as a name wherever they met an /AP entry, which threw for this map, so filling in a field after the
+    // signature made it Indeterminate.
+    [Fact]
+    public async Task Resources_named_AP_and_Subtype_do_not_break_the_check()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /XObject << /AP 6 0 R /Subtype 6 0 R >> >> /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (before) /Rect [300 300 400 350] /P 3 0 R >>",
+            "<< /Length 14 >>\nstream\n/AP Do\n/Subtype Do\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        var filled = AppendUpdate(signed,
+            [(4, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (after) /Rect [300 300 400 350] /P 3 0 R >>")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(filled, options));
+
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The page tree's root also lies in a page's /Annots with a /Subtype other than /Widget. Under a certification that
     // permits annotations, an update rewrites it to put a page before the signed one. The root got the annotation
     // exemption, which was checked before the page tree's rule, although the catalog reaches it as /Pages.

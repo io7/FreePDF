@@ -326,18 +326,6 @@ namespace PdfSharp.Pdf.IO
                     CheckFormEntry(old, now, oldCatalog, newCatalog);
                 return;
             }
-            if (id == old.Form)
-            {
-                if (oldObject is not PdfDictionary oldForm || newObject is not PdfDictionary newForm)
-                    throw Refusal($"changing the interactive form (AcroForm, object {id.ObjectNumber})");
-                CheckForm(old, now, oldForm, newForm);
-                return;
-            }
-            if (id == old.FieldArray)
-            {
-                CheckFieldArray(old, now, oldObject as PdfArray, newObject as PdfArray);
-                return;
-            }
             if (old.Pages.TryGetValue(id, out var pageIndex))
             {
                 var description = $"page {pageIndex + 1} (object {id.ObjectNumber})";
@@ -350,7 +338,24 @@ namespace PdfSharp.Pdf.IO
                 }
                 return;
             }
-            if (old.AnnotationArrays.TryGetValue(id, out pageIndex))
+            // The page-tree nodes above the pages and their /Kids arrays have no rule that lets them change, whatever
+            // other role a file gives them (a /Kids array may also be a page's /Annots).
+            if (old.Structure.Contains(id))
+                throw Refusal($"changing {Describe(oldObject, id)}, a part of the page tree");
+            if (id == old.Form)
+            {
+                if (oldObject is not PdfDictionary oldForm || newObject is not PdfDictionary newForm)
+                    throw Refusal($"changing the interactive form (AcroForm, object {id.ObjectNumber})");
+                CheckForm(old, now, oldForm, newForm);
+                return;
+            }
+            if (id == old.FieldArray)
+            {
+                CheckFieldArray(old, now, oldObject as PdfArray, newObject as PdfArray);
+                return;
+            }
+            // A page's /Annots array, when the document reaches it as such alone.
+            if (old.AnnotationArrays.TryGetValue(id, out pageIndex) && !old.AnnotationsReachedOtherwise.Contains(id))
             {
                 CheckAnnotations(old, now, oldObject as PdfArray, newObject as PdfArray, $"page {pageIndex + 1}");
                 return;
@@ -369,9 +374,6 @@ namespace PdfSharp.Pdf.IO
                     Need(3, $"changing a {annotation.Subtype} annotation on page {annotation.Page + 1} (object {id.ObjectNumber})");
                 return;
             }
-            // The page-tree nodes above the pages get no exemption.
-            if (old.Structure.Contains(id))
-                throw Refusal($"changing {Describe(oldObject, id)}, a node of the page tree");
 
             if (old.Appearances.Contains(id) && !maybeDrawn)
             {
@@ -465,6 +467,12 @@ namespace PdfSharp.Pdf.IO
                     throw Refusal($"removing a form widget from {page}");
                 Need(3, $"removing an annotation from {page}");
             }
+            // The annotations that stay keep their order: a later one is drawn over an earlier one, so a stamp moved
+            // after a field could cover it.
+            var kept = (oldAnnotations?.Elements ?? Enumerable.Empty<PdfItem>()).Select(Key).Where(after.Contains);
+            var keptNow = (newAnnotations?.Elements ?? Enumerable.Empty<PdfItem>()).Select(Key).Where(before.Contains);
+            if (!kept.SequenceEqual(keptNow, StringComparer.Ordinal))
+                Need(3, $"changing the order of the annotations on {page}, which decides what is drawn over what");
             foreach (var item in newAnnotations?.Elements ?? Enumerable.Empty<PdfItem>())
             {
                 if (before.Contains(Key(item)))
@@ -759,9 +767,14 @@ namespace PdfSharp.Pdf.IO
                 var page = document.Pages[index];
                 if (page.Reference != null)
                     result.Add(page.ObjectID);
-                // The nodes above it, each once.
+                // The nodes above it, each once, with their /Kids when that is an array object of its own.
                 for (var parent = page.Elements["/Parent"] as PdfReference; parent != null && result.Add(parent.ObjectID);)
-                    parent = (parent.Value as PdfDictionary)?.Elements["/Parent"] as PdfReference;
+                {
+                    var node = parent.Value as PdfDictionary;
+                    if (node?.Elements["/Kids"] is PdfReference kids)
+                        result.Add(kids.ObjectID);
+                    parent = node?.Elements["/Parent"] as PdfReference;
+                }
             }
             return result;
         }
@@ -846,15 +859,15 @@ namespace PdfSharp.Pdf.IO
                 if (Appearances.Count > 0)
                 {
                     Appearances.ExceptWith(ReachableWithout(document,
-                        (dictionary, key) => key == "/AP" && dictionary.Elements.GetName("/Subtype") == "/Widget"));
+                        (dictionary, key) => key == "/AP" && AnnotationSubtype(dictionary) == "/Widget"));
                 }
                 if (AnnotationAppearances.Count > 0)
                 {
                     AnnotationAppearancesOnly.UnionWith(AnnotationAppearances.Keys);
                     AnnotationAppearancesOnly.ExceptWith(ReachableWithout(document,
-                        (dictionary, key) => key == "/AP" && dictionary.Elements.GetName("/Subtype") is not ("/Widget" or "/")));
+                        (dictionary, key) => key == "/AP" && AnnotationSubtype(dictionary) is { } subtype && subtype != "/Widget"));
                 }
-                if (Annotations.Values.Any(annotation => !annotation.IsWidget))
+                if (AnnotationArrays.Count > 0 || Annotations.Values.Any(annotation => !annotation.IsWidget))
                 {
                     // Left out: the pages' /Annots, and the structure tree, which refers to annotations without showing
                     // anything.
@@ -862,6 +875,7 @@ namespace PdfSharp.Pdf.IO
                         key == "/Annots" && dictionary.Reference is { } reference && Pages.ContainsKey(reference.ObjectID)
                         || key == "/StructTreeRoot" && dictionary.Reference?.ObjectID == catalog);
                     AnnotationsReachedOtherwise.UnionWith(Annotations.Keys.Where(otherwise.Contains));
+                    AnnotationsReachedOtherwise.UnionWith(AnnotationArrays.Keys.Where(otherwise.Contains));
                 }
                 var trailer = document.Trailer;
                 InfoOnly = Info is { } info && !ReachableWithout(document, (dictionary, key) => key == "/Info" && ReferenceEquals(dictionary, trailer)).Contains(info);
@@ -871,11 +885,17 @@ namespace PdfSharp.Pdf.IO
 
             // What AnnotationAppearances holds that the document reaches only through annotations' appearances.
             internal HashSet<PdfObjectID> AnnotationAppearancesOnly { get; } = new();
-            // Annotations other than widgets that the document also reaches other than through a page's /Annots.
+            // Annotations other than widgets, and /Annots arrays, that the document also reaches other than through a
+            // page's /Annots.
             internal HashSet<PdfObjectID> AnnotationsReachedOtherwise { get; } = new();
             // Whether the document reaches the information dictionary, or the metadata, only as such.
             internal bool InfoOnly { get; }
             internal bool MetadataOnly { get; }
+
+            // The subtype of an annotation, known by its /Rect and a /Subtype name; null for anything else (a resource map
+            // may have entries named /AP and /Subtype).
+            static string? AnnotationSubtype(PdfDictionary dictionary)
+                => dictionary.Elements.ContainsKey("/Rect") ? NameValue(dictionary.Elements["/Subtype"]) : null;
 
             // The indirect objects reachable from the trailer when the walk leaves out the entries `skip` names.
             static HashSet<PdfObjectID> ReachableWithout(PdfDocument document, Func<PdfDictionary, string, bool> skip)
