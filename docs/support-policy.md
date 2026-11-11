@@ -233,9 +233,11 @@ signatures (64 each by default) throws instead of being checked, earlier
 revisions are read one at a time and only where a revision ends, and DSS
 inflation counts against its budget, which bounds the cost of a hostile file.
 Outline items more than 200 levels deep are not read, so a deeply nested outline
-cannot overflow the stack. Other deep nesting (direct arrays and dictionaries,
-chains of indirect stream lengths, form field /Kids) can still overflow the
-stack when a file is opened; see the hardening item in the roadmap. Streams the
+cannot overflow the stack. Since 7.10.1 the reader also refuses arrays and
+dictionaries nested more than 256 levels and form fields nested more than 100,
+does not follow a chain of indirect stream lengths, and bounds every walk up
+through a field's /Parent; a signature check throws when an earlier revision
+is refused that way. Streams the
 reader inflates while opening a file (cross-reference and object streams) have
 no size limit yet, so a small file can still make opening it use a lot of
 memory. It

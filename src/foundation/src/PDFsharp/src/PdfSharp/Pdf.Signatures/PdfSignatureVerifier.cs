@@ -1288,6 +1288,12 @@ namespace PdfSharp.Pdf.Signatures
                     if (kept)
                         context.Keep(end, revision);
                 }
+                catch (Exception ex) when (ex.Data.Contains(Parser.LimitExceededKey))
+                {
+                    // A revision FreePDF refuses (nesting, field depth) is not a %%EOF that is no revision: skipping it would
+                    // leave out the signatures in it. No answer, rather than one that could miss a removed signature.
+                    throw new InvalidOperationException($"An earlier revision exceeds FreePDF's limits ({ex.Message}); the signatures in it cannot be looked for.", ex);
+                }
                 catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException && !ex.Data.Contains(TooManySignaturesKey))
                 {
                     // Not a revision that can be read on its own (for example a %%EOF inside a stream).

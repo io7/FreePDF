@@ -233,6 +233,25 @@ public class HostileNestingTests
     }
 
 #if NET8_0_OR_GREATER
+    // An earlier revision whose field tree is too deep to read, and an update that empties the form: the verifier took the
+    // earlier revision for a %%EOF that is no revision and returned an empty list, though a signature could be in it.
+    [Fact]
+    public async Task The_signature_verifier_refuses_a_file_whose_earlier_revision_exceeds_the_limits()
+    {
+        var first = DeepFields(102);
+        var text = Encoding.Latin1.GetString(first);
+        var startXref = text.Substring(text.LastIndexOf("startxref", StringComparison.Ordinal) + 9).Trim().Split('\n', '\r')[0];
+        var update = new StringBuilder("\n");
+        int offset = first.Length + update.Length;
+        update.Append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>\nendobj\n");
+        int xref = first.Length + update.Length;
+        update.Append($"xref\n1 1\n{offset:D10} 00000 n\r\ntrailer\n<< /Size {102 + 5} /Root 1 0 R /Prev {startXref} >>\nstartxref\n{xref}\n%%EOF\n");
+        var file = first.Concat(Encoding.Latin1.GetBytes(update.ToString())).ToArray();
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSharp.Pdf.Signatures.PdfSignatureVerifier.VerifyAsync(file));
+        Assert.Contains("earlier revision", refused.Message);
+    }
+
     [Theory]
     [MemberData(nameof(Files))]
     public async Task The_signature_verifier_does_not_crash(string file)
