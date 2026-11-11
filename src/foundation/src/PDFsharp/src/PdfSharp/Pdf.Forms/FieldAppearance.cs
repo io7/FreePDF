@@ -201,13 +201,19 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
-        /// About how many characters the field's appearances take for each widget: its text, its default appearance
-        /// (whose operands are copied), and room for the operators around them.
+        /// About how many characters the field's appearance takes for each widget: its text, and the operators written for
+        /// each line or option, which are of bounded size (the default appearance's operands are written again as plain
+        /// numbers, and a font name is at most 128 characters). Counted without joining or wrapping the text.
         /// </summary>
         internal static long SizePerWidget(PdfFormTextFieldBase field, FieldContent content)
         {
-            var da = Inherited(field, "/DA") ?? field.Owner.Catalog.GetAcroForm()?.Elements.GetString("/DA") ?? "";
-            return content.TextLength + da.Length + 1024;
+            const long perLine = 256;
+            long lines = 1;
+            if (content.Options != null)
+                lines = Math.Max(1, content.Options.Count);
+            else if (field.TestFlag(PdfFormFieldFlags.Multiline))
+                lines += content.Text.Count(c => c is ' ' or '\n' or '\r');
+            return content.TextLength + lines * perLine + 1024;
         }
 
         /// <summary>
@@ -265,11 +271,19 @@ namespace PdfSharp.Pdf.Forms
                         operands = 3;
                     else if (token == "k")
                         operands = 4;
+                    // The operands are written again as plain numbers: each appearance (and each option of a list box)
+                    // repeats them, so one long operand, such as a number padded with zeros, would be copied many times.
                     if (index >= operands)
-                        color = String.Join(" ", tokens, index - operands, operands + 1);
+                    {
+                        var values = tokens.Skip(index - operands).Take(operands)
+                            .Select(operand => double.TryParse(operand, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0)
+                            .Select(value => value.ToString("0.#####", CultureInfo.InvariantCulture));
+                        color = String.Join(" ", values) + " " + token;
+                    }
                 }
             }
-            return fontName.Length > 0;
+            // A name is at most 127 bytes (ISO 32000-1 Annex C); a longer one would be repeated as long.
+            return fontName.Length is > 1 and <= 128;
         }
 
         static PdfReference? FindFont(PdfFormField field, PdfForm? form, string fontName)

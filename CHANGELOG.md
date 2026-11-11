@@ -88,7 +88,9 @@
   of new appearances (one long value with thousands of widgets, a list box whose
   options repeat one long text, or a long default appearance, which each
   appearance copies), and leaves the document as it was. It counts them before
-  it joins or draws any text. Wrapping a multiline value measures each word
+  it joins or draws any text. The default appearance's colour operands are
+  written again as plain numbers, and a font name longer than 127 bytes is not
+  used, so each appearance and each list-box option adds a bounded amount. Wrapping a multiline value measures each word
   once: it measured the whole line again for every word. Its closing `Q` starts on a new line, so it cannot join
   the page's last token or comment.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
@@ -168,9 +170,13 @@
     as it was. A responder is looked for among all the response's certificates
     and the DSS's.
   - A CRL's issuer name is compared with the issuer's as RFC 5280 7.1 does,
-    whatever string type encodes the same text. A revoking CRL whose name used
-    UTF8String where the certificate used PrintableString was taken for another
-    issuer's and dropped.
+    whatever string type or Unicode form encodes the same text, and a CRL that
+    lists the certificate and was signed with the issuer's key is the issuer's
+    whatever name it gives. A revoking CRL whose name used UTF8String where the
+    certificate used PrintableString was taken for another issuer's and
+    dropped. An OCSP response's issuer name hash is matched against the issuer
+    name as the checked certificate writes it (RFC 6960 4.1.1), or the
+    issuer's own.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

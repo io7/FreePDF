@@ -1252,10 +1252,13 @@ public class SignatureVerifierTests
     }
 
     // A revoking CRL whose issuer name has the issuer's attributes in the other string type (UTF8String for
-    // PrintableString), which RFC 5280 7.1 takes as the same name: compared byte for byte it was another issuer's, was
-    // dropped, and a good OCSP answer made the signature Valid.
-    [Fact]
-    public async Task A_CRL_whose_issuer_name_is_encoded_otherwise_still_revokes()
+    // PrintableString), which RFC 5280 7.1 takes as the same name, or that names its issuer in a way the comparison does
+    // not match (Unicode forms, for one) but that the issuer's key signed: it was taken for another issuer's and dropped,
+    // and a good OCSP answer made the signature Valid.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_CRL_whose_issuer_name_is_encoded_otherwise_still_revokes(bool otherName)
     {
         using var pki = new TestPki();
         var signed = SignBT(pki);
@@ -1263,7 +1266,9 @@ public class SignatureVerifierTests
         var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
         var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
         pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
-        var revoking = pki.CrlWithReencodedIssuerName(pki.Intermediate);
+        var revoking = otherName
+            ? pki.CrlNamedOtherwise(pki.Intermediate, "CN=FreePDF test intermediate CA (another spelling)")
+            : pki.CrlWithReencodedIssuerName(pki.Intermediate);
 
         var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl, revoking]),
             new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));

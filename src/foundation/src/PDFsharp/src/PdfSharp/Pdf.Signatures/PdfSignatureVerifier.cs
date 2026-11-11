@@ -1698,7 +1698,8 @@ namespace PdfSharp.Pdf.Signatures
             {
                 var decoded = name.Decode(X500DistinguishedNameFlags.UseNewLines | X500DistinguishedNameFlags.DoNotUseQuotes);
                 return string.Join("\n", decoded.Split('\n')
-                    .Select(line => string.Join(" ", line.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant()));
+                    .Select(line => string.Join(" ", line.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                        .Normalize(System.Text.NormalizationForm.FormKC).ToUpperInvariant()));
             }
         }
 
@@ -1848,8 +1849,12 @@ namespace PdfSharp.Pdf.Signatures
                 var nameHash = certId.ReadOctetString();
                 var keyHash = certId.ReadOctetString();
                 var serial = certId.ReadInteger();
+                // The name hash is over the issuer name as the certificate being checked writes it (RFC 6960 4.1.1); the
+                // issuer's own subject name is accepted too, for responders that hash that, as the two may be encoded
+                // differently.
                 return serial == new BigInteger(certificate.GetSerialNumber())
-                    && Hash(algorithm.Value, issuer.SubjectName.RawData).AsSpan().SequenceEqual(nameHash)
+                    && (Hash(algorithm.Value, certificate.IssuerName.RawData).AsSpan().SequenceEqual(nameHash)
+                        || Hash(algorithm.Value, issuer.SubjectName.RawData).AsSpan().SequenceEqual(nameHash))
                     && Hash(algorithm.Value, issuer.PublicKey.EncodedKeyValue.RawData).AsSpan().SequenceEqual(keyHash);
             }
 
@@ -1918,6 +1923,7 @@ namespace PdfSharp.Pdf.Signatures
                 out (DateTimeOffset? Time, int? Reason)? claimed)
             {
                 claimed = null;
+                bool? sameName = null;
                 try
                 {
                     var list = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
@@ -1930,8 +1936,10 @@ namespace PdfSharp.Pdf.Signatures
                         tbs.ReadInteger();                                   // version
                     tbs.ReadSequence();                                      // signature
                     var name = tbs.ReadEncodedValue();
-                    if (!SameName(name.Span, certificate.IssuerName.RawData) || !SameName(name.Span, issuer.SubjectName.RawData))
-                        return null;
+                    // A CRL whose name this comparison does not match to the issuer's may still be the issuer's: names may be
+                    // written in ways a comparison misses. It is taken as the issuer's below when it lists the certificate
+                    // and the issuer's key signed it; otherwise, and when it cannot be read further, it is another's.
+                    sameName = SameName(name.Span, certificate.IssuerName.RawData) && SameName(name.Span, issuer.SubjectName.RawData);
                     // The issuer must be allowed to sign CRLs.
                     bool crlSign = issuer.Extensions["2.5.29.15"] is not X509KeyUsageExtension usage || (usage.KeyUsages & X509KeyUsageFlags.CrlSign) != 0;
 
@@ -1965,9 +1973,14 @@ namespace PdfSharp.Pdf.Signatures
                     // signed it, in a form this reader handles; one that cannot be used, for whatever reason, and that
                     // lists the certificate is still a revocation FreePDF cannot rule out. (A forged one can then only
                     // make a result worse, never Valid.)
+                    if (sameName != true && !listed)
+                        return null;
+                    bool signedByIssuer = crlSign && IsVerifiable(algorithm) && VerifySignature(issuer, algorithm, tbsData, signature);
+                    if (sameName != true && !signedByIssuer)
+                        return null;
                     if (scope == Scope.Excluded)
                         return null;
-                    if (!crlSign || scope == Scope.Unsupported || !IsVerifiable(algorithm) || !VerifySignature(issuer, algorithm, tbsData, signature))
+                    if (!signedByIssuer || scope == Scope.Unsupported)
                     {
                         if (listed)
                             claimed = (revocationTime, reason);
@@ -1977,7 +1990,9 @@ namespace PdfSharp.Pdf.Signatures
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
-                    claimed = (null, null);
+                    // Data that cannot be read could revoke, unless its name already showed it to be another issuer's.
+                    if (sameName != false)
+                        claimed = (null, null);
                     return null;
                 }
             }

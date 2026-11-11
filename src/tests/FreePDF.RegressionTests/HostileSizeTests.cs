@@ -581,17 +581,25 @@ public class HostileSizeTests
 #endif
     }
 
-    // A one-character value whose default appearance has a 256 Ki-character colour operand, and 512 widgets: each widget's
-    // appearance copied the operand, 128 MiB, while only the value counted. The default appearance counts too now.
-    [Fact]
-    public void A_long_default_appearance_counts_against_the_flatten_budget()
+    // A default appearance whose colour operand is padded to 256 Ki characters: each appearance copied the operand, for
+    // every widget, and a list box for every option it shows (512 widgets, or 2,048 options in one, made 128 MiB). The
+    // operands are written again as plain numbers now, so the appearances stay small.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_long_default_appearance_operand_is_not_copied_into_appearances(bool listBox)
     {
-        var pdf = FormFile("<< /FT /Tx /T (name) /V (x) /Kids [KIDS] >>", 512, da: $"/Helv 12 Tf {new string('0', 256 * 1024)} g");
+        var da = $"/Helv 0.001 Tf {new string('0', 256 * 1024)} g";
+        var pdf = listBox
+            ? FormFile($"<< /FT /Ch /T (list) /Opt [{string.Concat(Enumerable.Repeat("(o) ", 2048))}] /V (o) /Kids [KIDS] >>", 1, da)
+            : FormFile("<< /FT /Tx /T (name) /V (x) /Kids [KIDS] >>", 512, da);
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
 
-        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+        document.Flatten();
 
-        Assert.Contains("characters of appearances", refused.Message);
+        var xObjects = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/XObject")!;
+        long total = xObjects.Elements.Values.Sum(item => ((item as PdfSharp.Pdf.Advanced.PdfReference)?.Value as PdfDictionary)?.Stream?.Value.Length ?? 0);
+        Assert.True(total < 8 * 1024 * 1024, $"{total} bytes of appearances");
     }
 
     // A multiline field whose 64 KiB value is short words, in a wide widget: wrapping measured the whole line again for

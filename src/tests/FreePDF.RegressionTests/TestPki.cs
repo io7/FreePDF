@@ -187,6 +187,9 @@ public sealed class TestPki : IDisposable
     /// </summary>
     public byte[] CrlWithReencodedIssuerName(X509Certificate2 issuer) => HandBuiltCrl(issuer, null, true);
 
+    /// <summary>A complete CRL signed with the issuer's key but naming another issuer.</summary>
+    public byte[] CrlNamedOtherwise(X509Certificate2 issuer, string name) => HandBuiltCrl(issuer, null, false, new X500DistinguishedName(name).RawData);
+
     // The issuer's name with each attribute value in the other string type.
     static byte[] Reencoded(byte[] name)
     {
@@ -218,7 +221,7 @@ public sealed class TestPki : IDisposable
         return writer.Encode();
     }
 
-    byte[] HandBuiltCrl(X509Certificate2 issuer, string? uri, bool reencodeIssuerName)
+    byte[] HandBuiltCrl(X509Certificate2 issuer, string? uri, bool reencodeIssuerName, byte[]? issuerName = null)
     {
         var now = DateTimeOffset.UtcNow;
         var tbs = new AsnWriter(AsnEncodingRules.DER);
@@ -230,7 +233,7 @@ public sealed class TestPki : IDisposable
                 tbs.WriteObjectIdentifier("1.2.840.113549.1.1.11");
                 tbs.WriteNull();
             }
-            tbs.WriteEncodedValue(reencodeIssuerName ? Reencoded(issuer.SubjectName.RawData) : issuer.SubjectName.RawData);
+            tbs.WriteEncodedValue(issuerName ?? (reencodeIssuerName ? Reencoded(issuer.SubjectName.RawData) : issuer.SubjectName.RawData));
             tbs.WriteUtcTime(now.AddMinutes(-1));
             tbs.WriteUtcTime(now.AddDays(7));
             if (Revoked.Count > 0)
