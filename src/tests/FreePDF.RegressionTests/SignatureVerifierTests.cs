@@ -1632,6 +1632,34 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // The page draws its content in an optional content group, and the catalog's /OCProperties says which groups are
+    // shown. Its default configuration is also the document information dictionary; after the signature an update
+    // rewrites that dictionary to turn the group off, which hides the signed content. The information may change after
+    // an approval signature, and that exemption was given because the walk over what a page shows left out the
+    // optional content configuration.
+    [Fact]
+    public async Task Optional_content_visibility_is_page_content()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R] /D 6 0 R >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Properties << /L 5 0 R >> >> >>",
+            "<< /Length 31 >>\nstream\n/OC /L BDC\n0 0 612 792 re f\nEMC\nendstream",
+            "<< /Type /OCG /Name (Layer) >>",
+            "<< /Title (Report) /ON [5 0 R] >>",
+        }, _ => "/Info 6 0 R");
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed, [(6, "<< /Title (Report) /OFF [5 0 R] >>")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The page's resources are the document information dictionary (the trailer's /Info): after the signature an update
     // rewrites that dictionary to draw another XObject. The information may change after an approval signature, and
     // that exemption was given although the page draws the dictionary.

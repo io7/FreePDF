@@ -199,7 +199,9 @@
     the end, whatever it reaches: a dictionary that calls itself a page, the
     catalog or a page used as resources no longer ends the walk. A page's
     boxes, rotation and other entries (and those it inherits) count as what it
-    draws, but not its place in the page tree, annotations, beads or actions. What a page
+    draws, but not its place in the page tree, annotations, beads or actions. So
+    do the catalog's optional content properties, which decide what is visible,
+    and its output intents. What a page
     draws gets none of the exemptions for later changes, whatever else it also
     is (an appearance, the document information, a field, validation data).
     Beyond 1,000,000 objects reached from pages, 100,000 from a protected field

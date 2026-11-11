@@ -788,6 +788,16 @@ namespace PdfSharp.Pdf.IO
                         }
                     }
                 }
+
+                // What decides how every page shows, outside the pages: which optional content is visible (ISO 32000-1
+                // 8.11.4) and the output intents colours are rendered for (14.11.5).
+                var shown = new Stack<PdfItem>();
+                foreach (var key in new[] { "/OCProperties", "/OutputIntents" })
+                {
+                    if (document.Catalog.Elements[key] is { } value)
+                        shown.Push(value);
+                }
+                CollectDrawn(shown);
             }
 
             internal PdfDocument Document { get; }
@@ -802,7 +812,8 @@ namespace PdfSharp.Pdf.IO
             // Everything a page draws: its content, its resources (its own or inherited) and transparency group, and
             // whatever they reach, through form XObjects, fonts, patterns and soft masks, followed to the end whatever it
             // is: a resource may be called /P, and a page, the page tree or the catalog may serve as resources, so no
-            // name and no kind of object stops the walk. An appearance stream among them is also drawn by the page.
+            // name and no kind of object stops the walk. An appearance stream among them is also drawn by the page. The
+            // catalog's optional content properties and output intents count too: they decide how every page shows.
             // Beyond MaxPageObjects the walk stops, and every appearance counts as drawn by a page.
             internal HashSet<PdfObjectID> PageObjects { get; } = new();
             internal bool PageObjectsIncomplete { get; private set; }
@@ -835,6 +846,12 @@ namespace PdfSharp.Pdf.IO
                         }
                     }
                 }
+                CollectDrawn(pending);
+            }
+
+            // Follows every reference from the given items to the end, adding each object to PageObjects.
+            void CollectDrawn(Stack<PdfItem> pending)
+            {
                 while (pending.Count > 0 && !PageObjectsIncomplete)
                 {
                     var item = pending.Pop();
