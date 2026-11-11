@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.10.1
 
 - Small hostile files no longer overflow the stack when they are opened, in any
   mode (and so also in `PdfSignatureVerifier`). A stack overflow ends the

@@ -289,8 +289,9 @@ and hangs, and keeps PDF/A files conforming. 7.9.0 draws QR, Data Matrix, Code 1
 EAN and UPC codes as vectors, renders MigraDoc barcodes, creates form fields and
 certifies documents when signing. 7.10.0 signs PAdES B-B and B-T signatures,
 adds validation data and document time-stamps (B-LT, B-LTA) and checks the
-signatures of a file. See the release notes
-for [7.10.0](docs/releases/7.10.0.md), [7.9.0](docs/releases/7.9.0.md), [7.8.0](docs/releases/7.8.0.md), [7.7.0](docs/releases/7.7.0.md), [7.6.1](docs/releases/7.6.1.md), [7.6.0](docs/releases/7.6.0.md), [7.5.2](docs/releases/7.5.2.md), [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
+signatures of a file; 7.10.1 hardens reading, flattening and signature checking
+against hostile files. See the release notes
+for [7.10.1](docs/releases/7.10.1.md), [7.10.0](docs/releases/7.10.0.md), [7.9.0](docs/releases/7.9.0.md), [7.8.0](docs/releases/7.8.0.md), [7.7.0](docs/releases/7.7.0.md), [7.6.1](docs/releases/7.6.1.md), [7.6.0](docs/releases/7.6.0.md), [7.5.2](docs/releases/7.5.2.md), [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
 [upstream feature tracking](docs/upstream-feature-tracking.md).
