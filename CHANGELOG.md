@@ -85,8 +85,11 @@
   for every entry, also for entries pointing one byte further into the zeros
   each.
 - Flattening refuses forms whose values would make more than 64 Mi characters
-  of new appearances (one long value with thousands of widgets), and leaves the
-  document as it was. Its closing `Q` starts on a new line, so it cannot join
+  of new appearances (one long value with thousands of widgets, a list box whose
+  options repeat one long text, or a long default appearance, which each
+  appearance copies), and leaves the document as it was. It counts them before
+  it joins or draws any text. Wrapping a multiline value measures each word
+  once: it measured the whole line again for every word. Its closing `Q` starts on a new line, so it cannot join
   the page's last token or comment.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
   needs to be drawn into the page. The check for a missing entry never matched.
@@ -164,6 +167,10 @@
     only make a result worse. A revocation dated after the signature leaves it
     as it was. A responder is looked for among all the response's certificates
     and the DSS's.
+  - A CRL's issuer name is compared with the issuer's as RFC 5280 7.1 does,
+    whatever string type encodes the same text. A revoking CRL whose name used
+    UTF8String where the certificate used PrintableString was taken for another
+    issuer's and dropped.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

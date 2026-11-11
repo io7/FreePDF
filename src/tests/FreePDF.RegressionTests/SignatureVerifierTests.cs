@@ -1251,6 +1251,27 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A revoking CRL whose issuer name has the issuer's attributes in the other string type (UTF8String for
+    // PrintableString), which RFC 5280 7.1 takes as the same name: compared byte for byte it was another issuer's, was
+    // dropped, and a good OCSP answer made the signature Valid.
+    [Fact]
+    public async Task A_CRL_whose_issuer_name_is_encoded_otherwise_still_revokes()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        var revoking = pki.CrlWithReencodedIssuerName(pki.Intermediate);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl, revoking]),
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The same CRL, signed with RSASSA-PSS, but revoking the signer an hour after the signature's time-stamp: a revocation
     // after the signature does not count when it can be checked, so it must not make the signature Indeterminate when it
     // cannot.

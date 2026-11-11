@@ -539,6 +539,76 @@ public class HostileSizeTests
         Assert.NotNull(document.Catalog.Elements["/AcroForm"]);
     }
 
+    // A one-page form with one field of the given kind and widgets, the font /Helv, and the given default appearance.
+    static byte[] FormFile(string field, int widgets, string da = "/Helv 12 Tf 0 g", string rect = "[10 10 100 30]", params string[] extra)
+    {
+        var kids = string.Join(" ", Enumerable.Range(5, widgets).Select(n => $"{n} 0 R"));
+        int font = 5 + widgets;
+        var objects = new List<string>
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA ({da}) /DR << /Font << /Helv {font} 0 R >> >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{kids}] >>",
+            field.Replace("KIDS", kids),
+        };
+        for (int index = 0; index < widgets; index++)
+            objects.Add($"<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect {rect} /P 3 0 R >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        objects.AddRange(extra);
+        return TestPdf.Create(objects.ToArray());
+    }
+
+    // A list box whose /Opt names one 64 Ki-character option 1,100 times (one object): flattening joined all the options
+    // into one string (and encoded it) before it counted them, about 70 Mi characters several times over. They are counted
+    // first now, and the form is refused.
+    [Fact]
+    public void A_list_box_whose_options_repeat_one_long_text_is_counted_before_it_is_joined()
+    {
+        const int options = 1100;
+        int option = 5 + 1 + 1;   // after the widget and the font
+        var pdf = FormFile($"<< /FT /Ch /T (list) /Opt [{string.Join(" ", Enumerable.Repeat($"{option} 0 R", options))}] /V (x) /Kids [KIDS] >>",
+            1, extra: [$"[(x) ({new string('a', 64 * 1024)})]"]);
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
+#if NET8_0_OR_GREATER
+        long before = GC.GetAllocatedBytesForCurrentThread();
+#endif
+
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+
+        Assert.Contains("characters of appearances", refused.Message);
+#if NET8_0_OR_GREATER
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 32 * 1024 * 1024, "the options were joined");
+#endif
+    }
+
+    // A one-character value whose default appearance has a 256 Ki-character colour operand, and 512 widgets: each widget's
+    // appearance copied the operand, 128 MiB, while only the value counted. The default appearance counts too now.
+    [Fact]
+    public void A_long_default_appearance_counts_against_the_flatten_budget()
+    {
+        var pdf = FormFile("<< /FT /Tx /T (name) /V (x) /Kids [KIDS] >>", 512, da: $"/Helv 12 Tf {new string('0', 256 * 1024)} g");
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
+
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+
+        Assert.Contains("characters of appearances", refused.Message);
+    }
+
+    // A multiline field whose 64 KiB value is short words, in a wide widget: wrapping measured the whole line again for
+    // every word, time that grows with the square of the value. Each word is measured once now.
+    [Fact]
+    public void Wrapping_a_long_value_takes_time_in_proportion_to_it()
+    {
+        var value = string.Concat(Enumerable.Repeat("a ", 32 * 1024));
+        var pdf = FormFile($"<< /FT /Tx /Ff 4096 /T (name) /V ({value}) /Kids [KIDS] >>", 1, rect: "[0 0 10000000 30]");
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        document.Flatten();
+
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(3), $"took {started.Elapsed}");
+    }
+
     // A form whose 200 text fields are kids of a field with a 20,000-character name, with values but no font to draw them:
     // the refusal named every field in full, so a few-megabyte file could build gigabytes of message text.
     [Fact]

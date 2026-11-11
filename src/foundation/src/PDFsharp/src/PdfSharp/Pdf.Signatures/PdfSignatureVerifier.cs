@@ -1678,6 +1678,30 @@ namespace PdfSharp.Pdf.Signatures
 
         static bool IsTime(Asn1Tag tag) => tag.HasSameClassAndValue(Asn1Tag.UtcTime) || tag.HasSameClassAndValue(Asn1Tag.GeneralizedTime);
 
+        // Two encoded distinguished names name the same entity: byte for byte, or, as RFC 5280 7.1 compares them, with
+        // the same attributes and values whatever string type encodes them (PrintableString or UTF8String), ignoring
+        // case and runs of white space.
+        static bool SameName(ReadOnlySpan<byte> first, byte[] second)
+        {
+            if (first.SequenceEqual(second))
+                return true;
+            try
+            {
+                return Normalized(new X500DistinguishedName(first.ToArray())) == Normalized(new X500DistinguishedName(second));
+            }
+            catch (CryptographicException)
+            {
+                return false;
+            }
+
+            static string Normalized(X500DistinguishedName name)
+            {
+                var decoded = name.Decode(X500DistinguishedNameFlags.UseNewLines | X500DistinguishedNameFlags.DoNotUseQuotes);
+                return string.Join("\n", decoded.Split('\n')
+                    .Select(line => string.Join(" ", line.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant()));
+            }
+        }
+
         static bool IsCa(X509Certificate2 certificate)
             => certificate.Extensions["2.5.29.19"] is X509BasicConstraintsExtension { CertificateAuthority: true };
 
@@ -1906,7 +1930,7 @@ namespace PdfSharp.Pdf.Signatures
                         tbs.ReadInteger();                                   // version
                     tbs.ReadSequence();                                      // signature
                     var name = tbs.ReadEncodedValue();
-                    if (!name.Span.SequenceEqual(certificate.IssuerName.RawData) || !name.Span.SequenceEqual(issuer.SubjectName.RawData))
+                    if (!SameName(name.Span, certificate.IssuerName.RawData) || !SameName(name.Span, issuer.SubjectName.RawData))
                         return null;
                     // The issuer must be allowed to sign CRLs.
                     bool crlSign = issuer.Extensions["2.5.29.15"] is not X509KeyUsageExtension usage || (usage.KeyUsages & X509KeyUsageFlags.CrlSign) != 0;

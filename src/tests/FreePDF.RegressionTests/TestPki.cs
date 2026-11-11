@@ -179,7 +179,46 @@ public sealed class TestPki : IDisposable
     /// A CRL of the issuer for one partition: its issuing distribution point extension (RFC 5280 5.2.5, critical) names
     /// the URI as the distribution point's full name. It lists the serial numbers in <see cref="Revoked"/>.
     /// </summary>
-    public byte[] PartitionCrl(X509Certificate2 issuer, string uri)
+    public byte[] PartitionCrl(X509Certificate2 issuer, string uri) => HandBuiltCrl(issuer, uri, false);
+
+    /// <summary>
+    /// A complete CRL of the issuer whose issuer name is the issuer's with each value in the other string type
+    /// (PrintableString and UTF8String swapped), which RFC 5280 7.1 still takes as the same name.
+    /// </summary>
+    public byte[] CrlWithReencodedIssuerName(X509Certificate2 issuer) => HandBuiltCrl(issuer, null, true);
+
+    // The issuer's name with each attribute value in the other string type.
+    static byte[] Reencoded(byte[] name)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        var rdns = new AsnReader(name, AsnEncodingRules.DER).ReadSequence();
+        using (writer.PushSequence())
+        {
+            while (rdns.HasData)
+            {
+                var set = rdns.ReadSetOf();
+                using (writer.PushSetOf())
+                {
+                    while (set.HasData)
+                    {
+                        var attribute = set.ReadSequence();
+                        using (writer.PushSequence())
+                        {
+                            writer.WriteObjectIdentifier(attribute.ReadObjectIdentifier());
+                            var tag = attribute.PeekTag();
+                            var value = attribute.ReadCharacterString(tag.TagValue == (int)UniversalTagNumber.PrintableString
+                                ? UniversalTagNumber.PrintableString : UniversalTagNumber.UTF8String);
+                            writer.WriteCharacterString(tag.TagValue == (int)UniversalTagNumber.PrintableString
+                                ? UniversalTagNumber.UTF8String : UniversalTagNumber.PrintableString, value);
+                        }
+                    }
+                }
+            }
+        }
+        return writer.Encode();
+    }
+
+    byte[] HandBuiltCrl(X509Certificate2 issuer, string? uri, bool reencodeIssuerName)
     {
         var now = DateTimeOffset.UtcNow;
         var tbs = new AsnWriter(AsnEncodingRules.DER);
@@ -191,7 +230,7 @@ public sealed class TestPki : IDisposable
                 tbs.WriteObjectIdentifier("1.2.840.113549.1.1.11");
                 tbs.WriteNull();
             }
-            tbs.WriteEncodedValue(issuer.SubjectName.RawData);
+            tbs.WriteEncodedValue(reencodeIssuerName ? Reencoded(issuer.SubjectName.RawData) : issuer.SubjectName.RawData);
             tbs.WriteUtcTime(now.AddMinutes(-1));
             tbs.WriteUtcTime(now.AddDays(7));
             if (Revoked.Count > 0)
@@ -208,6 +247,7 @@ public sealed class TestPki : IDisposable
                     }
                 }
             }
+            if (uri != null)
             using (tbs.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))         // crlExtensions
             using (tbs.PushSequence())
             using (tbs.PushSequence())

@@ -46,22 +46,23 @@ namespace PdfSharp.Pdf.Forms
             foreach (var field in form.Fields.GetAllFields())
             {
                 var content = field.CurrentContent();
-                if (content == null || content.AllText.Length == 0 || field is not PdfFormTextFieldBase textField)
+                if (content == null || content.TextLength == 0 || field is not PdfFormTextFieldBase textField)
                     continue;
                 if (!form.NeedAppearances && field.GetWidgets().All(widget => NormalAppearance(widget) != null))
                     continue;
+                // Each widget gets its own appearance with the whole value and default appearance: one long value, or a
+                // list box whose options repeat one long text, and thousands of widgets would build gigabytes. Counted
+                // before any text is joined or drawn.
+                planned += FieldAppearance.SizePerWidget(textField, content) * Math.Max(1, field.GetWidgets().Count());
+                if (planned > MaxAppearanceText)
+                {
+                    throw new InvalidOperationException(
+                        $"The form cannot be flattened, because its field values would make more than {MaxAppearanceText} characters " +
+                        "of appearances. The document was not changed.");
+                }
                 if (FieldAppearance.CanBuild(textField, content))
                 {
                     pending.Add((textField, content));
-                    // Each widget gets its own appearance with the whole value: one long value and thousands of widgets
-                    // would build gigabytes.
-                    planned += (long)content.AllText.Length * Math.Max(1, field.GetWidgets().Count());
-                    if (planned > MaxAppearanceText)
-                    {
-                        throw new InvalidOperationException(
-                            $"The form cannot be flattened, because its field values would make more than {MaxAppearanceText} characters " +
-                            "of appearances. The document was not changed.");
-                    }
                 }
                 else if (failed++ < namesShown)
                 {

@@ -167,28 +167,47 @@ namespace PdfSharp.Pdf.Forms
             return inset;
         }
 
+        // Widths add up (no kerning), so each word is measured once and the line's width is kept as it grows: measuring
+        // the whole line again for every word made a long value take time that grew with its square.
         static List<string> Wrap(string text, FontWidths widths, double size, double available)
         {
             var lines = new List<string>();
+            double space = widths.Measure(" ", size);
             foreach (var paragraph in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
-                var line = "";
+                var line = new StringBuilder();
+                double lineWidth = 0;
                 foreach (var word in paragraph.Split(' '))
                 {
-                    var candidate = word;
-                    if (line.Length > 0)
-                        candidate = line + " " + word;
-                    if (line.Length > 0 && widths.Measure(candidate, size) > available)
+                    double wordWidth = widths.Measure(word, size);
+                    if (line.Length > 0 && lineWidth + space + wordWidth > available)
                     {
-                        lines.Add(line);
-                        line = word;
+                        lines.Add(line.ToString());
+                        line.Clear().Append(word);
+                        lineWidth = wordWidth;
+                        continue;
                     }
-                    else
-                        line = candidate;
+                    if (line.Length > 0)
+                    {
+                        line.Append(' ');
+                        lineWidth += space;
+                    }
+                    line.Append(word);
+                    lineWidth += wordWidth;
                 }
-                lines.Add(line);
+                lines.Add(line.ToString());
             }
             return lines;
+        }
+
+        /// <summary>
+        /// About how many characters the field's appearances take for each widget: its text, its default appearance
+        /// (whose operands are copied), and room for the operators around them.
+        /// </summary>
+        internal static long SizePerWidget(PdfFormTextFieldBase field, FieldContent content)
+        {
+            var da = Inherited(field, "/DA") ?? field.Owner.Catalog.GetAcroForm()?.Elements.GetString("/DA") ?? "";
+            return content.TextLength + da.Length + 1024;
         }
 
         /// <summary>
@@ -342,6 +361,9 @@ namespace PdfSharp.Pdf.Forms
                 return String.Join("\n", Options);
             }
         }
+
+        /// <summary>The length of <see cref="AllText"/>, without joining the options.</summary>
+        public long TextLength => Options == null ? Text.Length : Options.Sum(option => (long)option.Length) + Math.Max(0, Options.Count - 1);
     }
 
     /// <summary>
