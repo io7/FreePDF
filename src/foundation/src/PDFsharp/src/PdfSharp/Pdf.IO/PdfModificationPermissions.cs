@@ -290,15 +290,24 @@ namespace PdfSharp.Pdf.IO
             if (old.DssObjects.Contains(id) && !maybeDrawn)
                 return;
 
-            // What an annotation draws may change only where annotations may (P=3), also where it is a field, a widget, a
-            // field's appearance, the document information or the metadata, which may change from P=2.
+            // An annotation other than a widget, and what it draws, may change only where annotations may (P=3), also where
+            // it is a field, a widget, a field's appearance, the document information or the metadata, which may change from
+            // P=2.
             bool annotationDrawn = old.AnnotationAppearances.TryGetValue(id, out var annotationPage);
-            if ((annotationDrawn || old.AnnotationAppearancesIncomplete)
+            string annotationPlace = annotationPage >= 0 ? $" on page {annotationPage + 1}" : "";
+            bool otherAnnotation = old.Annotations.TryGetValue(id, out var annotationNode) && !annotationNode.IsWidget
+                                   || old.AnnotationFields.Contains(id);
+            if ((annotationDrawn || otherAnnotation || old.AnnotationAppearancesIncomplete)
                 && (old.Fields.ContainsKey(id) || old.Annotations.ContainsKey(id) || old.Appearances.Contains(id) || id == old.Info || id == old.Metadata))
             {
-                Need(3, annotationDrawn
-                    ? $"changing what an annotation on page {annotationPage + 1} draws (object {id.ObjectNumber})"
-                    : $"changing object {id.ObjectNumber}, which an annotation may draw (the annotations reach more objects than FreePDF follows)");
+                string change;
+                if (annotationDrawn)
+                    change = $"changing what an annotation{annotationPlace} draws (object {id.ObjectNumber})";
+                else if (otherAnnotation)
+                    change = $"changing an annotation other than a widget (object {id.ObjectNumber})";
+                else
+                    change = $"changing object {id.ObjectNumber}, which an annotation may draw (the annotations reach more objects than FreePDF follows)";
+                Need(3, change);
             }
 
             if (old.Fields.ContainsKey(id) && !maybeDrawn)
@@ -368,7 +377,7 @@ namespace PdfSharp.Pdf.IO
             }
             if (annotationDrawn && !maybeDrawn)
             {
-                Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
+                Need(3, $"changing the appearance of an annotation{annotationPlace} (object {id.ObjectNumber})");
                 return;
             }
             // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
@@ -777,8 +786,18 @@ namespace PdfSharp.Pdf.IO
                 {
                     if (field.Reference != null)
                         Fields[field.Reference.ObjectID] = field;
-                    if (field.Dictionary.Elements.GetName("/Subtype") == "/Widget")
+                    var subtype = NameValue(field.Dictionary.Elements["/Subtype"]);
+                    if (subtype == "/Widget")
                         Appearances.UnionWith(AppearanceObjects(field.Dictionary));
+                    // A field that is another kind of annotation: the reader takes it off its page's /Annots, but a viewer
+                    // still draws it from there, so it and what it draws keep the annotation rule.
+                    else if (subtype is { Length: > 1 })
+                    {
+                        if (field.Reference != null)
+                            AnnotationFields.Add(field.Reference.ObjectID);
+                        if (field.Dictionary.Elements["/AP"] is { } fieldAppearance)
+                            CollectAnnotationDrawn(fieldAppearance, -1);
+                    }
                 }
 
                 for (int index = 0; index < document.PageCount; index++)
@@ -828,6 +847,8 @@ namespace PdfSharp.Pdf.IO
             // Beyond MaxAnnotationObjects the walk stops, and every exemption that P=2 grants needs P=3.
             internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
             internal bool AnnotationAppearancesIncomplete { get; private set; }
+            // Fields whose /Subtype names an annotation other than a widget.
+            internal HashSet<PdfObjectID> AnnotationFields { get; } = new();
             const int MaxAnnotationObjects = 1_000_000;
 
             void CollectAnnotationDrawn(PdfItem appearance, int page)

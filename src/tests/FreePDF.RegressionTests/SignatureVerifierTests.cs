@@ -1693,6 +1693,38 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A stamp that the form also lists as a text field: under a certification that permits form filling only, an update
+    // gives it another appearance. The reader takes such a field off its page's /Annots, so the check saw only a field
+    // (which may change /AP from P=2), although a viewer draws the stamp from /Annots. Signed into an existing signature
+    // field, because a new one makes FreePDF write the page's /Annots without the stamp.
+    [Fact]
+    public async Task A_stamp_listed_as_a_field_keeps_the_annotation_rule()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 6 0 R] >>",
+            "<< /Type /Annot /Subtype /Stamp /FT /Tx /T (stamp) /Rect [0 0 612 792] /P 3 0 R /AP << /N 5 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Annot /Subtype /Widget /FT /Sig /T (sig) /Rect [0 0 0 0] /P 3 0 R >>",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, "sig", PdfCertificationLevel.FormFilling);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        int other = Size(signed);
+        var updated = AppendUpdate(signed,
+        [
+            (4, $"<< /Type /Annot /Subtype /Stamp /FT /Tx /T (stamp) /Rect [0 0 612 792] /P 3 0 R /AP << /N {other} 0 R >> >>"),
+            (other, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream"),
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The page tree's root, or the catalog, is also listed as a text widget's rollover appearance, or as a stamp's
     // appearance. After an approval signature an update gives the document a new page tree that puts a page with other
     // content before the signed one. The exemptions for appearances (and for the document information and metadata, which
