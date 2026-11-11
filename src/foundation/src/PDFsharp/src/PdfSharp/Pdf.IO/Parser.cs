@@ -940,9 +940,17 @@ namespace PdfSharp.Pdf.IO
             long left = owner.StructuralBudget - owner._structuralDecoded;
             if (left <= 0)
                 throw LimitExceeded($"The file's cross-reference and object streams decode to more than {owner.StructuralBudget} bytes.");
-            var data = Filters.Filtering.Decode(raw, filter, stream.Elements.GetValue("/DecodeParms"), Math.Min(MaxStructuralStream, left));
-            owner._structuralDecoded += data.Length;
-            return data;
+            // Every filter stage counts, also bytes a predictor then drops: otherwise a stream could inflate a lot and
+            // charge nothing.
+            var limit = new Filters.DecodeLimit(MaxStructuralStream, left);
+            try
+            {
+                return Filters.Filtering.Decode(raw, filter, stream.Elements.GetValue("/DecodeParms"), limit);
+            }
+            finally
+            {
+                owner._structuralDecoded += limit.Spent;
+            }
         }
 
         void Nest()
