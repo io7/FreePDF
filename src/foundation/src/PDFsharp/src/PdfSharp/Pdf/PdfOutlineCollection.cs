@@ -5,8 +5,6 @@ using System.Collections;
 using PdfSharp.Internal;
 using PdfSharp.Drawing;
 
-// Review: CountOpen does not work. - StL/14-10-05
-
 namespace PdfSharp.Pdf
 {
     /// <summary>
@@ -66,16 +64,6 @@ namespace PdfSharp.Pdf
 
             AddToOutlinesTree(outline);
             _outlines.Add(outline);
-
-            if (outline.Opened)
-            {
-                outline = _parent;
-                while (outline != null)
-                {
-                    outline.OpenCount++;
-                    outline = outline.Parent;
-                }
-            }
         }
 
         /// <summary>
@@ -231,14 +219,6 @@ namespace PdfSharp.Pdf
             return GetEnumerator();
         }
 
-        internal int CountOpen()
-        {
-            int count = 0;
-            //foreach (PdfOutline outline in _outlines)
-            //    count += outline.CountOpen();
-            return count;
-        }
-
         void AddToOutlinesTree(PdfOutline outline)
         {
             if (outline == null)
@@ -248,9 +228,15 @@ namespace PdfSharp.Pdf
             if (outline.DestinationPage != null && !ReferenceEquals(Owner, outline.DestinationPage.Owner))
                 throw new ArgumentException("Destination page must belong to this document.");
 
+            // Children replace /First and /Last: an item whose children in the file were not read would lose them.
+            if (_parent is { Truncated: true })
+                throw new InvalidOperationException("This outline item is nested deeper than FreePDF reads; its children cannot be changed.");
+
             // TODO_OLD check the parent problems...
             outline.Document = Owner;
             outline.Parent = _parent;
+            if (_parent != null)
+                _parent._countChanged = true;
 
             //_outlines.Add(outline);
             if (!Owner.IrefTable.Contains(outline.ObjectID))
@@ -284,6 +270,8 @@ namespace PdfSharp.Pdf
             // TODO_OLD check the parent problems...
             //outline.Document = Owner;
             outline.Parent = null!;
+            if (_parent != null)
+                _parent._countChanged = true;
 
             Owner.IrefTable.Remove(outline.Reference);
         }

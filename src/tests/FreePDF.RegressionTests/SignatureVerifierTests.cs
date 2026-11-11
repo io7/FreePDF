@@ -902,6 +902,375 @@ public class SignatureVerifierTests
         return output.ToArray();
     }
 
+    // Bookmarks are compared as the file wrote them. Opening a revision must not rewrite their /Count: a later update that
+    // changes only a /Count would vanish from the comparison, and an unchanged bookmark could look changed.
+    [Fact]
+    public async Task A_later_update_that_changes_only_a_bookmark_count_is_a_change()
+    {
+        using var certificate = SelfSigned();
+        var pdf = SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling);
+        var text = Latin1(pdf);
+        var number = Regex.Matches(text, @"/Outlines\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var body = Regex.Matches(text, $@"(?s)(?<!\d){number} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        Assert.Matches(@"/Count\s+2\b", body);   // Chapter (open) and Section
+
+        var updated = AppendUpdate(pdf, [(int.Parse(number), Regex.Replace(body, @"/Count\s+2\b", "/Count 99"))]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.NotNull(result.ForbiddenChange);
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+    }
+
+    [Fact]
+    public async Task Bookmarks_are_not_a_change_when_a_permitted_update_follows()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling),
+            document => PdfDocumentSecurityStore.Add(document, [certificate.RawData]));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.Null(result.ForbiddenChange);
+        Assert.Null(result.UnexpectedChange);
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // Each earlier revision is read on its own (a copy of the file up to its end), so thousands of tiny updates cost
+    // time and memory with the square of their number. Beyond MaxRevisions the verifier gives no answer rather than one
+    // that could leave out a signature a later update removed.
+    [Fact]
+    public async Task Beyond_MaxRevisions_the_verifier_gives_no_answer()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256));
+        for (int update = 0; update < 100; update++)
+            pdf = AppendUpdate(pdf, [(Size(pdf), "<< /Note (an object nothing refers to) >>")]);
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.Contains("101 revisions", refused.Message);
+
+        var raised = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
+            new PdfSignatureVerificationOptions { TrustedRoots = [certificate], MaxRevisions = 200 }));
+        Assert.Equal(PdfSignatureStatus.Valid, raised.Status);
+    }
+
+    [Fact]
+    public async Task Beyond_MaxSignatures_the_verifier_gives_no_answer()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+                new DigitalSignatureOptions { Reason = "Countersign" }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate], MaxSignatures = 1 }));
+        Assert.Equal(2, (await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] })).Count);
+    }
+
+    // A visible empty signature widget added later whose /Parent is itself: the walk over its parents never ended and
+    // allocated until memory ran out.
+    [Fact]
+    public async Task A_widget_that_is_its_own_parent_is_checked_once()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+        {
+            var appearance = new PdfDictionary(document);
+            appearance.Elements["/Type"] = new PdfName("/XObject");
+            appearance.Elements["/Subtype"] = new PdfName("/Form");
+            appearance.Elements["/BBox"] = new PdfLiteral("[0 0 100 50]");
+            appearance.CreateStream(Encoding.ASCII.GetBytes("0 0 100 50 re f"));
+            document.Internals.AddObject(appearance);
+            var widget = new PdfDictionary(document);
+            document.Internals.AddObject(widget);
+            widget.Elements["/Type"] = new PdfName("/Annot");
+            widget.Elements["/Subtype"] = new PdfName("/Widget");
+            widget.Elements["/FT"] = new PdfName("/Sig");
+            widget.Elements["/Rect"] = new PdfLiteral("[100 100 200 150]");
+            widget.Elements["/F"] = new PdfInteger(4);
+            widget.Elements["/Parent"] = widget.Reference!;
+            widget.Elements["/T"] = new PdfString("Loop");
+            widget.Elements["/P"] = document.Pages[0].Reference!;
+            var states = new PdfDictionary(document);
+            states.Elements["/N"] = appearance.Reference!;
+            widget.Elements["/AP"] = states;
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(widget.Reference!);
+            // A new empty signature field, which signing permits: the check reaches the visible-widget walk.
+            document.Catalog.Elements.GetDictionary("/AcroForm")!.Elements.GetArray("/Fields")!.Elements.Add(widget.Reference!);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
+    }
+
+    // A CRL that revokes the signer, listed under /Certs as well as /CRLs: reading each stream once across the whole DSS
+    // skipped it as a CRL after it failed as a certificate, and the revocation was lost.
+    [Fact]
+    public async Task A_CRL_also_listed_as_a_certificate_is_still_read_as_a_CRL()
+    {
+        using var pki = new TestPki();
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        var withDss = Update(SignBT(pki), document =>
+            PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData], crls: [pki.Crl(pki.Intermediate)]));
+        var listedTwice = Update(withDss, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            dss.Elements.GetArray("/Certs")!.Elements.Insert(0, dss.Elements.GetArray("/CRLs")!.Elements[0]);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(listedTwice, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+    }
+
+    // An update that removes a page's transparency group and adds a /Metadata array the catalog cannot take: the file no
+    // longer opened in Append mode, the Import-mode fallback wrote the page with its group again when comparing, and the
+    // changed page compared as unchanged.
+    [Fact]
+    public async Task A_change_hidden_by_a_file_that_does_not_open_in_Append_mode_is_not_valid()
+    {
+        using var certificate = SelfSigned();
+        var pdf = SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling);
+        var text = Latin1(pdf);
+        var page = Regex.Matches(text, @"(?s)(?<!\d)(\d+) 0 obj\s*(<<(?:(?!endobj).)*?/Type\s*/Page\b(?:(?!endobj).)*?)\s*endobj").Cast<Match>()
+            .Last(m => m.Groups[2].Value.Contains("/Group"));
+        var catalogNumber = Regex.Matches(text, @"/Root\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var catalog = Regex.Matches(text, $@"(?s)(?<!\d){catalogNumber} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var pageWithoutGroup = Regex.Replace(page.Groups[2].Value, @"/Group\s*<<[^>]*>>", "");
+        var catalogWithMetadata = catalog.Substring(0, catalog.LastIndexOf(">>", StringComparison.Ordinal)) + " /Metadata [] >>";
+
+        var updated = AppendUpdate(pdf, [(int.Parse(page.Groups[1].Value), pageWithoutGroup), (int.Parse(catalogNumber), catalogWithMetadata)]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A revoking CRL listed under /Certs and /CRLs, with junk under /OCSPs that uses up the inflation budget before /CRLs
+    // is read: the CRL, already inflated, was skipped, and the revocation lost.
+    [Fact]
+    public async Task A_CRL_already_read_counts_after_the_DSS_budget_runs_out()
+    {
+        using var pki = new TestPki();
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        using var junk = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(junk, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[15 * 1024 * 1024]);
+        var withDss = Update(SignBT(pki), document =>
+            PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData], crls: [pki.Crl(pki.Intermediate)]));
+        var exhausted = Update(withDss, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            dss.Elements.GetArray("/Certs")!.Elements.Insert(0, dss.Elements.GetArray("/CRLs")!.Elements[0]);
+            var ocsps = new PdfArray(document);
+            for (int index = 0; index < 5; index++)
+            {
+                var stream = new PdfDictionary(document);
+                stream.CreateStream(junk.ToArray());
+                stream.Elements["/Filter"] = new PdfName("/FlateDecode");
+                document.Internals.AddObject(stream);
+                ocsps.Elements.Add(stream.Reference!);
+            }
+            dss.Elements["/OCSPs"] = ocsps;
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(exhausted, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+    }
+
+    // A good OCSP answer for the signer, then a CRL entry larger than a DSS item may be (16 MiB), which could be the one
+    // that revokes: it was left unread without anything saying so, and the good answer made the signature Valid. Online, a
+    // responder that answers nothing must not let the same partial DSS show it not revoked either. (What the unread entry
+    // holds does not matter: it is never read.)
+    [Theory]
+    [InlineData(PdfRevocationCheck.Document)]
+    [InlineData(PdfRevocationCheck.Online)]
+    public async Task A_revoking_CRL_too_large_to_read_does_not_leave_the_signature_valid(PdfRevocationCheck check)
+    {
+        using var pki = new TestPki();
+        var bt = SignBT(pki);
+        byte[] withOcsp;
+        using (var client = pki.CreateClient())
+        using (var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append))
+        {
+            await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+                new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
+            using var output = new MemoryStream();
+            await document.SaveAsync(output);
+            withOcsp = output.ToArray();
+        }
+        Assert.Equal(PdfSignatureStatus.Valid,
+            (await PdfSignatureVerifier.VerifyAsync(withOcsp, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0].Status);
+
+        using var oversized = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(oversized, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[17 * 1024 * 1024]);
+        var withCrl = Update(withOcsp, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            var crl = new PdfDictionary(document);
+            crl.CreateStream(oversized.ToArray());
+            crl.Elements["/Filter"] = new PdfName("/FlateDecode");
+            document.Internals.AddObject(crl);
+            var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
+            crls.Elements.Add(crl.Reference!);
+            dss.Elements["/CRLs"] = crls;
+        });
+        pki.OcspStatus = System.Net.HttpStatusCode.InternalServerError;
+        pki.CrlBody = [];
+
+        using var fetcher = pki.CreateClient();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withCrl, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = check,
+            Online = new PdfValidationDataOptions { HttpClient = fetcher },
+        }));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A visible empty signature widget whose appearance dictionary has more entries than the walk over it visits (10,000):
+    // stopping there reported it unchanged, so a changed appearance beyond the limit went unseen.
+    [Fact]
+    public async Task A_widget_too_large_to_walk_counts_as_changed()
+    {
+        using var certificate = SelfSigned();
+        byte[] signed;
+        using (var document = new PdfDocument())
+        {
+            var page = document.AddPage();
+            var form = document.Catalog.GetOrCreateAcroForm();
+            form.AddSignatureField("empty", page, new XRect(36, 300, 200, 50));
+            var widget = page.Elements.GetArray("/Annots")!.Elements.Select(e => (e as PdfSharp.Pdf.Advanced.PdfReference)?.Value as PdfDictionary)
+                .First(d => d?.Elements.GetString("/T") == "empty")!;
+            var states = new PdfDictionary(document);
+            for (int index = 0; index < 12_000; index++)
+            {
+                var appearance = new PdfDictionary(document);
+                appearance.Elements["/Type"] = new PdfName("/XObject");
+                appearance.Elements["/Subtype"] = new PdfName("/Form");
+                appearance.Elements["/BBox"] = new PdfLiteral("[0 0 200 50]");
+                appearance.CreateStream(Encoding.ASCII.GetBytes("0 0 200 50 re f"));
+                document.Internals.AddObject(appearance);
+                states.Elements[$"/S{index}"] = appearance.Reference!;
+            }
+            var ap = new PdfDictionary(document);
+            ap.Elements["/N"] = states;
+            widget.Elements["/AP"] = ap;
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+                new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40) });
+            using var output = new MemoryStream();
+            document.Save(output);
+            signed = output.ToArray();
+        }
+        var updated = Update(signed, document => PdfDocumentSecurityStore.Add(document, [certificate.RawData]));
+
+        var result = (await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }))
+            .Single(r => r.Intact);
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
+    }
+
+    // A field with a one-million-character name and 5,000 kids added later: the permission check built every kid's full
+    // name (gigabytes) before it judged the update.
+    [Fact]
+    public async Task Huge_field_names_are_refused_before_they_are_built()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256));
+        // FreePDF's own Append save refuses such names; the update is written by hand.
+        var text = Latin1(signed);
+        int parent = Size(signed);
+        var form = Regex.Matches(text, @"/AcroForm\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var formBody = Regex.Matches(text, $@"(?s)(?<!\d){form} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var fields = Regex.Match(formBody, @"/Fields\s*(\d+)\s+0\s+R").Groups[1].Value;   // FreePDF writes /Fields indirectly
+        var fieldsBody = Regex.Matches(text, $@"(?s)(?<!\d){fields} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var newFields = Regex.Replace(fieldsBody, @"^\s*\[", $"[{parent} 0 R ");
+        Assert.True(newFields != fieldsBody, fieldsBody);
+        var objects = new List<(int, string)>
+        {
+            (int.Parse(fields), newFields),
+            (parent, $"<< /T ({new string('n', 1_000_000)}) /Kids [{string.Join(" ", Enumerable.Range(parent + 1, 5000).Select(n => $"{n} 0 R"))}] >>"),
+        };
+        for (int index = 0; index < 5000; index++)
+            objects.Add((parent + 1 + index, $"<< /T (k{index}) /Parent {parent} 0 R >>"));
+        var pdf = AppendUpdate(signed, objects.ToArray());
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(30), $"took {started.Elapsed}");
+    }
+
+    // 5,000 signature fields: discovery stops at MaxSignatures instead of collecting them all first.
+    [Fact]
+    public async Task Thousands_of_signature_fields_are_refused_while_they_are_found()
+    {
+        const int count = 5000;
+        var objects = new List<string>
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{string.Join(" ", Enumerable.Range(4, count).Select(n => $"{n} 0 R"))}] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        };
+        for (int index = 0; index < count; index++)
+            objects.Add($"<< /FT /Sig /T (s{index}) /V << /Type /Sig /ByteRange [0 {index} 10 10] /Contents <00> >> >>");
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSignatureVerifier.VerifyAsync(TestPdf.Create(objects.ToArray())));
+
+        Assert.Contains("MaxSignatures", refused.Message);
+    }
+
+    // One small stream that inflates to just over the 16 MiB a DSS item may have, referred to 2,000 times: each reference
+    // inflated it again and the failed attempts did not count against the DSS budget (about 34 GB of work).
+    [Fact]
+    public async Task A_DSS_stream_referred_to_many_times_is_inflated_once()
+    {
+        using var certificate = SelfSigned();
+        using var compressed = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[17 * 1024 * 1024]);
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+        {
+            var crl = new PdfDictionary(document);
+            crl.CreateStream(compressed.ToArray());
+            crl.Elements["/Filter"] = new PdfName("/FlateDecode");
+            document.Internals.AddObject(crl);
+            var crls = new PdfArray(document);
+            for (int index = 0; index < 2000; index++)
+                crls.Elements.Add(crl.Reference!);
+            var dss = new PdfDictionary(document);
+            dss.Elements["/CRLs"] = crls;
+            document.Internals.AddObject(dss);
+            document.Catalog.Elements["/DSS"] = dss.Reference!;
+        });
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.True(result.Intact);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(30), $"took {started.Elapsed}");
+    }
+
+    static byte[] SignWithBookmarks(X509Certificate2 certificate, PdfCertificationLevel certification)
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        document.Outlines.Add("Chapter", page, true).Outlines.Add("Section", page);
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+            new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Certification = certification });
+        using var output = new MemoryStream();
+        document.Save(output);
+        return output.ToArray();
+    }
+
     // ===== Helpers =====
 
     static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
