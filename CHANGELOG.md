@@ -260,6 +260,9 @@
   indirect object. It took the missing entry for a type, so a signed field
   whose /FT /Sig is on its parent did not count as signed: its lock was not
   applied, and adding validation data made the signature Indeterminate.
+- The refusal that a save throws when it would change a signed or locked field
+  no longer has the undocumented `FreePDF.Protected` entry in its `Data`.
+  Nothing read it.
 
 ## 7.10.0
 

@@ -27,14 +27,14 @@ namespace PdfSharp.Pdf.Forms
             document.Catalog.Elements.Remove(PdfCatalog.Keys.AcroForm);
         }
 
+        // The text that flattening may write into new appearances in all.
+        const long MaxAppearanceText = 64L * 1024 * 1024;
+
         /// <summary>
         /// Draws the appearance of every text and choice field that needs one: all of them when the form asks viewers
         /// to build appearances (NeedAppearances), otherwise those with a widget that has none. Nothing is changed if
         /// a value cannot be drawn, so the document is either flattened completely or left as it was.
         /// </summary>
-        // The text that flattening may write into new appearances in all.
-        const long MaxAppearanceText = 64L * 1024 * 1024;
-
         static void PrepareAppearances(PdfForm form)
         {
             var pending = new List<(PdfFormTextFieldBase Field, FieldContent Content)>();

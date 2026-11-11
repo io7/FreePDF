@@ -642,18 +642,8 @@ namespace PdfSharp.Pdf.IO
         }
 
         static InvalidOperationException ProtectionRefusal(string change)
-        {
-            var exception = Refused($"A signature of this document protects what this save changes, so saving would make validators " +
+            => Refused($"A signature of this document protects what this save changes, so saving would make validators " +
                    $"report that signature as broken: {change}. Nothing was written.", $"{change} (protected by a signature)");
-            exception.Data[ProtectedKey] = true;
-            return exception;
-        }
-
-        /// <summary>
-        /// The key under which a refusal's <see cref="Exception.Data"/> holds true when the change touches a signed or
-        /// locked field itself, which no signature permits.
-        /// </summary>
-        internal const string ProtectedKey = "FreePDF.Protected";
 
         /// <summary>
         /// The key under which a refusal's <see cref="Exception.Data"/> holds the description of the change alone, for the

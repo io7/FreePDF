@@ -1511,17 +1511,16 @@ namespace PdfSharp.Pdf.Signatures
                             budget.Incomplete = true;
                         continue;
                     }
-                    var data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated, out var tooLarge);
-                    budget.Left -= Math.Max(inflated, data?.Length ?? 0);
-                    decoded = (data, tooLarge);
+                    decoded = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
+                    budget.Left -= Math.Max(inflated, decoded?.Length ?? 0);
                     budget.Decoded[stream] = decoded;
                 }
                 // Any OCSP response or CRL that is not read (too large, or a filter or parameters FreePDF does not read here)
                 // may be the one that revokes.
-                if (decoded.Data == null && revocationData)
+                if (decoded == null && revocationData)
                     budget.Incomplete = true;
-                if (decoded.Data != null)
-                    yield return decoded.Data;
+                if (decoded != null)
+                    yield return decoded;
             }
         }
 
@@ -1529,27 +1528,23 @@ namespace PdfSharp.Pdf.Signatures
         {
             internal int Left = MaxDssTotal;
             internal bool Incomplete;
-            // PdfDictionary compares by reference.
-            internal readonly Dictionary<PdfDictionary, (byte[]? Data, bool TooLarge)> Decoded = new();
+            // The data of each stream read so far, null when it was not read. PdfDictionary compares by reference.
+            internal readonly Dictionary<PdfDictionary, byte[]?> Decoded = new();
         }
 
         // The stream's data when it is unfiltered or plain Flate (what a DSS uses), inflated with a size limit; any other
-        // filter, or Flate with parameters, is not read. Inflated: how many bytes were produced, also when it was too many;
-        // tooLarge: the data was not read because it is larger than the limit.
-        static byte[]? Decode(PdfDictionary stream, int limit, out int inflated, out bool tooLarge)
+        // filter, Flate with parameters, or data larger than the limit is not read. Inflated: how many bytes were produced,
+        // also when it was too many.
+        static byte[]? Decode(PdfDictionary stream, int limit, out int inflated)
         {
             inflated = 0;
-            tooLarge = false;
             var raw = stream.Stream!.Value;
             var filter = Resolve(stream.Elements["/Filter"]);
             // A null filter, or an empty array of them, is none (ISO 32000-1 7.3.9).
             if (filter is PdfNull or PdfNullObject or PdfArray { Elements.Count: 0 })
                 filter = null;
             if (filter == null)
-            {
-                tooLarge = raw.Length > limit;
-                return tooLarge ? null : raw;
-            }
+                return raw.Length > limit ? null : raw;
             bool flate = NameValue(filter) == "/FlateDecode"
                          || filter is PdfArray { Elements.Count: 1 } single && NameValue(single.Elements[0]) == "/FlateDecode";
             // Parameters that change nothing (none, null, an empty dictionary, predictor 1) are plain Flate; predictors are
@@ -1581,10 +1576,7 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     inflated += read;
                     if (output.Length + read > limit)
-                    {
-                        tooLarge = true;
                         return null;
-                    }
                     output.Write(buffer, 0, read);
                 }
                 return output.ToArray();

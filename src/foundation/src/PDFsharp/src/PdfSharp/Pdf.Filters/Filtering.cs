@@ -108,9 +108,6 @@ namespace PdfSharp.Pdf.Filters
     }
 
     /// <summary>
-    /// Applies standard filters to streams.
-    /// </summary>
-    /// <summary>
     /// How much the reader may still decode: each filter stage at most PerStage bytes, and all stages of all the streams
     /// it is used for together at most what is left. Every stage's output counts, also what a later stage drops.
     /// </summary>
@@ -130,6 +127,9 @@ namespace PdfSharp.Pdf.Filters
         }
     }
 
+    /// <summary>
+    /// Applies standard filters to streams.
+    /// </summary>
     public static class Filtering
     {
         /// <summary>
