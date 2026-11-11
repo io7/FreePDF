@@ -31,7 +31,14 @@
     leave out a signature a later update removed. Discovery stops as soon as
     it finds more, and field names and signature keys are bounded.
   - A revision that does not open in Append mode is read in Import mode, so the
-    signatures in it are still found.
+    signatures in it are still found; later changes are then not compared
+    (Import mode writes some objects differently from the file) and the result
+    is at best Indeterminate.
+  - When the DSS inflation budget runs out, what was already read still
+    counts, and the DSS no longer shows a certificate as not revoked.
+  - A form field whose fully qualified name is longer than 4,096 characters
+    makes the permission check (and a FreePDF save under a signature's rules)
+    fail instead of building every such name.
   - A visible empty signature widget whose /Parent leads back to itself no
     longer makes the check allocate until memory runs out.
   - Every byte inflated from the DSS counts against its 64 MiB budget, also

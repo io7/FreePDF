@@ -238,10 +238,10 @@ namespace PdfSharp.Pdf.Signatures
                 return;
             }
             // A field in an object stream is compared with the signed revision read on its own, which is read only where a
-            // revision ends: elsewhere unknown, not broken.
-            if (signature.Field is { Position: <= 0 } && end < TrimmedLength(context.File) && !context.RevisionEnds.Contains(end))
+            // revision ends, and compared only when both open in Append mode: otherwise unknown, not broken.
+            if (signature.Field is { Position: <= 0 } && end < TrimmedLength(context.File) && !ComparableRevision(context, end))
             {
-                result._reasons.Add("The signature field cannot be compared with the signed revision: the signed bytes do not end at the end of a revision.");
+                result._reasons.Add("The signature field cannot be compared with the signed revision: it does not end at the end of a revision or does not open for comparison.");
                 result.Status = PdfSignatureStatus.Indeterminate;
                 return;
             }
@@ -554,6 +554,22 @@ namespace PdfSharp.Pdf.Signatures
 
         // The field is the signed revision's: written there (its position inside the revision), or, when it sits in an
         // object stream, the same object as in the revision read on its own.
+        // The revision ending there can be read on its own and, like the file, opens in Append mode, where objects keep the
+        // form they are written in.
+        static bool ComparableRevision(Context context, int end)
+        {
+            if (!context.RevisionEnds.Contains(end) || context.Document.OpenMode != PdfDocumentOpenMode.Append)
+                return false;
+            try
+            {
+                return context.Revision(end).OpenMode == PdfDocumentOpenMode.Append;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
         static bool FieldIsSigned(Context context, PdfReference? field, int end)
         {
             if (field == null)
@@ -913,7 +929,7 @@ namespace PdfSharp.Pdf.Signatures
                 var found = Revocation(chain[index], chain[index + 1], dss.OcspResponses, dss.Crls, bestTime, proven, validationTime, authority);
                 if (found.Status == PdfRevocationStatus.Revoked)
                     return PdfRevocationStatus.Revoked;
-                if (found.Status == PdfRevocationStatus.Unknown)
+                if (found.Status == PdfRevocationStatus.Unknown || dss.Incomplete)
                     status = PdfRevocationStatus.Unknown;
             }
             return status;
@@ -932,6 +948,9 @@ namespace PdfSharp.Pdf.Signatures
                 var ocsps = new List<byte[]>(context.Dss.OcspResponses);
                 var crls = new List<byte[]>(context.Dss.Crls);
                 var found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority);
+                // Data the DSS holds beyond what is read could revoke the certificate: not revoked is not shown.
+                if (found.Status == PdfRevocationStatus.Good && context.Dss.Incomplete)
+                    found = (PdfRevocationStatus.Unknown, "The DSS holds more validation data than is read (64 MiB in all); what was not read could revoke the certificate.");
                 if (found.Status == PdfRevocationStatus.Unknown && context.Fetcher is { } fetcher)
                 {
                     if (await fetcher.OcspAsync(certificate, issuer).ConfigureAwait(false) is { } ocsp)
@@ -1019,6 +1038,10 @@ namespace PdfSharp.Pdf.Signatures
             {
                 return (null, null, $"The signed revision cannot be read on its own: {ex.Message}");
             }
+            // Objects are compared by their written form, which is the file's only in Append mode: in Import mode writing a
+            // page adds what it lacks (a transparency group), and a removed entry would compare as unchanged.
+            if (revision.OpenMode != PdfDocumentOpenMode.Append || document.OpenMode != PdfDocumentOpenMode.Append)
+                return (null, null, "Later changes cannot be compared reliably: the file or its signed revision does not open for comparison.");
             {
                 var permissions = PdfModificationPermissions.Read(revision);
                 if (permissions == null)
@@ -1358,6 +1381,8 @@ namespace PdfSharp.Pdf.Signatures
         sealed class Dss
         {
             internal bool Present { get; init; }
+            // Not all of its data was read (the inflation budget ran out).
+            internal bool Incomplete { get; set; }
             internal List<X509Certificate2> Certificates { get; } = [];
             internal List<byte[]> OcspResponses { get; } = [];
             internal List<byte[]> Crls { get; } = [];
@@ -1384,6 +1409,7 @@ namespace PdfSharp.Pdf.Signatures
             }
             dss.OcspResponses.AddRange(Streams(dictionary, "/OCSPs", budget));
             dss.Crls.AddRange(Streams(dictionary, "/CRLs", budget));
+            dss.Incomplete = budget.Incomplete;
             return dss;
         }
 
@@ -1403,12 +1429,16 @@ namespace PdfSharp.Pdf.Signatures
             var listed = new HashSet<PdfDictionary>();
             foreach (var item in array.Elements)
             {
-                if (budget.Left <= 0)
-                    yield break;
                 if (Resolve(item) is not PdfDictionary { Stream: { } } stream || !listed.Add(stream))
                     continue;
                 if (!budget.Decoded.TryGetValue(stream, out var data))
                 {
+                    // Out of budget: what was not read may revoke what was, so the DSS no longer shows anything not revoked.
+                    if (budget.Left <= 0)
+                    {
+                        budget.Incomplete = true;
+                        continue;
+                    }
                     data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
                     budget.Left -= Math.Max(inflated, data?.Length ?? 0);
                     budget.Decoded[stream] = data;
@@ -1421,6 +1451,7 @@ namespace PdfSharp.Pdf.Signatures
         sealed class DssBudget
         {
             internal int Left = MaxDssTotal;
+            internal bool Incomplete;
             // PdfDictionary compares by reference.
             internal readonly Dictionary<PdfDictionary, byte[]?> Decoded = new();
         }

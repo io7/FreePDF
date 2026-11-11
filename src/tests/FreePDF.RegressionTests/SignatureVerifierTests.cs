@@ -1026,6 +1026,93 @@ public class SignatureVerifierTests
         Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
     }
 
+    // An update that removes a page's transparency group and adds a /Metadata array the catalog cannot take: the file no
+    // longer opened in Append mode, the Import-mode fallback wrote the page with its group again when comparing, and the
+    // changed page compared as unchanged.
+    [Fact]
+    public async Task A_change_hidden_by_a_file_that_does_not_open_in_Append_mode_is_not_valid()
+    {
+        using var certificate = SelfSigned();
+        var pdf = SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling);
+        var text = Latin1(pdf);
+        var page = Regex.Matches(text, @"(?s)(?<!\d)(\d+) 0 obj\s*(<<(?:(?!endobj).)*?/Type\s*/Page\b(?:(?!endobj).)*?)\s*endobj").Cast<Match>()
+            .Last(m => m.Groups[2].Value.Contains("/Group"));
+        var catalogNumber = Regex.Matches(text, @"/Root\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var catalog = Regex.Matches(text, $@"(?s)(?<!\d){catalogNumber} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var pageWithoutGroup = Regex.Replace(page.Groups[2].Value, @"/Group\s*<<[^>]*>>", "");
+        var catalogWithMetadata = catalog.Substring(0, catalog.LastIndexOf(">>", StringComparison.Ordinal)) + " /Metadata [] >>";
+
+        var updated = AppendUpdate(pdf, [(int.Parse(page.Groups[1].Value), pageWithoutGroup), (int.Parse(catalogNumber), catalogWithMetadata)]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A revoking CRL listed under /Certs and /CRLs, with junk under /OCSPs that uses up the inflation budget before /CRLs
+    // is read: the CRL, already inflated, was skipped, and the revocation lost.
+    [Fact]
+    public async Task A_CRL_already_read_counts_after_the_DSS_budget_runs_out()
+    {
+        using var pki = new TestPki();
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        using var junk = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(junk, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[15 * 1024 * 1024]);
+        var withDss = Update(SignBT(pki), document =>
+            PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData], crls: [pki.Crl(pki.Intermediate)]));
+        var exhausted = Update(withDss, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            dss.Elements.GetArray("/Certs")!.Elements.Insert(0, dss.Elements.GetArray("/CRLs")!.Elements[0]);
+            var ocsps = new PdfArray(document);
+            for (int index = 0; index < 5; index++)
+            {
+                var stream = new PdfDictionary(document);
+                stream.CreateStream(junk.ToArray());
+                stream.Elements["/Filter"] = new PdfName("/FlateDecode");
+                document.Internals.AddObject(stream);
+                ocsps.Elements.Add(stream.Reference!);
+            }
+            dss.Elements["/OCSPs"] = ocsps;
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(exhausted, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+    }
+
+    // A field with a one-million-character name and 5,000 kids added later: the permission check built every kid's full
+    // name (gigabytes) before it judged the update.
+    [Fact]
+    public async Task Huge_field_names_are_refused_before_they_are_built()
+    {
+        using var certificate = SelfSigned();
+        var signed = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256));
+        // FreePDF's own Append save refuses such names; the update is written by hand.
+        var text = Latin1(signed);
+        int parent = Size(signed);
+        var form = Regex.Matches(text, @"/AcroForm\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var formBody = Regex.Matches(text, $@"(?s)(?<!\d){form} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var fields = Regex.Match(formBody, @"/Fields\s*(\d+)\s+0\s+R").Groups[1].Value;   // FreePDF writes /Fields indirectly
+        var fieldsBody = Regex.Matches(text, $@"(?s)(?<!\d){fields} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        var newFields = Regex.Replace(fieldsBody, @"^\s*\[", $"[{parent} 0 R ");
+        Assert.True(newFields != fieldsBody, fieldsBody);
+        var objects = new List<(int, string)>
+        {
+            (int.Parse(fields), newFields),
+            (parent, $"<< /T ({new string('n', 1_000_000)}) /Kids [{string.Join(" ", Enumerable.Range(parent + 1, 5000).Select(n => $"{n} 0 R"))}] >>"),
+        };
+        for (int index = 0; index < 5000; index++)
+            objects.Add((parent + 1 + index, $"<< /T (k{index}) /Parent {parent} 0 R >>"));
+        var pdf = AppendUpdate(signed, objects.ToArray());
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(30), $"took {started.Elapsed}");
+    }
+
     // 5,000 signature fields: discovery stops at MaxSignatures instead of collecting them all first.
     [Fact]
     public async Task Thousands_of_signature_fields_are_refused_while_they_are_found()
