@@ -217,6 +217,13 @@ namespace PdfSharp.Pdf.Forms
         }
 
         /// <summary>
+        /// The characters read to build the field's appearances once, apart from its widgets: the default appearance,
+        /// which is parsed when the field is checked and when it is drawn, whoever shares it.
+        /// </summary>
+        internal static long SizePerField(PdfFormTextFieldBase field)
+            => 2L * (Inherited(field, "/DA") ?? field.Owner.Catalog.GetAcroForm()?.Elements.GetString("/DA") ?? "").Length;
+
+        /// <summary>
         /// Writes the text as a PDF literal string in the font's single-byte (WinAnsi) encoding.
         /// </summary>
         static string Literal(string text)

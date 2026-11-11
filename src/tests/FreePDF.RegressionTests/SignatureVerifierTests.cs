@@ -1251,6 +1251,28 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A complete CRL of the issuer that lists the signer, whose issuing distribution point gives the signer's own CRL URI
+    // with the host name in capitals (the same URI, RFC 5280 7.4): compared byte for byte, its scope left the signer out,
+    // the revocation was dropped, and a good OCSP answer made the signature Valid. A CRL that lists a certificate now keeps
+    // it from Good whatever this reader makes of its scope.
+    [Fact]
+    public async Task A_CRL_that_lists_the_signer_counts_whatever_its_scope_seems_to_be()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        var revoking = pki.PartitionCrl(pki.Intermediate, TestPki.IntermediateCrlUrl.Replace("pki.test", "PKI.TEST"));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl, revoking]),
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A revoking CRL whose issuer name has the issuer's attributes in the other string type (UTF8String for
     // PrintableString), which RFC 5280 7.1 takes as the same name, or that names its issuer in a way the comparison does
     // not match (Unicode forms, for one) but that the issuer's key signed: it was taken for another issuer's and dropped,

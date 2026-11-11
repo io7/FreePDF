@@ -90,7 +90,11 @@
   appearance copies), and leaves the document as it was. It counts them before
   it joins or draws any text. The default appearance's colour operands are
   written again as plain numbers, and a font name longer than 127 bytes is not
-  used, so each appearance and each list-box option adds a bounded amount. Wrapping a multiline value measures each word
+  used, so each appearance and each list-box option adds a bounded amount. The
+  default appearance each field parses counts too.
+- A content stream that ends inside a literal string ends the string there.
+  The content lexer appended end-of-file characters to it until memory ran
+  out. Wrapping a multiline value measures each word
   once: it measured the whole line again for every word. Its closing `Q` starts on a new line, so it cannot join
   the page's last token or comment.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
@@ -176,7 +180,10 @@
     certificate used PrintableString was taken for another issuer's and
     dropped. An OCSP response's issuer name hash is matched against the issuer
     name as the checked certificate writes it (RFC 6960 4.1.1), or the
-    issuer's own.
+    issuer's own. A CRL that lists the certificate keeps it from being shown as
+    not revoked whatever FreePDF makes of the CRL's scope: a partition whose
+    distribution point differed from the certificate's only in the host name's
+    case was taken to leave it out.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

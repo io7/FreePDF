@@ -602,6 +602,44 @@ public class HostileSizeTests
         Assert.True(total < 8 * 1024 * 1024, $"{total} bytes of appearances");
     }
 
+    // 64 one-character text fields sharing a form-level default appearance of 1 MiB: each field parsed all of it twice (to
+    // check and to draw), while the budget counted a few hundred characters for each. The parsing counts now.
+    [Fact]
+    public void Fields_that_share_a_long_default_appearance_count_its_parsing()
+    {
+        const int count = 64;
+        var fields = string.Join(" ", Enumerable.Range(5, count).Select(n => $"{n} 0 R"));
+        var objects = new List<string>
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{fields}] /DA (/Helv 12 Tf 0 g{new string(' ', 1024 * 1024)}) "
+            + $"/DR << /Font << /Helv {5 + count} 0 R >> >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{fields}] >>",
+            "null",
+        };
+        for (int index = 0; index < count; index++)
+            objects.Add($"<< /Type /Annot /Subtype /Widget /FT /Tx /T (f{index}) /V (x) /Rect [10 10 100 30] /P 3 0 R >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Create(objects.ToArray())), PdfDocumentOpenMode.Modify);
+
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+
+        Assert.Contains("characters of appearances", refused.Message);
+    }
+
+    // A content stream that ends inside a literal string: the content lexer appended an end-of-file character to the
+    // string again and again until memory ran out. The string now ends where the content does.
+    [Theory]
+    [InlineData("BT (abc")]
+    [InlineData("BT (\xFE\xFF\x00a")]
+    public void A_content_string_cut_off_by_the_end_of_the_content_ends_there(string content)
+    {
+        var bytes = TestPdf.Latin1.GetBytes(System.Text.RegularExpressions.Regex.Unescape(content));
+        var reading = Task.Run(() => PdfSharp.Pdf.Content.ContentReader.ReadContent(bytes));
+
+        Assert.True(reading.Wait(TimeSpan.FromSeconds(5)), "reading the content did not end");
+    }
+
     // A multiline field whose 64 KiB value is short words, in a wide widget: wrapping measured the whole line again for
     // every word, time that grows with the square of the value. Each word is measured once now.
     [Fact]

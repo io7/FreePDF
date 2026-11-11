@@ -53,7 +53,8 @@ namespace PdfSharp.Pdf.Forms
                 // Each widget gets its own appearance with the whole value and default appearance: one long value, or a
                 // list box whose options repeat one long text, and thousands of widgets would build gigabytes. Counted
                 // before any text is joined or drawn.
-                planned += FieldAppearance.SizePerWidget(textField, content) * Math.Max(1, field.GetWidgets().Count());
+                planned += FieldAppearance.SizePerField(textField)
+                           + FieldAppearance.SizePerWidget(textField, content) * Math.Max(1, field.GetWidgets().Count());
                 if (planned > MaxAppearanceText)
                 {
                     throw new InvalidOperationException(

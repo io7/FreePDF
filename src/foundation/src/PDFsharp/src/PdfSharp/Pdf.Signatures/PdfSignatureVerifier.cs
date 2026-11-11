@@ -1978,9 +1978,12 @@ namespace PdfSharp.Pdf.Signatures
                     bool signedByIssuer = crlSign && IsVerifiable(algorithm) && VerifySignature(issuer, algorithm, tbsData, signature);
                     if (sameName != true && !signedByIssuer)
                         return null;
-                    if (scope == Scope.Excluded)
+                    // A CRL whose scope leaves the certificate out says nothing about it, unless it lists it anyway: serial
+                    // numbers are the issuer's own, so a listing is about this certificate, and a scope this reader judged
+                    // otherwise (distribution point names compared byte for byte, for one) must not drop a revocation.
+                    if (scope == Scope.Excluded && !listed)
                         return null;
-                    if (!signedByIssuer || scope == Scope.Unsupported)
+                    if (!signedByIssuer || scope != Scope.Included)
                     {
                         if (listed)
                             claimed = (revocationTime, reason);
