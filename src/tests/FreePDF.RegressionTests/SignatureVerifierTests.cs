@@ -1660,6 +1660,34 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // Page entries that point at pages by their nature (separations of the same page, a document part's first and last
+    // page) are its place in the document, not what it shows. Followed, they led the walk over what pages draw to the
+    // page itself and on to its widgets, so filling in an ordinary field after an approval signature was refused.
+    [Theory]
+    [InlineData("")]
+    [InlineData(" /SeparationInfo << /Pages [3 0 R] /DeviceColorant /Cyan >>")]
+    [InlineData(" /DPart 5 0 R")]
+    public async Task Page_entries_that_point_at_pages_do_not_make_fields_page_content(string entry)
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R]{entry} >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (before) /Rect [300 300 400 350] /P 3 0 R >>",
+            "<< /Type /DPart /Start 3 0 R /End 3 0 R >>",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        var filled = AppendUpdate(signed,
+            [(4, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (after) /Rect [300 300 400 350] /P 3 0 R >>")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(filled, options));
+
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The page's resources are the document information dictionary (the trailer's /Info): after the signature an update
     // rewrites that dictionary to draw another XObject. The information may change after an approval signature, and
     // that exemption was given although the page draws the dictionary.

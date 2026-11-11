@@ -822,12 +822,15 @@ namespace PdfSharp.Pdf.IO
             void CollectPageObjects(PdfPage page)
             {
                 var pending = new Stack<PdfItem>();
-                // Every entry of the page but its place in the structure and what it does rather than shows: its content,
+                // Every entry of the page but its place in the document and what it does rather than shows: its content,
                 // resources and group, and also its boxes, rotation and anything else on it (a box may hold an indirect
-                // number that, changed, crops what was signed).
+                // number that, changed, crops what was signed). Left out: the page tree, annotations, beads, actions and
+                // presentation steps, separations of the same page and the document part (both point at pages), and
+                // private application data; followed, they reach pages and from there the fields on them.
                 foreach (var key in page.Elements.Keys)
                 {
-                    if (key is not ("/Parent" or "/Annots" or "/B" or "/AA" or "/PresSteps") && page.Elements[key] is { } value)
+                    if (key is not ("/Parent" or "/Annots" or "/B" or "/AA" or "/PresSteps" or "/SeparationInfo" or "/DPart" or "/PieceInfo")
+                        && page.Elements[key] is { } value)
                         pending.Push(value);
                 }
                 // The attributes it inherits (ISO 32000-1 7.7.3.4) when it does not set them: from the nearest node above.
