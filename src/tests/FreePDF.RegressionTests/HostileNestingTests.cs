@@ -142,6 +142,44 @@ public class HostileNestingTests
         document.Save(new MemoryStream());
     }
 
+    // A cross-reference section whose count is a run of 100,000 'R' tokens: an old fallback in the integer reader read an
+    // object ID after each 'R', recursing once per token.
+    [Fact]
+    public void A_run_of_R_tokens_in_the_cross_reference_section_does_not_recurse()
+    {
+        var head = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n";
+        var xref = head.Length;
+        var bytes = Encoding.ASCII.GetBytes(head + "xref\n0 " + string.Concat(Enumerable.Repeat("R ", 100_000))
+                                            + "\ntrailer\n<< /Root 1 0 R /Size 4 >>\nstartxref\n" + xref + "\n%%EOF\n");
+
+        foreach (var mode in new[] { PdfDocumentOpenMode.Import, PdfDocumentOpenMode.Modify, PdfDocumentOpenMode.Append })
+            OpenAndSave(bytes, mode);
+    }
+
+    // Clearing the value of a field that is its own parent, and asking a typeless one for its type, followed /Parent
+    // without end.
+    [Fact]
+    public void A_field_that_is_its_own_parent_can_be_cleared_and_typed()
+    {
+        var bytes = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (x) /Parent 4 0 R /Rect [10 10 150 30] /P 3 0 R >>",
+            "<< /T (node) /Parent 5 0 R /Kids [] >>",
+        });
+
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+        var fields = document.Catalog.AcroForm!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>().ToList();
+        var text = fields.Single(f => f.Name == "name");
+        text.Value = null;
+        Assert.Null(text.Value);
+        var node = fields.Single(f => f.Name == "node");
+        _ = Record.Exception(() => node.FieldType);
+    }
+
     // A metadata stream whose /Filter is an array that holds itself: decoding recursed without end.
     [Fact]
     public void A_filter_array_that_holds_itself_is_not_applied()

@@ -183,7 +183,7 @@ namespace PdfSharp.Pdf.Forms
                     var acroField = fields.Elements.GetRequiredDictionary<PdfFormField>(idx);
                     HandleAP(acroField);
                     if (acroField.Elements.ContainsKey(PdfFormField.Keys.Kids) && depth >= MaxDepth)
-                        throw new PdfReaderException($"The form's fields are nested more than {MaxDepth} levels deep.");
+                        throw Parser.LimitExceeded($"The form's fields are nested more than {MaxDepth} levels deep.");
                     var kids = acroField.Elements.GetArray(PdfFormField.Keys.Kids);
                     if (kids != null)
                         PrepareFields(kids, seen, depth + 1);

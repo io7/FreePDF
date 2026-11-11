@@ -36,10 +36,7 @@ namespace PdfSharp.Pdf.Forms
             get
             {
                 // PdfFormFieldNode doesn’t define the field type, so we ask the parent.
-                var parent = Parent;
-                if (parent == null)
-                    throw new Exception("PdfFormFieldNode must have a parent, which defines the type of the field, or it should not be asked, as a child of the field defines the type.");
-                return parent.FieldType;
+                return InheritedFieldType() ?? throw new Exception("PdfFormFieldNode must have a parent, which defines the type of the field, or it should not be asked, as a child of the field defines the type.");
             }
         }
     }

@@ -27,7 +27,12 @@
   - a stream whose /Filter is an array that holds itself: a filter array
     whose entries are not all names is not applied;
   - 50,000 nested `[` in a content stream read with `ContentReader`: content
-    arrays nest at most 32 levels.
+    arrays nest at most 32 levels;
+  - a cross-reference section with a run of `R` tokens where a number belongs:
+    an old fallback in the integer reader recursed once per token. It is
+    removed;
+  - clearing the value of a field that is its own parent, or asking a field
+    without a type of its own for its type.
 - XMP metadata nested more than 64 levels deep is not read (the XML DOM reads
   and writes it recursively); it stays in the file as it is.
 

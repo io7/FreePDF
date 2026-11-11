@@ -65,6 +65,13 @@ namespace PdfSharp.Pdf.Forms
         /// This field and its ancestors through /Parent, nearest first: at most <see cref="MaxAncestors"/> + 1, each once.
         /// A /Parent that leads back to a field already visited (a damaged or hostile file) ends the walk.
         /// </summary>
+        /// <summary>
+        /// The type of the nearest ancestor that defines one (not a node or a widget, which take their parent's), or null
+        /// when none does within <see cref="MaxAncestors"/>.
+        /// </summary>
+        internal Type? InheritedFieldType()
+            => SelfAndAncestors().Skip(1).FirstOrDefault(ancestor => ancestor is not PdfFormFieldNode and not PdfFormFieldWidget)?.FieldType;
+
         internal IEnumerable<PdfFormField> SelfAndAncestors()
         {
             var seen = new HashSet<PdfFormField>();
@@ -110,8 +117,14 @@ namespace PdfSharp.Pdf.Forms
 
                 if (value == null)
                 {
+                    // Cleared here and on every ancestor (bounded, against /Parent loops), each read-only one refusing.
                     Elements.Remove(Keys.V);
-                    Parent?.Value = null;
+                    foreach (var ancestor in SelfAndAncestors().Skip(1))
+                    {
+                        if (ancestor.IsReadOnly)
+                            throw new InvalidOperationException("The field is read only.");
+                        ancestor.Elements.Remove(Keys.V);
+                    }
                     return;
                 }
 
@@ -635,10 +648,7 @@ namespace PdfSharp.Pdf.Forms
             get
             {
                 // PdfFormFieldWidget doesn’t define the field type, so we ask the parent.
-                var parent = Parent;
-                if (parent == null)
-                    throw new Exception("PdfFormFieldWidget must have a parent, which defines the type of the field.");
-                return parent.FieldType;
+                return InheritedFieldType() ?? throw new Exception("PdfFormFieldWidget must have a parent, which defines the type of the field.");
             }
         }
     }

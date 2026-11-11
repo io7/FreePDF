@@ -885,8 +885,22 @@ namespace PdfSharp.Pdf.IO
             if (++_nesting > MaxNesting)
             {
                 _nesting--;
-                ParserDiagnostics.ThrowParserException($"Arrays and dictionaries are nested more than {MaxNesting} levels deep.");
+                throw LimitExceeded($"Arrays and dictionaries are nested more than {MaxNesting} levels deep.");
             }
+        }
+
+        /// <summary>
+        /// Marks a <see cref="PdfReaderException"/> as a refusal of a file that exceeds one of FreePDF's limits (nesting,
+        /// field depth), not as damage: a signature check that reads earlier revisions must not take such a revision for a
+        /// %%EOF that is no revision and skip the signatures in it.
+        /// </summary>
+        internal const string LimitExceededKey = "FreePDF.LimitExceeded";
+
+        internal static PdfReaderException LimitExceeded(string message)
+        {
+            var exception = new PdfReaderException(message);
+            exception.Data[LimitExceededKey] = true;
+            return exception;
         }
 
         Symbol SkipCharsUntil(Symbol stop)
@@ -982,18 +996,9 @@ namespace PdfSharp.Pdf.IO
                 Debug.Assert(false, "ReadInteger found a long integer.");
             }
 
-            if (symbol == Symbol.R)
-            {
-                Debug.Assert(false, "Should not come here.");
-
-                SizeType position = _lexer.Position;
-                //        MoveToObject(lexer.Token);
-                ReadObjectID(null);
-                int n = ReadInteger();
-                ReadSymbol(Symbol.EndObj);
-                _lexer.Position = position;
-                return n;
-            }
+            // An 'R' here is an unexpected token like any other. An old fallback read an object ID after it, which read an
+            // integer again: a run of 'R' tokens (in a damaged cross-reference section, say) recursed once per token until
+            // the stack overflowed.
             ParserDiagnostics.HandleUnexpectedToken(_lexer.Token, _lexer.DumpNeighborhoodOfPosition());
             return 0;
         }
