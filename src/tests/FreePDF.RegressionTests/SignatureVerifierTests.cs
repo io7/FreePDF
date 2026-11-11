@@ -1134,6 +1134,36 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A CRL or an OCSP response that revokes the signer, signed with RSASSA-PSS (which FreePDF does not verify), next to a
+    // good answer of the other kind: the one FreePDF could not verify was dropped as if it said nothing, and the good
+    // answer made the signature Valid.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_revocation_FreePDF_cannot_verify_does_not_leave_the_signature_valid(bool revokingCrl)
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = revokingCrl ? pki.OcspResponseFor(pki.Signer, pki.Intermediate) : pki.Crl(pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        pki.Pss = true;
+        var revoking = revokingCrl ? pki.Crl(pki.Intermediate) : pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+        byte[][] certificates = [pki.Intermediate.RawData, pki.Root.RawData];
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document };
+        var withGood = Update(signed, document => PdfDocumentSecurityStore.Add(document, certificates,
+            ocspResponses: revokingCrl ? [authority, good] : [authority], crls: [rootCrl, .. revokingCrl ? Array.Empty<byte[]>() : [good]]));
+        var withBoth = Update(signed, document => PdfDocumentSecurityStore.Add(document, certificates,
+            ocspResponses: revokingCrl ? [authority, good] : [authority, revoking], crls: revokingCrl ? [rootCrl, revoking] : [rootCrl, good]));
+
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(withGood, options)).Status);
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withBoth, options));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A good OCSP answer for the signer, then a CRL that revokes it, stored with filter parameters the DSS reader does not
     // read (/DecodeParms [null]): only a CRL too large to read counted as unread, so this one was skipped without a trace
     // and the good answer made the signature Valid.
@@ -1184,12 +1214,14 @@ public class SignatureVerifierTests
     // A signed file with an empty signature field whose /FT /Sig is 40 levels above its widget, and an update that makes
     // the widget's appearance cover the page: the verifier looked for the inherited type through 32 levels only, while the
     // reader takes field trees 100 levels deep, so the widget was not seen as a signature field's and the drawing over the
-    // signed page went unreported.
-    [Fact]
-    public async Task A_signature_field_type_inherited_from_far_above_still_marks_its_widget()
+    // signed page went unreported. The same with a type stored as an indirect object (a PdfNameObject), which the check
+    // did not take for a name.
+    [Theory]
+    [InlineData(40, false)]
+    [InlineData(1, true)]
+    public async Task A_signature_field_type_inherited_from_far_above_still_marks_its_widget(int levels, bool indirectType)
     {
-        const int levels = 40;
-        int widget = levels + 4, appearance = levels + 5;
+        int widget = levels + 4, appearance = levels + 5, typeObject = levels + 6;
         var objects = new List<string>
         {
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
@@ -1199,11 +1231,12 @@ public class SignatureVerifierTests
         for (int level = 0; level < levels; level++)
         {
             int number = level + 4;
-            var type = level == 0 ? " /FT /Sig" : $" /Parent {number - 1} 0 R";
+            var type = level > 0 ? $" /Parent {number - 1} 0 R" : indirectType ? $" /FT {typeObject} 0 R" : " /FT /Sig";
             objects.Add($"<< /T (n{level}){type} /Kids [{number + 1} 0 R] >>");
         }
         objects.Add($"<< /Type /Annot /Subtype /Widget /Parent {widget - 1} 0 R /Rect [300 300 400 350] /P 3 0 R /AP << /N {appearance} 0 R >> >>");
         objects.Add("<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream");
+        objects.Add("/Sig");
         using var certificate = SelfSigned();
         var signed = SignExisting(TestPdf.Create(objects.ToArray()), certificate);
         var updated = AppendUpdate(signed,
@@ -1217,18 +1250,22 @@ public class SignatureVerifierTests
 
     // A signed field whose /FT /Sig is on its parent, with a lock on every field. The permission check took the missing /FT
     // for the type "/" instead of inheriting /Sig and did not see the field as signed: adding validation data made the
-    // signature Indeterminate, and filling in the locked field was not reported as forbidden.
-    [Fact]
-    public async Task The_lock_of_a_signed_field_that_inherits_its_type_is_kept()
+    // signature Indeterminate, and filling in the locked field was not reported as forbidden. The same with the parent's
+    // type stored as an indirect object.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_lock_of_a_signed_field_that_inherits_its_type_is_kept(bool indirectType)
     {
         var unsigned = TestPdf.Create(new[]
         {
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R] >>",
-            "<< /T (approval) /FT /Sig /Kids [5 0 R] >>",
+            indirectType ? "<< /T (approval) /FT 7 0 R /Kids [5 0 R] >>" : "<< /T (approval) /FT /Sig /Kids [5 0 R] >>",
             "<< /Type /Annot /Subtype /Widget /T (sig) /Parent 4 0 R /Rect [36 36 196 76] /P 3 0 R /Lock << /Type /SigFieldLock /Action /All >> >>",
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (other) /V (before) /Rect [36 400 236 420] /P 3 0 R >>",
+            "/Sig",
         });
         using var certificate = SelfSigned();
         var signed = SignExisting(unsigned, certificate, "approval.sig");

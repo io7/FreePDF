@@ -223,6 +223,20 @@ public class HostileNestingTests
             OpenAndSave(bytes, mode);
     }
 
+    // A trailer with an entry nested 300 levels deep: the refusal was taken for damage, the file was rebuilt from its
+    // objects, the rebuild skipped that trailer, and the last catalog in the file was used instead, which may belong to
+    // another revision or to none.
+    [Fact]
+    public void A_trailer_nested_past_the_limit_is_refused_not_rebuilt()
+    {
+        var nested = new string('[', 300) + new string(']', 300);
+        var bytes = TestPdf.Create(Start.Concat(new[] { "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>" }).ToArray(),
+            _ => "/Junk " + nested);
+
+        foreach (var mode in new[] { PdfDocumentOpenMode.Import, PdfDocumentOpenMode.Modify, PdfDocumentOpenMode.Append })
+            Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(bytes), mode));
+    }
+
     // A content stream of 50,000 '[': the content parser recursed once per level.
     [Fact]
     public void Deeply_nested_content_arrays_are_refused()

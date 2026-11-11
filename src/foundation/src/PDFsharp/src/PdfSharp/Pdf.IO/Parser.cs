@@ -1825,9 +1825,10 @@ namespace PdfSharp.Pdf.IO
                         }
                     }
                 }
-                catch (PdfReaderException)
+                catch (PdfReaderException ex) when (!IsLimitExceeded(ex))
                 {
-                    // An unreadable one is skipped; an older one may do.
+                    // An unreadable one is skipped; an older one may do. One FreePDF refuses for its limits is not skipped:
+                    // the trailer chosen instead, or the last catalog, could belong to another revision or to none.
                     dictionary = null;
                 }
                 if (dictionary == null)
@@ -2020,7 +2021,7 @@ namespace PdfSharp.Pdf.IO
                     rebuilt.MemberOf[number] = streamID;
                 }
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
+            catch (Exception ex) when (ex is not OutOfMemoryException && !IsLimitExceeded(ex))
             {
                 PdfSharpLogHost.PdfReadingLogger.LogWarning("Object stream {ObjectID} could not be read while rebuilding: {Message}", streamID, ex.Message);
             }

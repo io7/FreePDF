@@ -3,6 +3,7 @@
 
 using PdfSharp.Drawing;
 using PdfSharp.Pdf.Annotations;
+using System.Text;
 using PdfSharp.Pdf.IO;
 
 #pragma warning disable CS1591 // TODO_DOC: Missing XML comment for publicly visible type or member
@@ -62,9 +63,26 @@ namespace PdfSharp.Pdf.Forms
         internal const int MaxAncestors = 100;
 
         /// <summary>
-        /// This field and its ancestors through /Parent, nearest first: at most <see cref="MaxAncestors"/> + 1, each once.
-        /// A /Parent that leads back to a field already visited (a damaged or hostile file) ends the walk.
+        /// The fully qualified name for a message: at most <paramref name="maxLength"/> characters, then "…". It is built
+        /// only that far, because the file chooses the names: 100 levels of one long /T would make the full name
+        /// gigabytes.
         /// </summary>
+        internal string ShortFullName(int maxLength = 200)
+        {
+            var names = SelfAndAncestors().Select(ancestor => ancestor.Name).Where(name => !String.IsNullOrEmpty(name)).Reverse();
+            var result = new StringBuilder();
+            foreach (var name in names)
+            {
+                if (result.Length > 0)
+                    result.Append('.');
+                int room = maxLength + 1 - result.Length;
+                if (room <= 0)
+                    break;
+                result.Append(name, 0, Math.Min(name.Length, room));
+            }
+            return result.Length > maxLength ? result.ToString(0, maxLength) + "…" : result.ToString();
+        }
+
         /// <summary>
         /// The type of the nearest ancestor that defines one (not a node or a widget, which take their parent's), or null
         /// when none does within <see cref="MaxAncestors"/>.
@@ -72,6 +90,10 @@ namespace PdfSharp.Pdf.Forms
         internal Type? InheritedFieldType()
             => SelfAndAncestors().Skip(1).FirstOrDefault(ancestor => ancestor is not PdfFormFieldNode and not PdfFormFieldWidget)?.FieldType;
 
+        /// <summary>
+        /// This field and its ancestors through /Parent, nearest first: at most <see cref="MaxAncestors"/> + 1, each once.
+        /// A /Parent that leads back to a field already visited (a damaged or hostile file) ends the walk.
+        /// </summary>
         internal IEnumerable<PdfFormField> SelfAndAncestors()
         {
             var seen = new HashSet<PdfFormField>();

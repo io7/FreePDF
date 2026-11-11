@@ -36,14 +36,26 @@
 - XMP metadata nested more than 64 levels deep is not read (the XML DOM reads
   and writes it recursively); it stays in the file as it is.
 - XMP metadata is read (to keep a file that claims PDF/A in agreement with its
-  document information) only when it is at most 16 MiB: Flate is inflated up to
-  that limit, any other single filter is decoded only from a stream of at most
-  16 KiB, and a chain of filters is not read. A few kilobytes of Flate could
-  inflate to gigabytes when a file was saved or opened in Append mode. Metadata
-  that is not read stays in the file as it is.
+  document information) only when it is at most 16 MiB. Its filters are applied
+  one at a time: Flate is inflated up to that limit, any other filter decodes at
+  most 16 KiB, a chain has at most four filters, and decode parameters
+  (predictors) are not read. A few kilobytes of Flate could inflate to
+  gigabytes when a file was saved or opened in Append mode. Metadata that is not
+  read stays in the file as it is.
+- The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
+  rows from the data: a few bytes whose /Columns claimed rows of 256 MiB
+  allocated two such rows before reading anything. An incomplete last row is
+  left out instead of failing.
+- A file whose trailer is nested past the reader's limits is refused instead of
+  rebuilt from its objects: the rebuild skipped that trailer and could pick
+  another revision's catalog. Limit refusals met during a rebuild are no longer
+  skipped either.
 - When a form cannot be flattened, the message names the first 10 fields, each
-  shortened to 200 characters, and counts the rest. It named every field in
-  full, so a form with thousands of long names built gigabytes of text.
+  shortened to 200 characters, and counts the rest; the names are built only
+  that far. It named every field in full, so a form with thousands of long
+  names, or a deep field tree whose every level reuses one long name, built
+  gigabytes of text. Other messages that name a field are shortened the same
+  way.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
   needs to be drawn into the page. The check for a missing entry never matched.
 - Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the
@@ -105,20 +117,27 @@
     revoked. Only a response or CRL too large to read did; a revoking CRL
     written this way was skipped, and a good OCSP response made the signature
     Valid.
+  - An OCSP response or CRL that FreePDF cannot parse, or that says a
+    certificate is revoked but cannot be used (signed with an algorithm FreePDF
+    does not verify, such as RSASSA-PSS; a delta CRL; a CRL scope or critical
+    extension FreePDF does not read), keeps that certificate from being shown
+    as not revoked. It was dropped as if it said nothing, so a good answer of
+    the other kind made the signature Valid.
   - The type of a signature field is looked for through as many parent fields
-    as the reader accepts (100). The check stopped after 32, so the widget of an
-    empty signature field whose /FT /Sig sat higher up could draw over the
-    signed page unreported.
+    as the reader accepts (100), and a type stored as an indirect object
+    counts. The check stopped after 32, so the widget of an empty signature
+    field whose /FT /Sig sat higher up could draw over the signed page
+    unreported.
   - A limit refusal met while reading an earlier revision's stream /Length is
     recognised as one, and the check throws. It was wrapped as an ordinary read
     error, and the revision, which may hold a signature a later update removed,
     was skipped.
 - The permission check of later changes (in `PdfSignatureVerifier`, and in a
   FreePDF save under a signature's rules) inherits a field's type from its
-  parent when the field has no /FT of its own. It took the missing entry for a
-  type, so a signed field whose /FT /Sig is on its parent did not count as
-  signed: its lock was not applied, and adding validation data made the
-  signature Indeterminate.
+  parent when the field has no /FT of its own, and reads a type stored as an
+  indirect object. It took the missing entry for a type, so a signed field
+  whose /FT /Sig is on its parent did not count as signed: its lock was not
+  applied, and adding validation data made the signature Indeterminate.
 
 ## 7.10.0
 

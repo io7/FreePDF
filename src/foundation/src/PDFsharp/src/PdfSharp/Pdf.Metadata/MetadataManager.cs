@@ -3,7 +3,9 @@
 
 using PdfSharp.Events;
 using PdfSharp.Pdf.Advanced;
+using PdfSharp.Pdf.Filters;
 using PdfSharp.Pdf.Internal;
+using PdfSharp.Pdf.IO;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 
@@ -190,33 +192,43 @@ namespace PdfSharp.Pdf.Metadata
         // XMP is text of a few kilobytes. A larger packet is not read: a small compressed stream could inflate to gigabytes
         // while a file is opened or saved.
         const int MaxPacketBytes = 16 * 1024 * 1024;
-        // With a filter other than plain Flate the data is decoded whole, so only a small stream is: 16 KiB of LZW or Flate
-        // with a predictor decodes to at most some tens of megabytes.
+        // A filter other than Flate decodes its input whole, so it gets only a small one: 16 KiB of LZW decodes to some
+        // tens of megabytes at most, the other filters to less.
         const int MaxOtherFilterInput = 16 * 1024;
+        const int MaxFilters = 4;
 
-        // The packet's bytes: unfiltered, or plain Flate inflated up to MaxPacketBytes. A single other filter is decoded
-        // only from a small stream, and a chain of filters is not read: two Flate filters in a row multiply their ratios.
-        // Null when the packet is not read.
+        // The packet's bytes, or null when it is not read. The filters are applied one at a time, each bounded: Flate is
+        // inflated up to MaxPacketBytes, another filter decodes at most MaxOtherFilterInput bytes, and no stage may give
+        // more than MaxPacketBytes (two Flate filters in a row would otherwise multiply their ratios). Decode parameters
+        // (predictors) are not read: their row sizes come from the file.
         static byte[]? PacketBytes(PdfMetadata metadata)
         {
             if (metadata.Stream is not { } stream)
                 return null;
-            var raw = stream.Value;
-            var filters = Resolve(metadata.Elements["/Filter"]);
-            if (filters == null)
-                return raw.Length <= MaxPacketBytes ? raw : null;
-            var filter = filters is PdfArray { Elements.Count: 1 } oneFilter ? Resolve(oneFilter.Elements[0]) : filters;
-            if (filter is not PdfName name)
+            var data = stream.Value;
+            var filterItem = Resolve(metadata.Elements["/Filter"]);
+            var filters = filterItem switch
+            {
+                null => new List<PdfItem?>(),
+                PdfArray array => array.Elements.Select(Resolve).ToList(),
+                _ => new List<PdfItem?> { filterItem },
+            };
+            if (filters.Count > MaxFilters || !WithoutParameters(Resolve(metadata.Elements["/DecodeParms"])))
                 return null;
-            var parameters = Resolve(metadata.Elements["/DecodeParms"]);
-            if (parameters is PdfArray { Elements.Count: 1 } oneParameters)
-                parameters = Resolve(oneParameters.Elements[0]);
-            if (name.Value == "/FlateDecode" && parameters == null)
-                return InflateBounded(raw, MaxPacketBytes);
-            if (raw.Length > MaxOtherFilterInput)
-                return null;
-            var decoded = stream.UnfilteredValue;
-            return decoded.Length <= MaxPacketBytes ? decoded : null;
+            foreach (var filter in filters)
+            {
+                if (PdfModificationPermissions.NameValue(filter) is not { } name)
+                    return null;
+                if (name == "/FlateDecode")
+                    data = InflateBounded(data, MaxPacketBytes);
+                else if (data.Length <= MaxOtherFilterInput)
+                    data = Filtering.Decode(data, name);
+                else
+                    return null;
+                if (data == null || data.Length > MaxPacketBytes)
+                    return null;
+            }
+            return data.Length <= MaxPacketBytes ? data : null;
 
             static PdfItem? Resolve(PdfItem? item)
             {
@@ -224,6 +236,15 @@ namespace PdfSharp.Pdf.Metadata
                     item = reference.Value;
                 return item is PdfNull or PdfNullObject ? null : item;
             }
+
+            // No parameters, or only null entries and empty dictionaries.
+            static bool WithoutParameters(PdfItem? parameters) => parameters switch
+            {
+                null => true,
+                PdfDictionary dictionary => dictionary.Elements.Count == 0,
+                PdfArray array => array.Elements.All(entry => Resolve(entry) is null or PdfDictionary { Elements.Count: 0 }),
+                _ => false,
+            };
         }
 
         // zlib data (a two-byte header, then Deflate) inflated up to limit bytes; null when it is larger.

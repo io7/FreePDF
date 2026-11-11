@@ -53,6 +53,7 @@ public class HostileSizeTests
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
             $"<< /Type /Metadata /Subtype /XML /Filter {filter} /Length {data.Length} >>\nstream\n{placeholder}\nendstream",
+            "/FlateDecode",   // object 5, for a filter given by reference
         });
         int at = TestPdf.Latin1.GetString(pdf).IndexOf("stream\n@", StringComparison.Ordinal) + "stream\n".Length;
         Array.Copy(data, 0, pdf, at, data.Length);
@@ -72,13 +73,78 @@ public class HostileSizeTests
         return saved.Catalog.Elements.GetDictionary("/Metadata")!;
     }
 
-    // A small Flate-compressed packet that claims PDF/A is still read, and kept in agreement with the document information.
-    [Fact]
-    public void Compressed_XMP_of_ordinary_size_is_updated()
+    // A small compressed packet that claims PDF/A is still read, and kept in agreement with the document information:
+    // Flate, Flate named by an indirect object, and Flate behind ASCIIHex.
+    [Theory]
+    [InlineData("/FlateDecode")]
+    [InlineData("5 0 R")]
+    [InlineData("[/ASCIIHexDecode /FlateDecode]")]
+    public void Compressed_XMP_of_ordinary_size_is_updated(string filter)
     {
-        var metadata = SavedMetadata(WithMetadata(Zlib(Packet("Old title", 4096)), "/FlateDecode"));
+        var data = Zlib(Packet("Old title", 4096));
+        if (filter.Contains("ASCIIHex"))
+            data = Encoding.ASCII.GetBytes(string.Concat(data.Select(value => value.ToString("X2"))) + ">");
+
+        var metadata = SavedMetadata(WithMetadata(data, filter));
 
         Assert.Contains("New title", Encoding.UTF8.GetString(metadata.Stream!.UnfilteredValue));
+    }
+
+    // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)
+    // before it looked at the data, also for metadata read on save. Rows are now no longer than the data.
+    [Fact]
+    public void A_predictor_with_huge_rows_allocates_no_more_than_its_data()
+    {
+        using var document = new PdfDocument();
+        var stream = new PdfDictionary(document);
+        stream.CreateStream(Zlib(new byte[16]));
+        stream.Elements["/Filter"] = new PdfName("/FlateDecode");
+        var parameters = new PdfDictionary(document);
+        parameters.Elements.SetInteger("/Predictor", 12);
+        parameters.Elements.SetInteger("/Columns", 268_435_455);
+        stream.Elements["/DecodeParms"] = parameters;
+#if NET8_0_OR_GREATER
+        long before = GC.GetAllocatedBytesForCurrentThread();
+#endif
+
+        Assert.Empty(stream.Stream!.UnfilteredValue);
+#if NET8_0_OR_GREATER
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16 * 1024 * 1024);
+#endif
+    }
+
+    // A failing flatten in a field tree 90 levels deep whose every /T is the same 512 KiB string object: the message took
+    // the field's full name (45 million characters) and cut it to 200 afterwards. It is now built only that far.
+    [Fact]
+    public void A_flatten_failure_does_not_build_a_huge_name()
+    {
+        const int levels = 90;
+        int widget = levels + 4, name = levels + 5;
+        var objects = new List<string>
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Missing 12 Tf 0 g) >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{widget} 0 R] >>",
+        };
+        for (int level = 0; level < levels; level++)
+        {
+            int number = level + 4;
+            var parent = level == 0 ? "" : $" /Parent {number - 1} 0 R";
+            objects.Add($"<< /T {name} 0 R{parent} /Kids [{number + 1} 0 R] >>");
+        }
+        objects.Add($"<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (value) /Parent {widget - 1} 0 R /Rect [10 10 100 30] /P 3 0 R >>");
+        objects.Add($"({new string('n', 512 * 1024)})");
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Create(objects.ToArray())), PdfDocumentOpenMode.Modify);
+#if NET8_0_OR_GREATER
+        long before = GC.GetAllocatedBytesForCurrentThread();
+#endif
+
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+
+        Assert.Contains(new string('n', 200) + "…", refused.Message);
+#if NET8_0_OR_GREATER
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 32 * 1024 * 1024);
+#endif
     }
 
     // 32 MiB of XMP from about 32 KB of Flate, or from far less with Flate applied twice: the whole packet was inflated

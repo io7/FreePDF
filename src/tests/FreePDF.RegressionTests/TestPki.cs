@@ -54,6 +54,9 @@ public sealed class TestPki : IDisposable
     /// <summary>When set, the CRL addresses return these bytes instead of a CRL.</summary>
     public byte[]? CrlBody { get; set; }
 
+    /// <summary>Signs CRLs and OCSP responses with RSASSA-PSS (SHA-256), which FreePDF does not verify.</summary>
+    public bool Pss { get; set; }
+
     public enum OcspAnswer
     {
         /// <summary>Good, or revoked when the serial number is in <see cref="Revoked"/>.</summary>
@@ -108,12 +111,62 @@ public sealed class TestPki : IDisposable
         return serial;
     }
 
+    // id-RSASSA-PSS with SHA-256, MGF1 with SHA-256 and a 32-byte salt (RFC 4055 3.1), inside an AlgorithmIdentifier.
+    static void WritePssParameters(AsnWriter writer)
+    {
+        writer.WriteObjectIdentifier("1.2.840.113549.1.1.10");
+        using (writer.PushSequence())
+        {
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))
+            using (writer.PushSequence())
+            {
+                writer.WriteObjectIdentifier("2.16.840.1.101.3.4.2.1");
+                writer.WriteNull();
+            }
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))
+            using (writer.PushSequence())
+            {
+                writer.WriteObjectIdentifier("1.2.840.113549.1.1.8");
+                using (writer.PushSequence())
+                {
+                    writer.WriteObjectIdentifier("2.16.840.1.101.3.4.2.1");
+                    writer.WriteNull();
+                }
+            }
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 2, true)))
+                writer.WriteInteger(32);
+        }
+    }
+
     public byte[] Crl(X509Certificate2 issuer)
     {
         var builder = new CertificateRevocationListBuilder();
         foreach (var serial in Revoked)
             builder.AddEntry(serial, RevocationTime ?? DateTimeOffset.UtcNow.AddMinutes(-10), RevocationReason ?? X509RevocationReason.KeyCompromise);
-        return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256,
+            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
+    }
+
+    /// <summary>The responder's answer about the certificate, without HTTP: an OCSPRequest with one SHA-1 CertID.</summary>
+    public byte[] OcspResponseFor(X509Certificate2 certificate, X509Certificate2 issuer)
+    {
+        var request = new AsnWriter(AsnEncodingRules.DER);
+        using (request.PushSequence())                       // OCSPRequest
+        using (request.PushSequence())                       // TBSRequest
+        using (request.PushSequence())                       // requestList
+        using (request.PushSequence())                       // Request
+        using (request.PushSequence())                       // CertID
+        {
+            using (request.PushSequence())
+            {
+                request.WriteObjectIdentifier("1.3.14.3.2.26");
+                request.WriteNull();
+            }
+            request.WriteOctetString(SHA1.HashData(issuer.SubjectName.RawData));
+            request.WriteOctetString(SHA1.HashData(issuer.PublicKey.EncodedKeyValue.RawData));
+            request.WriteIntegerUnsigned(certificate.SerialNumberBytes.Span);
+        }
+        return OcspResponse(request.Encode());
     }
 
     // An OCSPResponse for the request's single certificate, signed by the CA that issued it (RFC 6960 4.2.2.2).
@@ -187,7 +240,7 @@ public sealed class TestPki : IDisposable
             }
         }
         var tbs = data.Encode();
-        var signature = responder.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var signature = responder.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
 
         var basic = new AsnWriter(AsnEncodingRules.DER);
         using (basic.PushSequence())
@@ -195,8 +248,13 @@ public sealed class TestPki : IDisposable
             basic.WriteEncodedValue(tbs);
             using (basic.PushSequence())
             {
-                basic.WriteObjectIdentifier("1.2.840.113549.1.1.11");                         // sha256WithRSAEncryption
-                basic.WriteNull();
+                if (Pss)
+                    WritePssParameters(basic);
+                else
+                {
+                    basic.WriteObjectIdentifier("1.2.840.113549.1.1.11");                     // sha256WithRSAEncryption
+                    basic.WriteNull();
+                }
             }
             basic.WriteBitString(signature);
             if (!ReferenceEquals(responder, issuer))

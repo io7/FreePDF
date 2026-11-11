@@ -237,14 +237,23 @@ cannot overflow the stack. Since 7.10.1 the reader also refuses arrays and
 dictionaries nested more than 256 levels and form fields nested more than 100,
 does not follow a chain of indirect stream lengths, and bounds every walk up
 through a field's /Parent; a signature check throws when an earlier revision
-is refused that way. Streams the
+is refused that way. XMP metadata over 16 MiB is not read. Known effects of
+these limits: revisions are counted by the `%%EOF` markers in the file, so a
+file that embeds many other PDFs can exceed `MaxRevisions` with one revision;
+field names in results are cut at 1,000 characters; in a signed file with a
+form field name over 4,096 characters, updates after a signature are not
+compared, so that signature is not reported Valid, and FreePDF does not save
+such a file in Append mode; and bookmarks more than 200 levels deep are left out when
+pages are merged or extracted. Streams the
 reader inflates while opening a file (cross-reference and object streams) have
 no size limit yet, so a small file can still make opening it use a lot of
 memory. It
 is a technical check: EU trusted lists,
 qualified status, signature policies and ETSI validation reports are not
 covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are
-not verified.
+not verified. Since 7.10.1 an OCSP response or CRL that FreePDF cannot read,
+parse or verify, and that could revoke a certificate, keeps that certificate
+from being shown as not revoked, so the signature is at best Indeterminate.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the

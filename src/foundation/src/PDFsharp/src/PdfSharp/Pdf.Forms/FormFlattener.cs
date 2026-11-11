@@ -36,7 +36,7 @@ namespace PdfSharp.Pdf.Forms
         {
             var pending = new List<(PdfFormTextFieldBase Field, FieldContent Content)>();
             // The message names the first few fields, shortened: a form's names are the file's to choose and could be very long.
-            const int namesShown = 10, nameLength = 200;
+            const int namesShown = 10;
             var failures = new List<string>();
             int failed = 0;
             foreach (var field in form.Fields.GetAllFields())
@@ -52,8 +52,7 @@ namespace PdfSharp.Pdf.Forms
                 }
                 else if (failed++ < namesShown)
                 {
-                    var name = field.FullName;
-                    failures.Add($"'{(name.Length > nameLength ? name.Substring(0, nameLength) + "…" : name)}'");
+                    failures.Add($"'{field.ShortFullName()}'");
                 }
             }
             if (failed > 0)
@@ -124,9 +123,10 @@ namespace PdfSharp.Pdf.Forms
                 return null;
             if (appearances.Stream != null)
                 return appearances;
-            var state = widget.Elements.GetName("/AS");
-            if (state.Length == 0)
+            // (GetName gives "/" for a missing /AS, which would pick a state named by the empty name.)
+            if (!widget.Elements.ContainsKey("/AS"))
                 return null;
+            var state = widget.Elements.GetName("/AS");
             var stateAppearance = appearances.Elements.GetDictionary(state);
             if (stateAppearance?.Stream == null)
                 return null;

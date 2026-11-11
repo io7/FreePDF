@@ -950,7 +950,8 @@ namespace PdfSharp.Pdf.Signatures
                 var found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority);
                 // Data the DSS holds beyond what is read could revoke the certificate: not revoked is not shown.
                 if (found.Status == PdfRevocationStatus.Good && context.Dss.Incomplete)
-                    found = (PdfRevocationStatus.Unknown, "The DSS holds more validation data than is read (64 MiB in all); what was not read could revoke the certificate.");
+                    found = (PdfRevocationStatus.Unknown, "The DSS holds OCSP responses or CRLs that are not read (beyond the 64 MiB read in all, " +
+                        "or stored in a form FreePDF does not read); what was not read could revoke the certificate.");
                 if (found.Status == PdfRevocationStatus.Unknown && context.Fetcher is { } fetcher)
                 {
                     var fetchedOcsps = new List<byte[]>();
@@ -993,17 +994,33 @@ namespace PdfSharp.Pdf.Signatures
         static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
             List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority)
         {
+            var found = Answers(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out var unusable);
+            // An OCSP response or CRL that cannot be used but could revoke the certificate leaves only a revocation shown.
+            if (found.Status == PdfRevocationStatus.Good && unusable != null)
+                return (PdfRevocationStatus.Unknown, $"The validation data holds {unusable} that FreePDF cannot use and that could revoke '{certificate.Subject}'.");
+            return found;
+        }
+
+        static (PdfRevocationStatus Status, string? Problem) Answers(X509Certificate2 certificate, X509Certificate2 issuer,
+            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority,
+            out string? unusable)
+        {
+            unusable = null;
             var answers = new List<(DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, string Source,
                 DateTimeOffset? ExpiredCutoff)>();
             foreach (var response in ocspResponses)
             {
-                if (Ocsp.Check(response, certificate, issuer) is { } answer)
+                if (Ocsp.Check(response, certificate, issuer, out bool couldRevoke) is { } answer)
                     answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "OCSP", answer.ArchiveCutoff));
+                else if (couldRevoke)
+                    unusable ??= "an OCSP response";
             }
             foreach (var crl in crls)
             {
-                if (Crl.Check(crl, certificate, issuer) is { } answer)
+                if (Crl.Check(crl, certificate, issuer, out bool couldRevoke) is { } answer)
                     answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "CRL", answer.ExpiredCutoff));
+                else if (couldRevoke)
+                    unusable ??= "a CRL";
             }
             if (answers.Count == 0)
                 return (PdfRevocationStatus.Unknown, $"No revocation data for '{certificate.Subject}'.");
@@ -1135,7 +1152,7 @@ namespace PdfSharp.Pdf.Signatures
         {
             if (NameOf(widget, "/Subtype") != "/Widget")
                 return false;
-            if (Inherited(widget, "/FT") is not PdfName { Value: "/Sig" } || Inherited(widget, "/V") is PdfDictionary)
+            if (NameValue(Inherited(widget, "/FT")) != "/Sig" || Inherited(widget, "/V") is PdfDictionary)
                 return false;
             int flags = Number(Resolve(widget.Elements["/F"])) is { } f ? (int)f : 0;
             if ((flags & 2) != 0)
@@ -1375,7 +1392,10 @@ namespace PdfSharp.Pdf.Signatures
             return result;
         }
 
-        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+        static string NameOf(PdfDictionary dictionary, string key) => NameValue(dictionary.Elements[key]) ?? "";
+
+        // A name, also one stored as an indirect object; null for anything else.
+        static string? NameValue(PdfItem? item) => PdfModificationPermissions.NameValue(item);
 
         static bool HasDocMdpReference(PdfDictionary value)
             => Resolve(value.Elements["/Reference"]) is PdfArray references
@@ -1499,8 +1519,8 @@ namespace PdfSharp.Pdf.Signatures
                 tooLarge = raw.Length > limit;
                 return tooLarge ? null : raw;
             }
-            bool flate = filter is PdfName { Value: "/FlateDecode" }
-                         || filter is PdfArray { Elements.Count: 1 } single && Resolve(single.Elements[0]) is PdfName { Value: "/FlateDecode" };
+            bool flate = NameValue(filter) == "/FlateDecode"
+                         || filter is PdfArray { Elements.Count: 1 } single && NameValue(single.Elements[0]) == "/FlateDecode";
             // Parameters that change nothing (none, null, an empty dictionary, predictor 1) are plain Flate; predictors are
             // not read.
             var parameterItem = Resolve(stream.Elements["/DecodeParms"]);
@@ -1559,21 +1579,27 @@ namespace PdfSharp.Pdf.Signatures
             return hash.GetHashAndReset();
         }
 
+        // The signature algorithms VerifySignature checks: RSA with PKCS #1 v1.5 or ECDSA, with SHA-1 to SHA-512.
+        static (HashAlgorithmName Hash, bool Ecdsa) SignatureAlgorithm(string algorithmOid) => algorithmOid switch
+        {
+            "1.2.840.113549.1.1.5" => (HashAlgorithmName.SHA1, false),
+            "1.2.840.113549.1.1.11" => (HashAlgorithmName.SHA256, false),
+            "1.2.840.113549.1.1.12" => (HashAlgorithmName.SHA384, false),
+            "1.2.840.113549.1.1.13" => (HashAlgorithmName.SHA512, false),
+            "1.2.840.10045.4.1" => (HashAlgorithmName.SHA1, true),
+            "1.2.840.10045.4.3.2" => (HashAlgorithmName.SHA256, true),
+            "1.2.840.10045.4.3.3" => (HashAlgorithmName.SHA384, true),
+            "1.2.840.10045.4.3.4" => (HashAlgorithmName.SHA512, true),
+            _ => (default(HashAlgorithmName), false),
+        };
+
+        // False: a signature in an algorithm VerifySignature cannot check (RSASSA-PSS among them), which may be genuine.
+        static bool IsVerifiable(string algorithmOid) => SignatureAlgorithm(algorithmOid).Hash != default;
+
         // A signature of a certificate, a CRL or an OCSP response: RSA with PKCS #1 v1.5 or ECDSA, with SHA-1 to SHA-512.
         internal static bool VerifySignature(X509Certificate2 signer, string algorithmOid, byte[] data, byte[] signature)
         {
-            var (hash, ecdsa) = algorithmOid switch
-            {
-                "1.2.840.113549.1.1.5" => (HashAlgorithmName.SHA1, false),
-                "1.2.840.113549.1.1.11" => (HashAlgorithmName.SHA256, false),
-                "1.2.840.113549.1.1.12" => (HashAlgorithmName.SHA384, false),
-                "1.2.840.113549.1.1.13" => (HashAlgorithmName.SHA512, false),
-                "1.2.840.10045.4.1" => (HashAlgorithmName.SHA1, true),
-                "1.2.840.10045.4.3.2" => (HashAlgorithmName.SHA256, true),
-                "1.2.840.10045.4.3.3" => (HashAlgorithmName.SHA384, true),
-                "1.2.840.10045.4.3.4" => (HashAlgorithmName.SHA512, true),
-                _ => (default(HashAlgorithmName), false),
-            };
+            var (hash, ecdsa) = SignatureAlgorithm(algorithmOid);
             if (hash == default)
                 return false;
             try
@@ -1631,9 +1657,12 @@ namespace PdfSharp.Pdf.Signatures
         {
             // The answer of a verified response about the certificate, or null if the response is not about it, not
             // successful, says unknown, or is not signed by the issuer or a responder the issuer authorized.
+            // couldRevoke: the response cannot be used, yet it may revoke the certificate: FreePDF cannot read it, or it
+            // says revoked in a signature algorithm FreePDF does not check (RSASSA-PSS).
             internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate,
-                DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer)
+                DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer, out bool couldRevoke)
             {
+                couldRevoke = false;
                 try
                 {
                     var response = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
@@ -1696,6 +1725,11 @@ namespace PdfSharp.Pdf.Signatures
                             singleCutoff = ArchiveCutoff(single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence());
                         answer = (revocationTime, reason, thisUpdate, nextUpdate);
                     }
+                    if (answer != null && !IsVerifiable(algorithm))
+                    {
+                        couldRevoke = answer.Value.Item1 != null;
+                        return null;
+                    }
                     if (answer == null || Responder(responderId, issuer, certificates, producedAt) is not { } responder
                         || !VerifySignature(responder, algorithm, tbsData, signature))
                     {
@@ -1713,6 +1747,7 @@ namespace PdfSharp.Pdf.Signatures
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
+                    couldRevoke = true;
                     return null;
                 }
             }
@@ -1800,10 +1835,15 @@ namespace PdfSharp.Pdf.Signatures
 
             // From a complete CRL of the certificate's issuer, signed by it, whose scope includes the certificate: when it
             // was issued, its next update, and when the certificate was revoked, if it is listed; null if the CRL cannot
-            // be used for it.
+            // be used for it. couldRevoke: the CRL cannot be used, yet it may be the issuer's and revoke the certificate,
+            // so it must keep "not revoked" from being shown: FreePDF cannot read it, or it lists the certificate but its
+            // signature is in an algorithm FreePDF does not check (RSASSA-PSS) or it is of a kind FreePDF does not handle
+            // (a delta CRL, a scope or a critical extension it does not read). A CRL of another issuer, one whose signature
+            // fails, or one whose scope leaves the certificate out says nothing about it.
             internal static (DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, DateTimeOffset? RevocationTime, int? Reason,
-                DateTimeOffset? ExpiredCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer)
+                DateTimeOffset? ExpiredCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer, out bool couldRevoke)
             {
+                couldRevoke = false;
                 try
                 {
                     var list = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
@@ -1818,16 +1858,15 @@ namespace PdfSharp.Pdf.Signatures
                     var name = tbs.ReadEncodedValue();
                     if (!name.Span.SequenceEqual(certificate.IssuerName.RawData) || !name.Span.SequenceEqual(issuer.SubjectName.RawData))
                         return null;
-                    // The issuer must be allowed to sign CRLs, and must have signed this one.
+                    // The issuer must be allowed to sign CRLs.
                     if (issuer.Extensions["2.5.29.15"] is X509KeyUsageExtension usage && (usage.KeyUsages & X509KeyUsageFlags.CrlSign) == 0)
-                        return null;
-                    if (!VerifySignature(issuer, algorithm, tbsData, signature))
                         return null;
 
                     var thisUpdate = ReadTime(tbs);
                     DateTimeOffset? nextUpdate = tbs.HasData && IsTime(tbs.PeekTag()) ? ReadTime(tbs) : null;
                     DateTimeOffset? revocationTime = null;
                     int? reason = null;
+                    bool listed = false;
                     var serial = new BigInteger(certificate.GetSerialNumber());
                     if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(Asn1Tag.Sequence))
                     {
@@ -1841,22 +1880,37 @@ namespace PdfSharp.Pdf.Signatures
                             int? code = entry.HasData ? ReasonCode(entry.ReadSequence()) : null;
                             // removeFromCRL (8) in a delta CRL undoes a hold; it is not a revocation.
                             if (code != 8)
-                                (revocationTime, reason) = (time, code);
+                                (revocationTime, reason, listed) = (time, code, true);
                         }
                     }
                     DateTimeOffset? expiredCutoff = null;
-                    if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0))
-                        && !ScopeIncludes(tbs.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadSequence(), certificate, out expiredCutoff))
+                    var scope = Scope.Included;
+                    if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                        scope = ScopeOf(tbs.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadSequence(), certificate, out expiredCutoff);
+
+                    // The issuer must have signed it.
+                    if (!IsVerifiable(algorithm))
                     {
+                        couldRevoke = listed;
+                        return null;
+                    }
+                    if (!VerifySignature(issuer, algorithm, tbsData, signature) || scope == Scope.Excluded)
+                        return null;
+                    if (scope == Scope.Unsupported)
+                    {
+                        couldRevoke = listed;
                         return null;
                     }
                     return (thisUpdate, nextUpdate, revocationTime, reason, expiredCutoff);
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
+                    couldRevoke = true;
                     return null;
                 }
             }
+
+            enum Scope { Included, Excluded, Unsupported }
 
             static int? ReasonCode(AsnReader extensions)
             {
@@ -1873,12 +1927,14 @@ namespace PdfSharp.Pdf.Signatures
                 return null;
             }
 
-            // A complete CRL whose issuing distribution point, if any, covers the certificate: not a delta CRL, no
-            // unknown critical extension, no reasons subset, not indirect, the right kind of certificate, and a
-            // distribution point the certificate names.
-            static bool ScopeIncludes(AsnReader extensions, X509Certificate2 certificate, out DateTimeOffset? expiredCutoff)
+            // Whether a CRL covers the certificate: Included for a complete CRL whose issuing distribution point, if any,
+            // is for the right kind of certificate and a distribution point the certificate names; Excluded when its
+            // scope leaves the certificate out; Unsupported for what this reader does not handle: a delta CRL, an unknown
+            // critical extension, a reasons subset, an indirect CRL, or a distribution point given relative to the issuer.
+            static Scope ScopeOf(AsnReader extensions, X509Certificate2 certificate, out DateTimeOffset? expiredCutoff)
             {
                 expiredCutoff = null;
+                var scope = Scope.Included;
                 while (extensions.HasData)
                 {
                     var extension = extensions.ReadSequence();
@@ -1886,11 +1942,11 @@ namespace PdfSharp.Pdf.Signatures
                     bool critical = extension.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean) && extension.ReadBoolean();
                     var value = extension.ReadOctetString();
                     if (oid == "2.5.29.27")
-                        return false;   // deltaCRLIndicator
+                        return Scope.Unsupported;   // deltaCRLIndicator
                     if (oid == "2.5.29.60")   // expiredCertsOnCRL: certificates that expired at or after this time stay listed
                         expiredCutoff = new AsnReader(value, AsnEncodingRules.DER).ReadGeneralizedTime();
                     if (critical && !KnownExtensions.Contains(oid))
-                        return false;
+                        return Scope.Unsupported;
                     if (oid != "2.5.29.28")
                         continue;
                     var point = new AsnReader(value, AsnEncodingRules.DER).ReadSequence();
@@ -1899,38 +1955,38 @@ namespace PdfSharp.Pdf.Signatures
                     {
                         var tag = point.PeekTag();
                         if (tag.TagClass != TagClass.ContextSpecific)
-                            return false;
+                            return Scope.Unsupported;
                         switch (tag.TagValue)
                         {
                             case 0:   // distributionPoint, with fullName [0] GeneralNames
                                 var dp = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
                                 if (dp.HasData && !dp.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
-                                    return false;   // nameRelativeToCRLIssuer: a scope this reader does not match
+                                    return Scope.Unsupported;   // nameRelativeToCRLIssuer: a scope this reader does not match
                                 if (dp.HasData)
                                 {
                                     var full = dp.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
                                     while (full.HasData)
                                         names.Add(full.ReadEncodedValue().ToArray());
                                     if (names.Count == 0)
-                                        return false;
+                                        return Scope.Unsupported;
                                 }
                                 break;
                             case 1:   // onlyContainsUserCerts
                                 if (point.ReadBoolean(new Asn1Tag(TagClass.ContextSpecific, 1)) && IsCa(certificate))
-                                    return false;
+                                    scope = Scope.Excluded;
                                 break;
                             case 2:   // onlyContainsCACerts
                                 if (point.ReadBoolean(new Asn1Tag(TagClass.ContextSpecific, 2)) && !IsCa(certificate))
-                                    return false;
+                                    scope = Scope.Excluded;
                                 break;
                             default:  // onlySomeReasons, indirectCRL, onlyContainsAttributeCerts
-                                return false;
+                                return Scope.Unsupported;
                         }
                     }
                     if (names.Count > 0 && !CertificateNames(certificate).Any(n => names.Any(m => m.AsSpan().SequenceEqual(n))))
-                        return false;
+                        scope = Scope.Excluded;
                 }
-                return true;
+                return scope;
             }
 
             // The full names (GeneralName encodings) of the certificate's CRL distribution points.

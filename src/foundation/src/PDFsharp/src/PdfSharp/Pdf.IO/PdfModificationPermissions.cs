@@ -465,7 +465,16 @@ namespace PdfSharp.Pdf.IO
                 && Widgets(field.Dictionary).All(IsInvisible);
         }
 
-        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+        static string NameOf(PdfDictionary dictionary, string key) => NameValue(dictionary.Elements[key]) ?? "";
+
+        // A name, also one stored as an indirect object (read as PdfNameObject); null for anything else. Unlike GetName,
+        // which gives "/" for a missing entry, a missing name is null.
+        internal static string? NameValue(PdfItem? item) => Resolve(item) switch
+        {
+            PdfName name => name.Value,
+            PdfNameObject name => name.Value,
+            _ => null,
+        };
 
         // The field itself when it is its own widget, and its kids.
         static IEnumerable<PdfDictionary> Widgets(PdfDictionary field)
@@ -599,8 +608,8 @@ namespace PdfSharp.Pdf.IO
 
         static string Describe(PdfObject value, PdfObjectID id)
         {
-            var type = (value as PdfDictionary)?.Elements.GetName("/Type");
-            if (String.IsNullOrEmpty(type))
+            var type = value is PdfDictionary dictionary ? NameValue(dictionary.Elements["/Type"]) : null;
+            if (type is null or { Length: <= 1 })
                 return $"object {id.ObjectNumber}";
             return $"object {id.ObjectNumber} ({type})";
         }
@@ -669,7 +678,7 @@ namespace PdfSharp.Pdf.IO
                     throw new InvalidOperationException($"A form field's fully qualified name is longer than {MaxQualifiedName} characters.");
                 // GetName gives "/" for a missing entry, which would hide the inherited type: a signed field whose /FT is
                 // on its parent would not count as signed, and its lock would be lost.
-                var type = Resolve(dictionary.Elements["/FT"]) is PdfName { Value.Length: > 1 } ownType ? ownType.Value : inheritedType;
+                var type = NameValue(dictionary.Elements["/FT"]) is { Length: > 1 } ownType ? ownType : inheritedType;
                 var node = new FieldNode(dictionary, item as PdfReference, name, type, parentID);
                 yield return node;
                 if (Resolve(dictionary.Elements["/Kids"]) is PdfArray kids)
