@@ -86,6 +86,10 @@ public class SignatureAliasingMatrixTests
     static string Stream(string entries, string data) => $"<< {entries} /Length {data.Length} >>\nstream\n{data}\nendstream";
 
     const string Black = "0 0 612 792 re f";
+    // Content that draws nothing. A stream that a cell also lists in the DSS as a certificate must have data: on .NET 8
+    // on Windows the verifier fails on a certificate without data (a NullReferenceException) and reports Indeterminate
+    // for the file before any change, so the cell would show nothing.
+    const string Nothing = "q Q";
     const string EmptyForm = "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream";
 
     static readonly Slot[] Slots =
@@ -306,7 +310,7 @@ public class SignatureAliasingMatrixTests
         new("empty signature widget appearance", Kind.Stream, 2,
             (d, extra) =>
             {
-                int target = d.Add(Stream(extra + " /BBox [0 0 612 792]", ""));
+                int target = d.Add(Stream(extra + " /BBox [0 0 612 792]", Nothing));
                 int widget = d.Add($"<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N {target} 0 R >> >>");
                 d.Annotations.Add(widget);
                 d.Fields.Add(widget);
@@ -375,7 +379,7 @@ public class SignatureAliasingMatrixTests
     // The object in its lenient role alone, and a change that role permits.
     static Slot Control(Kind kind) => kind switch
     {
-        Kind.Stream => new("(control)", kind, 0, (d, extra) => d.Add(Stream(extra + " /BBox [0 0 100 50]", "")),
+        Kind.Stream => new("(control)", kind, 0, (d, extra) => d.Add(Stream(extra + " /BBox [0 0 100 50]", Nothing)),
             c => [(c.Target, Stream(c.Extra + " /BBox [0 0 100 50]", "0 0 10 10 re f"))]),
         Kind.Dictionary => new("(control)", kind, 0, (d, extra) => d.Add($"<< {extra} /V (before) >>"),
             c => [(c.Target, c.Body(c.Target).Replace("(before)", "(after)"))]),
