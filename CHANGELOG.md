@@ -55,9 +55,10 @@
 - An object in an object stream is read without the token after it (it can
   have no stream): thousands of objects pointing at one empty array before a
   long string each scanned that string again.
-- The objects read from a file may together span at most twice the file:
-  objects written inside one another's strings, each with its own right
-  cross-reference entry, each kept the same long text.
+- The objects, trailers and cross-reference streams read from a file may
+  together span at most twice the file: objects or trailers written inside one
+  another's strings, each reached by a right cross-reference entry or /Prev,
+  each kept the same long text.
 - A classic cross-reference entry that is repaired (it names another object
   than the one at its position) takes the generation found there as well as the
   number. Thousands of entries pointing at one long string, each with another
@@ -135,8 +136,8 @@
     other than plain Flate, or Flate with a predictor) also makes the DSS show
     no certificate as not revoked. Only a response or CRL too large to read
     did; a revoking CRL written this way was skipped, and a good OCSP response
-    made the signature Valid. Parameters that change nothing, such as
-    `/DecodeParms [null]`, are read as none.
+    made the signature Valid. A null filter and parameters that change nothing,
+    such as `/DecodeParms [null]`, are read as none.
   - An OCSP response or CRL that FreePDF cannot parse, or that says a
     certificate was revoked before the signature but cannot be used for
     whatever reason, keeps that certificate from being shown as not revoked:

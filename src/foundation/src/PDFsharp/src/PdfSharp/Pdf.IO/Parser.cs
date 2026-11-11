@@ -885,9 +885,21 @@ namespace PdfSharp.Pdf.IO
         // Set on the document's parser while it reads an indirect /Length.
         bool _readingStreamLength;
 
-        // On an object stream's parser: the objects read from it, and the bytes they spanned.
+        // On an object stream's parser: the objects read from it, and the bytes they spanned. On the document's parser:
+        // the same for the objects, trailers and cross-reference streams read from the file.
         HashSet<PdfObjectID>? _spannedObjects;
+        HashSet<SizeType>? _spannedTrailers;
         long _spannedBytes;
+
+        // What is read from the file may together span at most twice the file, and 1 MiB: several cross-reference entries
+        // may point at one object (some producers do that), but objects or trailers nested in one another's strings would
+        // each keep the same long text.
+        void ChargeFileSpan(SizeType bytes)
+        {
+            _spannedBytes += Math.Max(0, bytes);
+            if (_spannedBytes > 2L * _lexer.PdfLength + (1L << 20))
+                throw LimitExceeded("The file's objects overlap: together they span more than twice the file.");
+        }
 
         // Cross-reference and object streams are decoded while a file is opened, before anything else can be checked: each
         // to at most MaxStructuralStream bytes, and all of a file's together to at most StructuralBudget, so that a few
@@ -1105,14 +1117,9 @@ namespace PdfSharp.Pdf.IO
 
                     // The objects read from the file count the bytes they span, from their header to the token after
                     // them ('endobj'), as those in an object stream do: objects nested in one another's strings, each with
-                    // a right cross-reference entry, would each keep the same long text. Twice the file, and 1 MiB, is
-                    // allowed.
+                    // a right cross-reference entry, would each keep the same long text.
                     if ((_spannedObjects ??= new()).Add(objectID))
-                    {
-                        _spannedBytes += Math.Max(0, _lexer.TokenStart - pdfReference.Position);
-                        if (_spannedBytes > 2L * _lexer.PdfLength + (1L << 20))
-                            throw LimitExceeded("The file's objects overlap: together they span more than twice the file.");
-                    }
+                        ChargeFileSpan(_lexer.TokenStart - pdfReference.Position);
 
                     // Decrypt file level object.
                     if (!withoutDecrypting)
@@ -2273,9 +2280,14 @@ namespace PdfSharp.Pdf.IO
                     }
                     else if (symbol == Symbol.Trailer)
                     {
+                        var start = _lexer.TokenStart;
                         ReadSymbol(Symbol.BeginDictionary);
                         var trailer = new PdfTrailer(_document);
                         ReadDictionary(trailer, false);
+                        // Trailers count against the file's span budget too: nested in one another's strings, each
+                        // reached through /Prev, they would each keep the same text.
+                        if ((_spannedTrailers ??= new()).Add(start))
+                            ChargeFileSpan(_lexer.Position - start);
                         return trailer;
                     }
                     else
@@ -2382,6 +2394,8 @@ namespace PdfSharp.Pdf.IO
             ReadSymbol(Symbol.BeginStream);
 #if true
             ReadDictionaryStream(xrefStream, null);
+            if ((_spannedTrailers ??= new()).Add(xrefStart))
+                ChargeFileSpan(_lexer.Position - xrefStart);
 #else
             ReadStreamFromXRefTable(xrefStream);
 #endif

@@ -1203,19 +1203,22 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
-    // A good CRL stored as Flate with /DecodeParms [null] (no parameters, written as an array) next to a good OCSP answer:
-    // the DSS reader did not read that form, took the CRL for one that could revoke, and the signature was Indeterminate.
-    [Fact]
-    public async Task A_good_CRL_with_parameters_that_change_nothing_leaves_the_signature_valid()
+    // A good CRL stored as Flate with /DecodeParms [null] (no parameters, written as an array), or unfiltered with
+    // /Filter null, next to a good OCSP answer: the DSS reader did not read those forms, took the CRL for one that could
+    // revoke, and the signature was Indeterminate.
+    [Theory]
+    [InlineData("[/FlateDecode]", "[null]")]
+    [InlineData("null", null)]
+    public async Task A_good_CRL_with_parameters_that_change_nothing_leaves_the_signature_valid(string filter, string? parameters)
     {
         using var pki = new TestPki();
         var signed = SignBT(pki);
         var rootCrl = pki.Crl(pki.Root);
         var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
         var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
-        var goodCrl = ZlibOf(pki.Crl(pki.Intermediate));
+        var goodCrl = filter == "null" ? pki.Crl(pki.Intermediate) : ZlibOf(pki.Crl(pki.Intermediate));
         var pdf = Update(WithDss(pki, signed, [authority, good], [rootCrl]),
-            document => AddDssStream(document, "/CRLs", goodCrl, "[/FlateDecode]", "[null]"));
+            document => AddDssStream(document, "/CRLs", goodCrl, filter, parameters));
 
         var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
             new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));

@@ -268,6 +268,42 @@ public class HostileSizeTests
         Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(file.ToArray()), PdfDocumentOpenMode.Import));
     }
 
+    // 64 cross-reference sections and trailers written inside one another's strings around one 256 KiB text, each
+    // trailer's /Prev naming the section in its own string: each trailer read kept the text again. Trailers count against
+    // the file's span budget too.
+    [Fact]
+    public void Trailers_nested_in_one_another_s_strings_are_refused()
+    {
+        const int levels = 64;
+        const string placeholder = "@@@@@@@@@@";
+        var nested = "(" + new string('a', 256 * 1024) + ")";
+        for (int level = levels - 1; level >= 0; level--)
+        {
+            var prev = level == levels - 1 ? "" : $" /Prev {placeholder}";
+            nested = $"(xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 4 /Root 1 0 R{prev} /Junk {nested} >>\n)";
+        }
+        var head = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n";
+        var offsets = new List<int>();
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(head, @"(\d) 0 obj"))
+            offsets.Add(match.Index);
+        int xref = head.Length;
+        var text = head + "xref\n0 4\n0000000000 65535 f \n" + string.Concat(offsets.Select(offset => $"{offset:D10} 00000 n \n"))
+                   + $"trailer\n<< /Size 4 /Root 1 0 R /Prev {placeholder} /Junk {nested} >>\nstartxref\n{xref}\n%%EOF\n";
+        // Each /Prev names the next nested section, whose 'xref' follows the placeholder's string.
+        var sections = System.Text.RegularExpressions.Regex.Matches(text, @"\(xref\n").Cast<System.Text.RegularExpressions.Match>()
+            .Select(match => match.Index + 1).ToList();
+        var builder = new StringBuilder(text);
+        int at = 0;
+        foreach (var section in sections)
+        {
+            at = builder.ToString(at, builder.Length - at).IndexOf(placeholder, StringComparison.Ordinal) + at;
+            builder.Remove(at, placeholder.Length).Insert(at, section.ToString("D10"));
+        }
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(TestPdf.Latin1.GetBytes(builder.ToString())), PdfDocumentOpenMode.Import));
+    }
+
     // Dictionaries followed by long strings: after a dictionary the parser reads the next token whole (to see whether a
     // stream follows), and that token was counted as part of the dictionary, so an ordinary object stream was refused.
     [Fact]

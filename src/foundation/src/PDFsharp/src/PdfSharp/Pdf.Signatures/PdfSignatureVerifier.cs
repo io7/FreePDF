@@ -1536,6 +1536,9 @@ namespace PdfSharp.Pdf.Signatures
             tooLarge = false;
             var raw = stream.Stream!.Value;
             var filter = Resolve(stream.Elements["/Filter"]);
+            // A null filter, or an empty array of them, is none (ISO 32000-1 7.3.9).
+            if (filter is PdfNull or PdfNullObject or PdfArray { Elements.Count: 0 })
+                filter = null;
             if (filter == null)
             {
                 tooLarge = raw.Length > limit;
