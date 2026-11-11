@@ -290,35 +290,26 @@ namespace PdfSharp.Pdf.IO
             if (old.DssObjects.Contains(id) && !maybeDrawn)
                 return;
 
+            // What an annotation draws may change only where annotations may (P=3), also where it is a field, a widget, a
+            // field's appearance, the document information or the metadata, which may change from P=2.
+            bool annotationDrawn = old.AnnotationAppearances.TryGetValue(id, out var annotationPage);
+            if ((annotationDrawn || old.AnnotationAppearancesIncomplete)
+                && (old.Fields.ContainsKey(id) || old.Annotations.ContainsKey(id) || old.Appearances.Contains(id) || id == old.Info || id == old.Metadata))
+            {
+                Need(3, annotationDrawn
+                    ? $"changing what an annotation on page {annotationPage + 1} draws (object {id.ObjectNumber})"
+                    : $"changing object {id.ObjectNumber}, which an annotation may draw (the annotations reach more objects than FreePDF follows)");
+            }
+
             if (old.Fields.ContainsKey(id) && !maybeDrawn)
             {
                 Need(2, $"filling in the form field '{old.Fields[id].Name}'");
                 CheckKeys(old, now, oldObject, newObject, $"the form field '{old.Fields[id].Name}'", FieldKeys);
                 return;
             }
-            if (old.Appearances.Contains(id) && !maybeDrawn)
-            {
-                Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
-                return;
-            }
-            if (old.AnnotationAppearances.TryGetValue(id, out var annotationPage) && !maybeDrawn)
-            {
-                Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
-                return;
-            }
-
-            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
-            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
-            if (id == old.Info && !maybeDrawn)
-            {
-                Need(2, "changing the document information");
-                return;
-            }
-            if (id == old.Metadata && !maybeDrawn)
-            {
-                Need(2, "changing the document metadata (XMP)");
-                return;
-            }
+            // The rules of the structure come before the exemptions further down: a file may also list the catalog, the
+            // form, a page or the page tree as an appearance, the document information or the metadata, and replacing
+            // one of them must not pass as a new appearance or new information.
             if (id == old.Catalog)
             {
                 CheckKeys(old, now, oldObject, newObject, "the document catalog", _permission == 1 ? CatalogKeysAtP1 : CatalogKeys);
@@ -364,6 +355,32 @@ namespace PdfSharp.Pdf.IO
                 }
                 else
                     Need(3, $"changing a {annotation.Subtype} annotation on page {annotation.Page + 1} (object {id.ObjectNumber})");
+                return;
+            }
+            // The page-tree nodes above the pages get no exemption.
+            if (old.Structure.Contains(id))
+                throw Refusal($"changing {Describe(oldObject, id)}, a node of the page tree");
+
+            if (old.Appearances.Contains(id) && !maybeDrawn)
+            {
+                Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
+                return;
+            }
+            if (annotationDrawn && !maybeDrawn)
+            {
+                Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
+                return;
+            }
+            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
+            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
+            if (id == old.Info && !maybeDrawn)
+            {
+                Need(2, "changing the document information");
+                return;
+            }
+            if (id == old.Metadata && !maybeDrawn)
+            {
+                Need(2, "changing the document metadata (XMP)");
                 return;
             }
             throw Refusal($"changing {Describe(oldObject, id)}: {string.Join(", ", ChangedKeys(old, now, oldObject, newObject))}");
@@ -781,11 +798,8 @@ namespace PdfSharp.Pdf.IO
                             continue;
                         var subtype = annotation.Elements.GetName("/Subtype");
                         Annotations[annotationReference.ObjectID] = new AnnotationNode(index, page.Reference?.ObjectID, subtype.TrimStart('/'), subtype == "/Widget");
-                        if (subtype != "/Widget")
-                        {
-                            foreach (var appearance in AppearanceObjects(annotation))
-                                AnnotationAppearances[appearance] = index;
-                        }
+                        if (subtype != "/Widget" && annotation.Elements["/AP"] is { } appearance)
+                            CollectAnnotationDrawn(appearance, index);
                     }
                 }
 
@@ -808,7 +822,48 @@ namespace PdfSharp.Pdf.IO
             internal PdfObjectID? FieldArray { get; }
             internal Dictionary<PdfObjectID, FieldNode> Fields { get; } = new();
             internal HashSet<PdfObjectID> Appearances { get; } = new();
+            // Everything an annotation other than a widget draws, with its page: its appearance dictionary and streams and
+            // whatever they reach, followed to the end. Such an object may change only where annotations may (P=3),
+            // whatever else it also is: a stream a stamp shares with an editable field's appearance changes the stamp too.
+            // Beyond MaxAnnotationObjects the walk stops, and every exemption that P=2 grants needs P=3.
             internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
+            internal bool AnnotationAppearancesIncomplete { get; private set; }
+            const int MaxAnnotationObjects = 1_000_000;
+
+            void CollectAnnotationDrawn(PdfItem appearance, int page)
+            {
+                var pending = new Stack<PdfItem>();
+                pending.Push(appearance);
+                while (pending.Count > 0 && !AnnotationAppearancesIncomplete)
+                {
+                    var item = pending.Pop();
+                    if (item is PdfReference reference)
+                    {
+                        if (AnnotationAppearances.ContainsKey(reference.ObjectID))
+                            continue;
+                        AnnotationAppearances[reference.ObjectID] = page;
+                        if (AnnotationAppearances.Count > MaxAnnotationObjects)
+                        {
+                            AnnotationAppearancesIncomplete = true;
+                            break;
+                        }
+                        item = reference.Value;
+                    }
+                    if (item is PdfDictionary dictionary)
+                    {
+                        foreach (var value in dictionary.Elements.Values)
+                        {
+                            if (value != null)
+                                pending.Push(value);
+                        }
+                    }
+                    else if (item is PdfArray array)
+                    {
+                        foreach (var element in array.Elements)
+                            pending.Push(element);
+                    }
+                }
+            }
             // Everything a page draws: its content, its resources (its own or inherited) and transparency group, and
             // whatever they reach, through form XObjects, fonts, patterns and soft masks, followed to the end whatever it
             // is: a resource may be called /P, and a page, the page tree or the catalog may serve as resources, so no

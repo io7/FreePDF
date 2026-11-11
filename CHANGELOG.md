@@ -209,6 +209,16 @@
     or 10,000 from an empty signature widget, a page counts as drawing every
     appearance and DSS object, the protected field's update is refused, and the
     widget counts as changed.
+  - The catalog, the form, a page and the page-tree nodes keep their rules
+    whatever other role a file also gives them (a field's or an annotation's
+    appearance, the document information, the metadata): those exemptions were
+    checked first, so a page-tree root also listed as a text field's rollover
+    appearance could be replaced with one that adds a page. What an annotation
+    other than a widget draws, followed to the end, may change only where
+    annotations may, also where it is an editable field's appearance: a stream
+    a stamp shared with such a field, directly or through a nested XObject,
+    passed as form filling after an approval signature and under a
+    certification that permits only form filling.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

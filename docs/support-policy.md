@@ -228,6 +228,10 @@ reported only for valid signatures. A visible empty signature field added or
 changed after a signature makes that signature Indeterminate until the field
 is signed. The appearance streams that filling in a form field writes (which
 ISO 32000 permits after a signature) are not inspected for what they draw.
+Since 7.10.1 an object that a page draws, or that decides how every page shows
+(the catalog's optional content properties and output intents), gets no
+exemption for later changes, whatever other role it also has. Actions and
+JavaScript are not judged for what they would show or hide when run.
 Since 7.10.1 a file with more than `MaxRevisions` revisions or `MaxSignatures`
 signatures (64 each by default) throws instead of being checked, earlier
 revisions are read one at a time and only where a revision ends, and DSS

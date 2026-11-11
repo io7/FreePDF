@@ -1660,6 +1660,88 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // An editable text field and a stamp share an appearance stream: the stamp's own, or an XObject the stamp's appearance
+    // draws. After an approval signature, or under a certification that permits form filling only, an update that
+    // replaces that stream changes the stamp, which may cover what was signed. The form-filling exemption was given before
+    // the annotation rule, and only the stamp's own streams counted as its appearance.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task What_a_stamp_draws_may_change_only_where_annotations_may(bool nested, bool certified)
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R >> >>",
+            $"<< /Type /Annot /Subtype /Stamp /Rect [0 0 612 792] /P 3 0 R /AP << /N {(nested ? 7 : 6)} 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /X 6 0 R >> >> /Length 5 >>\nstream\n/X Do\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: certified ? PdfCertificationLevel.FormFilling : null);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed,
+            [(6, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The page tree's root, or the catalog, is also listed as a text widget's rollover appearance, or as a stamp's
+    // appearance. After an approval signature an update gives the document a new page tree that puts a page with other
+    // content before the signed one. The exemptions for appearances (and for the document information and metadata, which
+    // FreePDF's own signing replaces, so they are not tested here) were given before the rules for the catalog and the page
+    // tree, so the replacement passed as a new appearance.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Structure_listed_as_an_appearance_keeps_its_rules(bool catalog, bool stamp)
+    {
+        int target = catalog ? 1 : 2;
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Annots [4 0 R 7 0 R] >>",
+            $"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R{(stamp ? "" : $" /R {target} 0 R")} >> >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            $"<< /Type /Annot /Subtype /Stamp /Rect [0 0 10 10] /P 3 0 R /AP << /N {(stamp ? target : 6)} 0 R >> >>",
+        };
+        var unsigned = TestPdf.Create(objects);
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        int next = Size(signed), parent = 2;
+        var update = new List<(int, string)>();
+        if (catalog)
+        {
+            parent = next++;
+            var body = Regex.Matches(Latin1(signed), @"(?s)(?<!\d)1 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+            Assert.Contains("/Pages 2 0 R", body);
+            update.Add((1, body.Replace("/Pages 2 0 R", $"/Pages {parent} 0 R")));
+        }
+        int page = next++, content = next++;
+        // The signed page stays (with the signature's widget on it), and a page with other content comes before it.
+        update.Add((parent, $"<< /Type /Pages /Kids [{page} 0 R 3 0 R] /Count 2 >>"));
+        update.Add((page, $"<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 612 792] /Contents {content} 0 R >>"));
+        update.Add((content, "<< /Length 16 >>\nstream\n0 0 612 792 re f\nendstream"));
+        var updated = AppendUpdate(signed, update.ToArray());
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // Page entries that point at pages by their nature (separations of the same page, a document part's first and last
     // page) are its place in the document, not what it shows. Followed, they led the walk over what pages draw to the
     // page itself and on to its widgets, so filling in an ordinary field after an approval signature was refused.
@@ -1827,11 +1909,14 @@ public class SignatureVerifierTests
     }
 
     // The file signed in Append mode: in the named existing field, or in a new one.
-    static byte[] SignExisting(byte[] pdf, X509Certificate2 certificate, string? fieldName = null)
+    static byte[] SignExisting(byte[] pdf, X509Certificate2 certificate, string? fieldName = null, PdfCertificationLevel? certification = null)
     {
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Append);
         DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
-            new DigitalSignatureOptions { Rectangle = fieldName == null ? new XRect(36, 36, 160, 40) : default, FieldName = fieldName });
+            new DigitalSignatureOptions
+            {
+                Rectangle = fieldName == null ? new XRect(36, 36, 160, 40) : default, FieldName = fieldName, Certification = certification,
+            });
         using var output = new MemoryStream();
         document.Save(output);
         return output.ToArray();
