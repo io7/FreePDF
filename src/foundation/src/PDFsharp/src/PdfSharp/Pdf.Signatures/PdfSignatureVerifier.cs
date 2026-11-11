@@ -1232,16 +1232,22 @@ namespace PdfSharp.Pdf.Signatures
                         return true;
                     if (!seen.Add(reference.ObjectID) || reference.Value is not { } value)
                         continue;
-                    // A parent's own entries are inherited values; its kids and page are not this widget's.
-                    if (value is PdfDictionary dictionary && !ReferenceEquals(dictionary, widget) && dictionary.Elements.ContainsKey("/Kids"))
+                    // A parent's own entries are inherited values, checked by whether it changed; its kids and page are
+                    // not this widget's. Pages, the page tree and the catalog would reach the whole document.
+                    if (parents.Contains(reference.ObjectID) && !ReferenceEquals(value, widget)
+                        || value is PdfDictionary target && NameOf(target, "/Type") is "/Page" or "/Pages" or "/Catalog")
+                    {
                         continue;
+                    }
                     item = value;
                 }
                 if (item is PdfDictionary dictionaryItem)
                 {
+                    // The widget's own /Parent, /P and /Kids are structure; in anything it draws, every entry is followed,
+                    // whatever its name (a resource may be called /P).
                     foreach (var key in dictionaryItem.Elements.Keys)
                     {
-                        if (key is "/Parent" or "/P" or "/Kids")
+                        if (ReferenceEquals(dictionaryItem, widget) && key is "/Parent" or "/P" or "/Kids")
                             continue;
                         if (dictionaryItem.Elements[key] is { } child)
                             pending.Push(child);

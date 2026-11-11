@@ -190,7 +190,11 @@
     XObject, a font, a pattern or a soft mask, counts as page content: changing
     it after a signature is not form filling. Only the XObjects the page named
     itself counted, so a field appearance that a nested XObject also drew could
-    change the signed page and leave the signature Valid.
+    change the signed page and leave the signature Valid. The walks over what a
+    page, a signed or locked field, or an empty signature widget draws follow
+    every entry whatever its name: they skipped /P, /Parent and /Kids
+    everywhere, also where these are resource names, so an XObject drawn as
+    /P could be changed as another field's appearance.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

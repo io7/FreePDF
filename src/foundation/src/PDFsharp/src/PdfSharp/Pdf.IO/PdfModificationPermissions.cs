@@ -218,9 +218,10 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        // The indirect objects a field node refers to, directly or through others. It does not follow /Parent, /P
-        // (the page), /Kids or /Data (a signature reference's document), and stops at pages, the page tree, the
-        // catalog, the form, other field nodes and other annotations, which have rules of their own.
+        // The indirect objects a field node refers to, directly or through others. The field node's own /Parent, /P
+        // (the page) and /Kids are not followed; every other entry is, whatever its name (a resource may be called /P),
+        // and the walk stops at pages, the page tree, the catalog, the form, other field nodes and other annotations,
+        // which have rules of their own (a signature reference's /Data is the catalog).
         static HashSet<PdfObjectID> ReferencedObjects(Snapshot old, PdfDictionary field)
         {
             var result = new HashSet<PdfObjectID>();
@@ -239,7 +240,7 @@ namespace PdfSharp.Pdf.IO
                 {
                     foreach (var key in dictionary.Elements.Keys)
                     {
-                        if (key is "/Parent" or "/P" or "/Kids" or "/Data")
+                        if (ReferenceEquals(dictionary, field) && key is "/Parent" or "/P" or "/Kids")
                             continue;
                         if (dictionary.Elements[key] is { } child)
                             pending.Push(child);

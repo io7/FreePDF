@@ -1536,6 +1536,43 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A field whose appearance draws XObject B under the resource name /P, while an editable text field uses B as its own
+    // appearance; after the signature an update replaces B. Two walks over what a field or widget refers to skipped the
+    // keys /P, /Parent and /Kids in every dictionary, also where they are resource names, so B was not seen as part of
+    // the first field: a field locked by the signature (the permission check), or a visible empty signature field (the
+    // check of later changes). The change passed as filling in the editable field.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField)
+    {
+        var first = lockedField
+            ? "<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>"
+            : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
+        var lockEntry = lockedField ? " /Lock << /Type /SigFieldLock /Action /Include /Fields [(locked)] >>" : "";
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R] >>",
+            $"<< /Type /Annot /Subtype /Widget /FT /Sig /T (approval) /Rect [36 36 196 76] /P 3 0 R{lockEntry} >>",
+            first,
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (free) /V (y) /Rect [300 400 400 450] /P 3 0 R /AP << /N 8 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /P 8 0 R >> >> /Length 5 >>\nstream\n/P Do\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, "approval");
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed,
+            [(8, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A signed field whose /FT /Sig is on its parent, with a lock on every field. The permission check took the missing /FT
     // for the type "/" instead of inheriting /Sig and did not see the field as signed: adding validation data made the
     // signature Indeterminate, and filling in the locked field was not reported as forbidden. The same with the parent's
