@@ -691,6 +691,39 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
+        const int MaxStructureNodes = 1_000_000;
+
+        /// <summary>
+        /// The catalog, the nodes of the page tree and the pages, found by walking the page tree from the catalog: what
+        /// they are follows from where they are, not from a /Type a dictionary gives itself (a resource dictionary may claim
+        /// /Type /Page to stop a walk over what a page draws).
+        /// </summary>
+        internal static HashSet<PdfObjectID> StructureIDs(PdfDocument document)
+        {
+            var result = new HashSet<PdfObjectID>();
+            if (document.Catalog.Reference != null)
+                result.Add(document.Catalog.ObjectID);
+            var pending = new Stack<PdfItem>();
+            if (document.Catalog.Elements["/Pages"] is { } root)
+                pending.Push(root);
+            while (pending.Count > 0 && result.Count < MaxStructureNodes)
+            {
+                if (pending.Pop() is not PdfReference reference || !result.Add(reference.ObjectID))
+                    continue;
+                if (reference.Value is PdfDictionary node && Resolve(node.Elements["/Kids"]) is PdfArray kids)
+                {
+                    foreach (var kid in kids.Elements)
+                        pending.Push(kid);
+                }
+            }
+            for (int index = 0; index < document.PageCount; index++)
+            {
+                if (document.Pages[index].Reference is { } page)
+                    result.Add(page.ObjectID);
+            }
+            return result;
+        }
+
         // The objects of a document the rules tell apart, by object identifier.
         sealed class Snapshot
         {
@@ -698,6 +731,7 @@ namespace PdfSharp.Pdf.IO
             {
                 Document = document;
                 Catalog = document.Catalog.ObjectID;
+                Structure = StructureIDs(document);
                 Info = (document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference)?.ObjectID;
                 Metadata = (document.Catalog.Elements[PdfCatalog.Keys.Metadata] as PdfReference)?.ObjectID;
                 CollectDss(document.Catalog.Elements["/DSS"]);
@@ -722,8 +756,7 @@ namespace PdfSharp.Pdf.IO
                     var page = document.Pages[index];
                     if (page.Reference != null)
                         Pages[page.ObjectID] = index;
-                    CollectPageObjects(page.Elements["/Contents"]);
-                    CollectPageObjects(page.Elements["/Resources"]);
+                    CollectPageObjects(page);
                     var annotationsItem = page.Elements["/Annots"];
                     if (annotationsItem is PdfReference annotationsReference)
                         AnnotationArrays[annotationsReference.ObjectID] = index;
@@ -753,26 +786,30 @@ namespace PdfSharp.Pdf.IO
             internal Dictionary<PdfObjectID, FieldNode> Fields { get; } = new();
             internal HashSet<PdfObjectID> Appearances { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
-            // Everything a page's content and resources reach, through form XObjects, fonts, patterns and soft masks
-            // within them: an appearance stream among them is also drawn by the page. Every entry is followed, whatever
-            // its name (a resource may be called /P or /Parent), but not into a page, the page tree or the catalog, which
-            // would reach the whole document. Beyond MaxPageObjects the walk stops, and every appearance counts as
+            // Everything a page reaches, its content and resources and through them form XObjects, fonts, patterns and
+            // soft masks: an appearance stream among them is also drawn by the page. The page's own /Parent, /Annots and
+            // /B (article beads) are not followed; everything else is, whatever its name (a resource may be called /P or
+            // /Parent), up to the catalog, the page tree and the other pages, known by where they are in the page tree,
+            // not by what a dictionary says it is. Beyond MaxPageObjects the walk stops, and every appearance counts as
             // drawn by a page.
             internal HashSet<PdfObjectID> PageObjects { get; } = new();
             internal bool PageObjectsIncomplete { get; private set; }
             const int MaxPageObjects = 100_000;
 
-            void CollectPageObjects(PdfItem? start)
+            void CollectPageObjects(PdfPage page)
             {
                 var pending = new Stack<PdfItem>();
-                if (start != null)
-                    pending.Push(start);
+                foreach (var key in page.Elements.Keys)
+                {
+                    if (key is not ("/Parent" or "/Annots" or "/B") && page.Elements[key] is { } value)
+                        pending.Push(value);
+                }
                 while (pending.Count > 0 && !PageObjectsIncomplete)
                 {
                     var item = pending.Pop();
                     if (item is PdfReference reference)
                     {
-                        if (!PageObjects.Add(reference.ObjectID))
+                        if (Structure.Contains(reference.ObjectID) || !PageObjects.Add(reference.ObjectID))
                             continue;
                         if (PageObjects.Count > MaxPageObjects)
                         {
@@ -780,8 +817,6 @@ namespace PdfSharp.Pdf.IO
                             break;
                         }
                         item = reference.Value;
-                        if (item is PdfPage || item is PdfDictionary target && NameOf(target, "/Type") is "/Page" or "/Pages" or "/Catalog")
-                            continue;
                     }
                     if (item is PdfDictionary dictionary)
                     {
@@ -880,9 +915,11 @@ namespace PdfSharp.Pdf.IO
                 {
                     return true;
                 }
-                var type = (Document.Internals.GetObject(id) as PdfDictionary)?.Elements.GetName("/Type");
-                return type is "/Page" or "/Pages" or "/Catalog";
+                return Structure.Contains(id);
             }
+
+            // The catalog, the nodes of the page tree and the pages.
+            internal HashSet<PdfObjectID> Structure { get; }
         }
 
         // The indirect objects of an annotation's appearance (ISO 32000-1 12.5.5): the /AP dictionary, its /N, /R and

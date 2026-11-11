@@ -1506,13 +1506,16 @@ public class SignatureVerifierTests
     // signature an update replaces B. Only the page's own XObjects counted as drawn by it, so the change passed as a new
     // field appearance (allowed after a signature) although it changed what the signed page shows. The same when the page
     // calls B /P itself, a name the walk over what a page draws once skipped.
+    // And when the page's resources are an indirect dictionary that calls itself /Type /Page, which stopped the walk as
+    // if it were a page.
     [Theory]
-    [InlineData(true, "B")]
-    [InlineData(false, "P")]
-    [InlineData(true, "Parent")]
-    public async Task An_appearance_the_page_also_draws_through_another_XObject_is_page_content(bool nested, string name)
+    [InlineData(true, "B", false)]
+    [InlineData(false, "P", false)]
+    [InlineData(true, "Parent", false)]
+    [InlineData(true, "B", true)]
+    public async Task An_appearance_the_page_also_draws_through_another_XObject_is_page_content(bool nested, string name, bool resourcesClaimToBeAPage)
     {
-        var resources = nested ? "<< /XObject << /A 6 0 R >> >>" : $"<< /XObject << /{name} 7 0 R >> >>";
+        var resources = resourcesClaimToBeAPage ? "8 0 R" : nested ? "<< /XObject << /A 6 0 R >> >>" : $"<< /XObject << /{name} 7 0 R >> >>";
         var drawn = nested ? "/A Do" : $"/{name} Do";
         var unsigned = TestPdf.Create(new[]
         {
@@ -1523,6 +1526,36 @@ public class SignatureVerifierTests
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>",
             $"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /{name} 7 0 R >> >> /Length {name.Length + 4} >>\nstream\n/{name} Do\nendstream",
             "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Page /XObject << /A 6 0 R >> >>",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed,
+            [(7, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The page's resources are also a second page in the page tree, so that they are a real page and the walks stop there:
+    // the page is walked from its own dictionary, so what that "page" names (A, and through it B) is page content all the
+    // same.
+    [Fact]
+    public async Task Resources_that_are_also_a_page_in_the_tree_are_still_walked()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 8 0 R /Annots [5 0 R] >>",
+            "<< /Length 5 >>\nstream\n/A Do\nendstream",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /B 7 0 R >> >> /Length 5 >>\nstream\n/B Do\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Page /Parent 2 0 R /XObject << /A 6 0 R >> >>",
         });
         using var certificate = SelfSigned();
         var signed = SignExisting(unsigned, certificate);
@@ -1541,11 +1574,16 @@ public class SignatureVerifierTests
     // keys /P, /Parent and /Kids in every dictionary, also where they are resource names, so B was not seen as part of
     // the first field: a field locked by the signature (the permission check), or a visible empty signature field (the
     // check of later changes). The change passed as filling in the editable field.
+    // And when the appearance's resources are an indirect dictionary that calls itself /Type /Page, which stopped both
+    // walks as if it were a page.
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField, bool resourcesClaimToBeAPage)
     {
+        var resources = resourcesClaimToBeAPage ? "9 0 R" : "<< /XObject << /P 8 0 R >> >>";
         var first = lockedField
             ? "<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>"
             : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
@@ -1558,8 +1596,9 @@ public class SignatureVerifierTests
             $"<< /Type /Annot /Subtype /Widget /FT /Sig /T (approval) /Rect [36 36 196 76] /P 3 0 R{lockEntry} >>",
             first,
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (free) /V (y) /Rect [300 400 400 450] /P 3 0 R /AP << /N 8 0 R >> >>",
-            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /P 8 0 R >> >> /Length 5 >>\nstream\n/P Do\nendstream",
+            $"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources {resources} /Length 5 >>\nstream\n/P Do\nendstream",
             "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Page /XObject << /P 8 0 R >> >>",
         });
         using var certificate = SelfSigned();
         var signed = SignExisting(unsigned, certificate, "approval");

@@ -1155,6 +1155,7 @@ namespace PdfSharp.Pdf.Signatures
         static string? ChangedEmptySignatureWidget(PdfDocument document, List<PdfReference> written)
         {
             var changed = new HashSet<PdfObjectID>(written.Select(r => r.ObjectID));
+            var structure = PdfModificationPermissions.StructureIDs(document);
             for (int index = 0; index < document.PageCount; index++)
             {
                 if (Resolve(document.Pages[index].Elements["/Annots"]) is not PdfArray annotations)
@@ -1163,7 +1164,7 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     if (Resolve(item) is not PdfDictionary widget || !IsVisibleEmptySignatureWidget(widget))
                         continue;
-                    if (DependsOnChanged(item, widget, changed))
+                    if (DependsOnChanged(item, widget, changed, structure))
                         return $"adding or changing a visible signature field without a signature on page {index + 1}";
                 }
             }
@@ -1202,7 +1203,7 @@ namespace PdfSharp.Pdf.Signatures
 
         // The widget, its parents and everything its /AP and /MK refer to: one of them changed. Beyond 10000 objects the
         // rest is taken as changed.
-        static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed)
+        static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed, HashSet<PdfObjectID> structure)
         {
             var seen = new HashSet<PdfObjectID>();
             var pending = new Stack<PdfItem>();
@@ -1233,12 +1234,10 @@ namespace PdfSharp.Pdf.Signatures
                     if (!seen.Add(reference.ObjectID) || reference.Value is not { } value)
                         continue;
                     // A parent's own entries are inherited values, checked by whether it changed; its kids and page are
-                    // not this widget's. Pages, the page tree and the catalog would reach the whole document.
-                    if (parents.Contains(reference.ObjectID) && !ReferenceEquals(value, widget)
-                        || value is PdfDictionary target && NameOf(target, "/Type") is "/Page" or "/Pages" or "/Catalog")
-                    {
+                    // not this widget's. Pages, the page tree and the catalog would reach the whole document: they are
+                    // known by where they are in the page tree, not by the /Type a dictionary gives itself.
+                    if (parents.Contains(reference.ObjectID) && !ReferenceEquals(value, widget) || structure.Contains(reference.ObjectID))
                         continue;
-                    }
                     item = value;
                 }
                 if (item is PdfDictionary dictionaryItem)
