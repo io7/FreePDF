@@ -235,6 +235,19 @@ for a role (an appearance, an annotation, the document information or
 metadata, validation data) holds only for an object the document reaches
 through that role alone. Actions and JavaScript are not judged for what they
 would show or hide when run.
+The check of later changes has two known limits. First, it assumes that an
+ordinary producer made the signed revision. A file that was built before
+signing so that one object has two roles can pass a later change to that
+object. Two cases are known. One is an array that is a page's /MediaBox and
+also its /Annots. The other is a bookmark that a form widget also lists as an
+appearance. Second, the check does not compare the values that FreePDF sets
+when it opens a file. These are the /Parent of a page, the /Parent, /Prev and
+/Last of a bookmark, and the /SigFlags of a form that is an object of its own.
+A page's place in the page tree comes from /Kids, which the check does
+compare. In a test, poppler 25.03.0 and MuPDF 1.25.1 took the values that a
+page inherits through /Kids and did not use a changed /Parent. Other viewers
+were not tested. Where no change after the signature is acceptable, require
+`CoversWholeFile`, or compare the revisions yourself.
 Since 7.10.1 a file with more than `MaxRevisions` revisions or `MaxSignatures`
 signatures (64 each by default) throws instead of being checked, earlier
 revisions are read one at a time and only where a revision ends, and DSS

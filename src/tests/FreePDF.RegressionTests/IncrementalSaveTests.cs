@@ -80,6 +80,47 @@ public class IncrementalSaveTests
         Assert.Equal(original, Save(original, _ => { }));
     }
 
+    public static IEnumerable<object[]> Fixtures => ReadFixtures.Names;
+
+    // Reading a file through the classes for pages, annotations and bookmarks changes no object either, whatever kinds
+    // of objects it has: each fixture is saved as it was.
+    [Theory]
+    [MemberData(nameof(Fixtures))]
+    public void A_file_that_is_only_read_is_saved_as_it_was(string name)
+    {
+        var original = ReadFixtures.Get(name);
+        var result = Save(original, document =>
+        {
+            foreach (var page in document.Pages)
+            {
+                _ = page.MediaBox;
+                _ = page.Rotate;
+                if (!page.HasAnnotations)
+                    continue;
+                for (int index = 0; index < page.Annotations.Count; index++)
+                {
+                    var annotation = page.Annotations[index];
+                    _ = annotation.Rectangle;
+                }
+            }
+            if (document.Internals.Catalog.Elements.ContainsKey("/Outlines"))
+                ReadTitles(document.Outlines);
+        });
+
+        if (result.Length > original.Length)
+            Assert.Fail("Reading the file made the save write objects " + string.Join(", ", WrittenObjects(Update(original, result))) + ":\n" + Update(original, result));
+        Assert.Equal(original, result);
+
+        static void ReadTitles(PdfOutlineCollection outlines)
+        {
+            foreach (var outline in outlines)
+            {
+                _ = outline.Title;
+                ReadTitles(outline.Outlines);
+            }
+        }
+    }
+
     [Fact]
     public void Reading_the_document_information_is_no_change()
     {

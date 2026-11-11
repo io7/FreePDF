@@ -260,6 +260,16 @@
   indirect object. It took the missing entry for a type, so a signed field
   whose /FT /Sig is on its parent did not count as signed: its lock was not
   applied, and adding validation data made the signature Indeterminate.
+- The check of later changes has two known limits. `docs/support-policy.md`
+  lists them, and tests hold them: a test fails when a case is added and when
+  a case is closed.
+  - A file that was built before signing so that one object has two roles can
+    pass a later change to that object. Two cases are known: an array that is
+    a page's /MediaBox and also its /Annots, and a bookmark that a form widget
+    also lists as an appearance.
+  - The check does not compare the values that FreePDF sets when it opens a
+    file: a page's /Parent, a bookmark's /Parent, /Prev and /Last, and the
+    /SigFlags of a form that is an object of its own.
 - The refusal that a save throws when it would change a signed or locked field
   no longer has the undocumented `FreePDF.Protected` entry in its `Data`.
   Nothing read it.
