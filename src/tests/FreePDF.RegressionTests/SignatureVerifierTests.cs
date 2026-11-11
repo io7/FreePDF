@@ -1569,6 +1569,42 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // Resources that are a real structural object, so that a walk stopping at structure stopped there: the page's
+    // /Resources is the catalog, which holds /XObject << /A >>; or a leaf page carries /Kids [A], which the page tree does
+    // not read but a walk of the page tree took for a node. A draws B, also a text field's appearance; B is replaced.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Structural_objects_used_as_resources_do_not_hide_what_the_page_draws(bool catalogAsResources)
+    {
+        var catalog = catalogAsResources
+            ? "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> /XObject << /A 6 0 R >> >>"
+            : "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>";
+        var page = catalogAsResources
+            ? "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources 1 0 R /Annots [5 0 R] >>"
+            : "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /A 6 0 R >> >> /Kids [6 0 R] /Annots [5 0 R] >>";
+        var unsigned = TestPdf.Create(new[]
+        {
+            catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            page,
+            "<< /Length 5 >>\nstream\n/A Do\nendstream",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /B 7 0 R >> >> /Length 5 >>\nstream\n/B Do\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed,
+            [(7, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A field whose appearance draws XObject B under the resource name /P, while an editable text field uses B as its own
     // appearance; after the signature an update replaces B. Two walks over what a field or widget refers to skipped the
     // keys /P, /Parent and /Kids in every dictionary, also where they are resource names, so B was not seen as part of
@@ -1576,21 +1612,25 @@ public class SignatureVerifierTests
     // check of later changes). The change passed as filling in the editable field.
     // And when the appearance's resources are an indirect dictionary that calls itself /Type /Page, which stopped both
     // walks as if it were a page.
+    // And when the resources are the catalog itself, a real structural object.
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    [InlineData(false, true)]
-    public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField, bool resourcesClaimToBeAPage)
+    [InlineData(true, "")]
+    [InlineData(false, "")]
+    [InlineData(true, "page")]
+    [InlineData(false, "page")]
+    [InlineData(true, "catalog")]
+    [InlineData(false, "catalog")]
+    public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField, string resourcesAre)
     {
-        var resources = resourcesClaimToBeAPage ? "9 0 R" : "<< /XObject << /P 8 0 R >> >>";
+        var resources = resourcesAre switch { "page" => "9 0 R", "catalog" => "1 0 R", _ => "<< /XObject << /P 8 0 R >> >>" };
+        var catalogResources = resourcesAre == "catalog" ? " /XObject << /P 8 0 R >>" : "";
         var first = lockedField
             ? "<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>"
             : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
         var lockEntry = lockedField ? " /Lock << /Type /SigFieldLock /Action /Include /Fields [(locked)] >>" : "";
         var unsigned = TestPdf.Create(new[]
         {
-            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >>{catalogResources} >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R] >>",
             $"<< /Type /Annot /Subtype /Widget /FT /Sig /T (approval) /Rect [36 36 196 76] /P 3 0 R{lockEntry} >>",

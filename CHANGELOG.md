@@ -194,10 +194,12 @@
     page, a signed or locked field, or an empty signature widget draws follow
     every entry whatever its name: they skipped /P, /Parent and /Kids
     everywhere, also where these are resource names, so an XObject drawn as
-    /P could be changed as another field's appearance. They stop at the
-    catalog, the page tree and the pages as found in the page tree, not at a
-    dictionary that calls itself /Type /Page, and a page is walked from its own
-    dictionary.
+    /P could be changed as another field's appearance. What a page, a field or
+    a widget draws (its content, resources and appearances) is now followed to
+    the end, whatever it reaches: a dictionary that calls itself a page, the
+    catalog or a page used as resources no longer ends the walk. Beyond 100,000
+    objects a page counts as drawing every appearance, a widget counts as
+    changed, and a protected field's update is refused.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

@@ -1155,7 +1155,6 @@ namespace PdfSharp.Pdf.Signatures
         static string? ChangedEmptySignatureWidget(PdfDocument document, List<PdfReference> written)
         {
             var changed = new HashSet<PdfObjectID>(written.Select(r => r.ObjectID));
-            var structure = PdfModificationPermissions.StructureIDs(document);
             for (int index = 0; index < document.PageCount; index++)
             {
                 if (Resolve(document.Pages[index].Elements["/Annots"]) is not PdfArray annotations)
@@ -1164,7 +1163,7 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     if (Resolve(item) is not PdfDictionary widget || !IsVisibleEmptySignatureWidget(widget))
                         continue;
-                    if (DependsOnChanged(item, widget, changed, structure))
+                    if (DependsOnChanged(item, widget, changed))
                         return $"adding or changing a visible signature field without a signature on page {index + 1}";
                 }
             }
@@ -1203,16 +1202,17 @@ namespace PdfSharp.Pdf.Signatures
 
         // The widget, its parents and everything its /AP and /MK refer to: one of them changed. Beyond 10000 objects the
         // rest is taken as changed.
-        static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed, HashSet<PdfObjectID> structure)
+        static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed)
         {
             var seen = new HashSet<PdfObjectID>();
             var pending = new Stack<PdfItem>();
             pending.Push(widgetItem);
-            // At most 64 parents, each once: a /Parent that leads back to itself ends the chain.
+            // As many parents as a field tree may have (PdfFormField.MaxAncestors), each once: a /Parent that leads back to
+            // itself ends the chain.
             var parents = new HashSet<PdfObjectID>();
             if (widgetItem is PdfReference self)
                 parents.Add(self.ObjectID);
-            for (var parent = widget.Elements["/Parent"]; parent != null && parents.Count < 64;)
+            for (var parent = widget.Elements["/Parent"]; parent != null && parents.Count <= PdfSharp.Pdf.Forms.PdfFormField.MaxAncestors;)
             {
                 if (parent is PdfReference r && !parents.Add(r.ObjectID))
                     break;
@@ -1233,22 +1233,23 @@ namespace PdfSharp.Pdf.Signatures
                         return true;
                     if (!seen.Add(reference.ObjectID) || reference.Value is not { } value)
                         continue;
-                    // A parent's own entries are inherited values, checked by whether it changed; its kids and page are
-                    // not this widget's. Pages, the page tree and the catalog would reach the whole document: they are
-                    // known by where they are in the page tree, not by the /Type a dictionary gives itself.
-                    if (parents.Contains(reference.ObjectID) && !ReferenceEquals(value, widget) || structure.Contains(reference.ObjectID))
+                    // The widget and its parents are checked by whether they changed (a parent's entries are inherited
+                    // values); their other entries (kids, page, actions) are not what the widget draws. What it draws
+                    // (/AP, /MK, pushed above) is followed to the end, whatever it reaches: a page or the catalog may
+                    // serve as resources. Beyond the limit below it counts as changed.
+                    if (parents.Contains(reference.ObjectID))
                         continue;
                     item = value;
                 }
                 if (item is PdfDictionary dictionaryItem)
                 {
-                    // The widget's own /Parent, /P and /Kids are structure; in anything it draws, every entry is followed,
-                    // whatever its name (a resource may be called /P).
-                    foreach (var key in dictionaryItem.Elements.Keys)
+                    // In anything the widget draws, every entry is followed, whatever its name (a resource may be called
+                    // /P). The widget itself is not walked: what it draws was pushed above.
+                    if (ReferenceEquals(dictionaryItem, widget))
+                        continue;
+                    foreach (var child in dictionaryItem.Elements.Values)
                     {
-                        if (ReferenceEquals(dictionaryItem, widget) && key is "/Parent" or "/P" or "/Kids")
-                            continue;
-                        if (dictionaryItem.Elements[key] is { } child)
+                        if (child != null)
                             pending.Push(child);
                     }
                 }
