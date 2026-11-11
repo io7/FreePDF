@@ -103,26 +103,22 @@ namespace PdfSharp.Pdf
             DestinationPage = destinationPage;
         }
 
-        internal int Count
-        {
-            get => _count;
-            set => _count = value;
-        }
-        int _count;
-
         /// <summary>
-        /// The total number of open descendants at all lower levels.
+        /// The number of descendants shown while this item is open: its children, and the visible descendants of each
+        /// open child (ISO 32000-1 12.3.3). For the root, the number of visible items.
         /// </summary>
-        internal int OpenCount;
-
-        /// <summary>
-        /// Counts the open outline items. Not yet used.
-        /// </summary>
-        internal int CountOpen()
+        int VisibleDescendants()
         {
-            int count = _opened ? 1 : 0;
+            int count = 0;
             if (_outlines != null)
-                count += _outlines.CountOpen();
+            {
+                foreach (var child in _outlines)
+                {
+                    count++;
+                    if (child._opened)
+                        count += child.VisibleDescendants();
+                }
+            }
             return count;
         }
 
@@ -202,7 +198,8 @@ namespace PdfSharp.Pdf
         double? _zoom; // PDF treats 0 and null equally.
 
         /// <summary>
-        /// Gets or sets whether the outline item is opened (or expanded).
+        /// Gets or sets whether the outline item is opened (or expanded). An item read from a file is open when its
+        /// /Count is positive; saving writes /Count for every item with children, negative while it is closed.
         /// </summary>
         public bool Opened
         {
@@ -266,9 +263,10 @@ namespace PdfSharp.Pdf
                     Parent = parent;
             }
 
-            // A /Count or /C of the wrong type in a damaged file is ignored rather than failing the document.
+            // A positive /Count is an open item. A /Count or /C of the wrong type in a damaged file is ignored rather
+            // than failing the document.
             Elements.TryGetInteger(Keys.Count, out var count);
-            Count = count;
+            _opened = count > 0;
 
             if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
                 && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
@@ -527,10 +525,8 @@ namespace PdfSharp.Pdf
                     Elements[Keys.First] = _outlines[0].RequiredReference;
                     Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
 
-                    // TODO_OLD: /Count - the meaning is not completely clear to me.
-                    // Get PDFs created with Acrobat and analyze what to implement.
-                    if (OpenCount > 0)
-                        Elements[Keys.Count] = new PdfInteger(OpenCount);
+                    // The number of visible items: the top-level items and the visible descendants of open ones.
+                    Elements[Keys.Count] = new PdfInteger(VisibleDescendants());
                 }
                 else
                 {
@@ -577,9 +573,17 @@ namespace PdfSharp.Pdf
                         Elements[Keys.First] = _outlines[0].RequiredReference;
                         Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
                     }
-                    // TODO_OLD: /Count - the meaning is not completely clear to me
-                    if (OpenCount > 0)
-                        Elements[Keys.Count] = new PdfInteger((_opened ? 1 : -1) * OpenCount);
+                    // Required on an item with children (ISO 32000-1 Table 153): the descendants visible while it is
+                    // open, negative while it is closed. An item without children has none.
+                    if (hasKids)
+                    {
+                        int visible = VisibleDescendants();
+                        Elements[Keys.Count] = new PdfInteger(_opened ? visible : -visible);
+                    }
+                    else
+                    {
+                        Elements.Remove(Keys.Count);
+                    }
 
                     if (TextColor != XColor.Empty && Owner.HasVersion("1.4"))
                         Elements[Keys.C] = new PdfLiteral("[{0}]", PdfEncoders.ToString(TextColor, PdfColorMode.Rgb));  // #US309

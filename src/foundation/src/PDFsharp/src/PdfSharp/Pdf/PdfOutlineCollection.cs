@@ -5,8 +5,6 @@ using System.Collections;
 using PdfSharp.Internal;
 using PdfSharp.Drawing;
 
-// Review: CountOpen does not work. - StL/14-10-05
-
 namespace PdfSharp.Pdf
 {
     /// <summary>
@@ -66,16 +64,6 @@ namespace PdfSharp.Pdf
 
             AddToOutlinesTree(outline);
             _outlines.Add(outline);
-
-            if (outline.Opened)
-            {
-                outline = _parent;
-                while (outline != null)
-                {
-                    outline.OpenCount++;
-                    outline = outline.Parent;
-                }
-            }
         }
 
         /// <summary>
@@ -229,14 +217,6 @@ namespace PdfSharp.Pdf
         IEnumerator IEnumerable.GetEnumerator()
         {
             return GetEnumerator();
-        }
-
-        internal int CountOpen()
-        {
-            int count = 0;
-            //foreach (PdfOutline outline in _outlines)
-            //    count += outline.CountOpen();
-            return count;
         }
 
         void AddToOutlinesTree(PdfOutline outline)

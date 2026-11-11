@@ -1,5 +1,17 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the
+  number of descendants visible while the item is open, negative while it is
+  closed, and on the outline root the number of visible items. FreePDF counted
+  only descendants that were added already open, so an open bookmark whose
+  children were closed, or were opened after being added (merged bookmarks),
+  had no /Count and showed closed; closed bookmarks never got their negative
+  count. `PdfOutline.Opened` now reads an opened file's open state from /Count
+  (it read false), and a /Count on an item without children is dropped. An
+  Append-mode save writes no outline item that did not change.
+
 ## 7.10.0
 
 - PAdES baseline signatures: `PdfSharpDefaultSigner` with
