@@ -127,6 +127,81 @@ public class HostileSizeTests
         Assert.Contains("64", refused.Message + refused.InnerException?.Message);
     }
 
+    // A file whose objects 5 to 68 are in one object stream. Shared: its header points all 64 at one 1 MiB string (a few
+    // kilobytes of Flate), so reading them built 64 MiB of strings from a stream that holds 1 MiB; with more objects and a
+    // longer string, gigabytes. Otherwise each object has its own short string, as in any file.
+    static byte[] ObjectStreamFile(bool shared)
+    {
+        const int count = 64;
+        string header, objects;
+        if (shared)
+        {
+            header = string.Join(" ", Enumerable.Range(5, count).Select(number => $"{number} 0")) + " ";
+            objects = "(" + new string('a', 1024 * 1024) + ")";
+        }
+        else
+        {
+            header = string.Join(" ", Enumerable.Range(0, count).Select(index => $"{index + 5} {index * 4}")) + " ";
+            objects = string.Concat(Enumerable.Repeat("(a) ", count));
+        }
+        var stream = Zlib(Encoding.ASCII.GetBytes(header + objects));
+        int xrefNumber = 5 + count;
+        using var file = new MemoryStream();
+        var offsets = new long[5];
+        void Text(string text)
+        {
+            var bytes = TestPdf.Latin1.GetBytes(text);
+            file.Write(bytes, 0, bytes.Length);
+        }
+        Text("%PDF-1.7\n");
+        var plain = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        };
+        for (int number = 1; number <= 3; number++)
+        {
+            offsets[number] = file.Position;
+            Text($"{number} 0 obj\n{plain[number - 1]}\nendobj\n");
+        }
+        offsets[4] = file.Position;
+        Text($"4 0 obj\n<< /Type /ObjStm /N {count} /First {header.Length} /Filter /FlateDecode /Length {stream.Length} >>\nstream\n");
+        file.Write(stream, 0, stream.Length);
+        Text("\nendstream\nendobj\n");
+        long xref = file.Position;
+        // Cross-reference stream rows with /W [1 4 2]: type, offset or object stream, generation or index.
+        var rows = new MemoryStream();
+        void Row(int type, long second, int third)
+        {
+            rows.WriteByte((byte)type);
+            for (int shift = 24; shift >= 0; shift -= 8)
+                rows.WriteByte((byte)(second >> shift));
+            rows.WriteByte((byte)(third >> 8));
+            rows.WriteByte((byte)third);
+        }
+        Row(0, 0, 65535);
+        for (int number = 1; number <= 4; number++)
+            Row(1, offsets[number], 0);
+        for (int index = 0; index < count; index++)
+            Row(2, 4, index);
+        Row(1, xref, 0);
+        var rowBytes = rows.ToArray();
+        Text($"{xrefNumber} 0 obj\n<< /Type /XRef /Size {xrefNumber + 1} /W [1 4 2] /Root 1 0 R /Length {rowBytes.Length} >>\nstream\n");
+        file.Write(rowBytes, 0, rowBytes.Length);
+        Text($"\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n");
+        return file.ToArray();
+    }
+
+    [Fact]
+    public void Objects_that_share_their_bytes_in_an_object_stream_are_refused()
+    {
+        using (var ordinary = PdfReader.Open(new MemoryStream(ObjectStreamFile(shared: false)), PdfDocumentOpenMode.Import))
+            Assert.Equal("a", (ordinary.Internals.GetObject(new PdfObjectID(68)) as PdfStringObject)?.Value);
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(ObjectStreamFile(shared: true)), PdfDocumentOpenMode.Import));
+    }
+
     // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)
     // before it looked at the data, also for metadata read on save. Rows are now no longer than the data, also when
     // /Colors × /Columns overflows.

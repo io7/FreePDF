@@ -48,6 +48,10 @@
   `PdfReaderException`. Flate and LZW stop at the limit as they decode, at
   every filter of a chain: a few hundred bytes of Flate applied twice could
   inflate to gigabytes before anything was checked.
+- The objects read from an object stream may together span no more bytes than
+  the stream holds. Its header could point many objects at the same bytes, such
+  as one long string, and each was read and kept on its own: 1 MiB read 4,096
+  times is 4 GiB of text.
 - The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
   rows from the data: a few bytes whose /Columns claimed rows of 256 MiB
   allocated two such rows before reading anything. An incomplete last row is
@@ -134,6 +138,10 @@
     also when an online check finds a good answer. It was dropped as if it said
     nothing, so a good answer of the other kind made the signature Valid. A
     revocation dated after the signature leaves it as it was.
+  - An OCSP response that lists several responder certificates with the same
+    name (as after a key rollover) is checked against each until one verifies
+    it. Only the first was tried, so a revocation signed with the other key was
+    dropped and a good CRL made the signature Valid.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

@@ -1172,6 +1172,30 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A revocation from a delegated responder whose response lists, first, another certificate with the same name and
+    // authorization but another key (as after a key rollover): the first certificate with the name was taken as the
+    // responder, its key did not verify the response, the revocation was dropped, and a good CRL made the signature Valid.
+    [Fact]
+    public async Task The_responder_is_found_among_certificates_that_share_its_name()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.Crl(pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        pki.Responder = TestPki.OcspResponder.Delegated;
+        using var decoy = pki.CreateDelegatedResponder(pki.Intermediate);
+        pki.DecoyResponder = decoy;
+        var revoking = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, revoking], [rootCrl, good]),
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The same CRL, signed with RSASSA-PSS, but revoking the signer an hour after the signature's time-stamp: a revocation
     // after the signature does not count when it can be checked, so it must not make the signature Indeterminate when it
     // cannot.

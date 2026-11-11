@@ -1748,27 +1748,39 @@ namespace PdfSharp.Pdf.Signatures
                     }
                     if (answer == null)
                         return null;
-                    var responder = Responder(responderId, issuer, certificates, producedAt, out var withoutNoCheck);
-                    bool unverifiable = !IsVerifiable(algorithm)
-                                        || responder == null && certificates.Any(candidate => Names(responderId, candidate)
-                                            && !IsVerifiable(candidate.SignatureAlgorithm.Value ?? ""));
-                    if (unverifiable)
+                    if (!IsVerifiable(algorithm))
                     {
                         if (answer.Value.Item1 != null)
                             claimed = (answer.Value.Item1, answer.Value.Item2);
                         return null;
                     }
+                    // The responder that signed it: several certificates may carry the name (a key rollover), so each is
+                    // tried until one verifies the signature.
+                    X509Certificate2? responder = null;
+                    bool signedWithoutNoCheck = false;
+                    foreach (var (candidate, noCheck) in Responders(responderId, issuer, certificates, producedAt))
+                    {
+                        if (!VerifySignature(candidate, algorithm, tbsData, signature))
+                            continue;
+                        if (noCheck)
+                        {
+                            responder = candidate;
+                            break;
+                        }
+                        signedWithoutNoCheck = true;
+                    }
                     if (responder == null)
                     {
-                        // A responder the issuer authorized but without id-pkix-ocsp-nocheck: its own revocation would
-                        // have to be checked (RFC 6960 4.2.2.2.1), which FreePDF does not do, so its answer is not used.
-                        // A revocation it signed still keeps the certificate from being shown as not revoked.
-                        if (withoutNoCheck != null && answer.Value.Item1 != null && VerifySignature(withoutNoCheck, algorithm, tbsData, signature))
+                        // Signed by a responder the issuer authorized but without id-pkix-ocsp-nocheck: its own revocation
+                        // would have to be checked (RFC 6960 4.2.2.2.1), which FreePDF does not do, so its answer is not
+                        // used. Or by one whose certificate FreePDF cannot verify. A revocation it holds still keeps the
+                        // certificate from being shown as not revoked.
+                        bool unverifiableResponder = certificates.Any(candidate => Names(responderId, candidate)
+                                                                                   && !IsVerifiable(candidate.SignatureAlgorithm.Value ?? ""));
+                        if ((signedWithoutNoCheck || unverifiableResponder) && answer.Value.Item1 != null)
                             claimed = (answer.Value.Item1, answer.Value.Item2);
                         return null;
                     }
-                    if (!VerifySignature(responder, algorithm, tbsData, signature))
-                        return null;
                     // archiveCutoff (RFC 6960 4.4.4): the responder keeps the status of certificates that expired at or
                     // after it. It belongs in the single response's extensions; the response's own are read too.
                     var archiveCutoff = singleCutoff;
@@ -1819,13 +1831,13 @@ namespace PdfSharp.Pdf.Signatures
             // The responder (RFC 6960 4.2.2.2): the issuer itself, or a certificate the issuer signed for OCSP signing
             // (id-kp-OCSPSigning), valid when the response was produced, with id-pkix-ocsp-nocheck so that its own
             // revocation need not be checked.
-            // withoutNoCheck: a certificate that would be the responder but for id-pkix-ocsp-nocheck.
-            static X509Certificate2? Responder(byte[] responderId, X509Certificate2 issuer, List<X509Certificate2> certificates,
-                DateTimeOffset producedAt, out X509Certificate2? withoutNoCheck)
+            // The certificates that may be the responder, the issuer first; NoCheck: it may be used without checking its own
+            // revocation (the issuer itself, or a certificate with id-pkix-ocsp-nocheck).
+            static IEnumerable<(X509Certificate2 Certificate, bool NoCheck)> Responders(byte[] responderId, X509Certificate2 issuer,
+                List<X509Certificate2> certificates, DateTimeOffset producedAt)
             {
-                withoutNoCheck = null;
                 if (Names(responderId, issuer))
-                    return issuer;
+                    yield return (issuer, true);
                 foreach (var candidate in certificates)
                 {
                     if (!Names(responderId, candidate))
@@ -1837,13 +1849,8 @@ namespace PdfSharp.Pdf.Signatures
                                     || (ku.KeyUsages & (X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.NonRepudiation)) != 0;
                     bool valid = candidate.NotBefore.ToUniversalTime() <= producedAt.UtcDateTime && producedAt.UtcDateTime <= candidate.NotAfter.ToUniversalTime();
                     if (authorized && keyUsage && valid && IsSignedBy(candidate, issuer))
-                    {
-                        if (noCheck)
-                            return candidate;
-                        withoutNoCheck ??= candidate;
-                    }
+                        yield return (candidate, noCheck);
                 }
-                return null;
             }
 
             // ResponderID: byName [1] Name or byKey [2] KeyHash (SHA-1 of the key's BIT STRING value).

@@ -57,6 +57,24 @@ public sealed class TestPki : IDisposable
     /// <summary>Signs CRLs and OCSP responses with RSASSA-PSS (SHA-256), which FreePDF does not verify.</summary>
     public bool Pss { get; set; }
 
+    /// <summary>
+    /// Another responder certificate listed before the one that signs, as after a key rollover: the same name and
+    /// authorization, another key.
+    /// </summary>
+    public X509Certificate2? DecoyResponder { get; set; }
+
+    /// <summary>A new delegated responder certificate for the issuer, with the usual name and a new key.</summary>
+    public X509Certificate2 CreateDelegatedResponder(X509Certificate2 issuer)
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF test OCSP responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
+        request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));
+        using var issued = request.Create(issuer, CaFrom, CaUntil, Serial());
+        return issued.CopyWithPrivateKey(key);
+    }
+
     public enum OcspAnswer
     {
         /// <summary>Good, or revoked when the serial number is in <see cref="Revoked"/>.</summary>
@@ -340,7 +358,11 @@ public sealed class TestPki : IDisposable
             {
                 using (basic.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))   // certs
                 using (basic.PushSequence())
+                {
+                    if (DecoyResponder != null)
+                        basic.WriteEncodedValue(DecoyResponder.RawData);
                     basic.WriteEncodedValue(responder.RawData);
+                }
             }
         }
 

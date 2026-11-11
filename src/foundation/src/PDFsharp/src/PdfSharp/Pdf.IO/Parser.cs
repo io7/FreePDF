@@ -881,6 +881,10 @@ namespace PdfSharp.Pdf.IO
         // Set on the document's parser while it reads an indirect /Length.
         bool _readingStreamLength;
 
+        // On an object stream's parser: the objects read from it, and the bytes they spanned.
+        HashSet<PdfObjectID>? _spannedObjects;
+        long _spannedBytes;
+
         // Cross-reference and object streams are decoded while a file is opened, before anything else can be checked: each
         // to at most MaxStructuralStream bytes, and all of a file's together to at most StructuralBudget, so that a few
         // kilobytes of Flate (or several Flate filters in a row) cannot inflate to gigabytes.
@@ -1136,6 +1140,15 @@ namespace PdfSharp.Pdf.IO
             var pdfObject = objectStreamParser.ReadObjectInternal(null, objectID, false, true, suppressObjectOrderExceptions);
             if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                 return null!;
+            // The objects of a stream count the bytes they span against what it holds (with a little room for each, as the
+            // lexer reads one character ahead): a header may point many objects at the same bytes, such as one long
+            // string, and they would build far more than the stream holds.
+            if ((objectStreamParser._spannedObjects ??= new()).Add(objectID))
+            {
+                objectStreamParser._spannedBytes += Math.Max(0, objectStreamParser._lexer.Position - offset);
+                if (objectStreamParser._spannedBytes > objectStreamParser._lexer.PdfLength + 16L * objectStreamParser._spannedObjects.Count)
+                    throw LimitExceeded("The objects of an object stream overlap: together they span more bytes than the stream holds.");
+            }
             return pdfObject;
 #else
             // Old code: Scan each ObjectStream for the offset of the ObjectID and load it, if found.
