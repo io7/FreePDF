@@ -35,6 +35,17 @@
     without a type of its own for its type.
 - XMP metadata nested more than 64 levels deep is not read (the XML DOM reads
   and writes it recursively); it stays in the file as it is.
+- XMP metadata is read (to keep a file that claims PDF/A in agreement with its
+  document information) only when it is at most 16 MiB: Flate is inflated up to
+  that limit, any other single filter is decoded only from a stream of at most
+  16 KiB, and a chain of filters is not read. A few kilobytes of Flate could
+  inflate to gigabytes when a file was saved or opened in Append mode. Metadata
+  that is not read stays in the file as it is.
+- When a form cannot be flattened, the message names the first 10 fields, each
+  shortened to 200 characters, and counts the rest. It named every field in
+  full, so a form with thousands of long names built gigabytes of text.
+- Flattening gives an appearance stream without /Subtype the /Subtype /Form it
+  needs to be drawn into the page. The check for a missing entry never matched.
 - Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the
   number of descendants visible while the item is open, negative while it is
   closed, and on the outline root the number of visible items. FreePDF counted
@@ -78,7 +89,8 @@
     name for every field they test.
   - A form field whose fully qualified name is longer than 4,096 characters
     makes the permission check (and a FreePDF save under a signature's rules)
-    fail instead of building every such name.
+    fail instead of building every such name. Opening a file in Append mode
+    reads no names, so an unsigned file with such a name still opens and saves.
   - A visible empty signature widget whose /Parent leads back to itself no
     longer makes the check allocate until memory runs out.
   - Every byte inflated from the DSS counts against its 64 MiB budget, also
@@ -87,6 +99,26 @@
     read as a CRL).
   - The DSS of the revision a document time-stamp covers is read once per
     time-stamp, one at a time.
+  - An OCSP response or CRL in a form the DSS reader does not read (a filter
+    other than plain Flate, or Flate with parameters such as
+    `/DecodeParms [null]`) also makes the DSS show no certificate as not
+    revoked. Only a response or CRL too large to read did; a revoking CRL
+    written this way was skipped, and a good OCSP response made the signature
+    Valid.
+  - The type of a signature field is looked for through as many parent fields
+    as the reader accepts (100). The check stopped after 32, so the widget of an
+    empty signature field whose /FT /Sig sat higher up could draw over the
+    signed page unreported.
+  - A limit refusal met while reading an earlier revision's stream /Length is
+    recognised as one, and the check throws. It was wrapped as an ordinary read
+    error, and the revision, which may hold a signature a later update removed,
+    was skipped.
+- The permission check of later changes (in `PdfSignatureVerifier`, and in a
+  FreePDF save under a signature's rules) inherits a field's type from its
+  parent when the field has no /FT of its own. It took the missing entry for a
+  type, so a signed field whose /FT /Sig is on its parent did not count as
+  signed: its lock was not applied, and adding validation data made the
+  signature Indeterminate.
 
 ## 7.10.0
 

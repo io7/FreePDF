@@ -178,4 +178,25 @@ public class FormFlatteningTests
 
         Assert.Null(document.Catalog.GetAcroForm());
     }
+
+    // An appearance stream without /Subtype becomes a form XObject when it is drawn into the page: the check for a missing
+    // /Subtype compared GetName's result with "", but GetName gives "/" for a missing entry.
+    [Fact]
+    public void An_appearance_without_a_subtype_is_drawn_as_a_form_XObject()
+    {
+        var pdf = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 10 110 30] /P 3 0 R /AP << /N 5 0 R >> >>",
+            "<< /BBox [0 0 100 20] /Length 15 >>\nstream\n0 0 100 20 re f\nendstream",
+        });
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
+
+        document.Flatten();
+
+        var xObjects = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/XObject")!;
+        Assert.Equal("/Form", xObjects.Elements.GetDictionary("/FreePDFField0")!.Elements.GetName("/Subtype"));
+    }
 }

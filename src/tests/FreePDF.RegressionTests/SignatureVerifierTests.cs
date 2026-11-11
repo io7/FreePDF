@@ -1134,6 +1134,130 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A good OCSP answer for the signer, then a CRL that revokes it, stored with filter parameters the DSS reader does not
+    // read (/DecodeParms [null]): only a CRL too large to read counted as unread, so this one was skipped without a trace
+    // and the good answer made the signature Valid.
+    [Fact]
+    public async Task A_revoking_CRL_in_a_form_the_DSS_reader_skips_does_not_leave_the_signature_valid()
+    {
+        using var pki = new TestPki();
+        byte[] withOcsp;
+        using (var client = pki.CreateClient())
+        using (var document = PdfReader.Open(new MemoryStream(SignBT(pki)), PdfDocumentOpenMode.Append))
+        {
+            await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+                new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
+            using var output = new MemoryStream();
+            await document.SaveAsync(output);
+            withOcsp = output.ToArray();
+        }
+        Assert.Equal(PdfSignatureStatus.Valid,
+            (await PdfSignatureVerifier.VerifyAsync(withOcsp, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0].Status);
+
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        using var compressed = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(pki.Crl(pki.Intermediate));
+        var withCrl = Update(withOcsp, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            var crl = new PdfDictionary(document);
+            crl.CreateStream(compressed.ToArray());
+            crl.Elements["/Filter"] = new PdfLiteral("[/FlateDecode]");
+            crl.Elements["/DecodeParms"] = new PdfLiteral("[null]");
+            document.Internals.AddObject(crl);
+            var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
+            crls.Elements.Add(crl.Reference!);
+            dss.Elements["/CRLs"] = crls;
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withCrl, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Document,
+        }));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A signed file with an empty signature field whose /FT /Sig is 40 levels above its widget, and an update that makes
+    // the widget's appearance cover the page: the verifier looked for the inherited type through 32 levels only, while the
+    // reader takes field trees 100 levels deep, so the widget was not seen as a signature field's and the drawing over the
+    // signed page went unreported.
+    [Fact]
+    public async Task A_signature_field_type_inherited_from_far_above_still_marks_its_widget()
+    {
+        const int levels = 40;
+        int widget = levels + 4, appearance = levels + 5;
+        var objects = new List<string>
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [{widget} 0 R] >>",
+        };
+        for (int level = 0; level < levels; level++)
+        {
+            int number = level + 4;
+            var type = level == 0 ? " /FT /Sig" : $" /Parent {number - 1} 0 R";
+            objects.Add($"<< /T (n{level}){type} /Kids [{number + 1} 0 R] >>");
+        }
+        objects.Add($"<< /Type /Annot /Subtype /Widget /Parent {widget - 1} 0 R /Rect [300 300 400 350] /P 3 0 R /AP << /N {appearance} 0 R >> >>");
+        objects.Add("<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream");
+        using var certificate = SelfSigned();
+        var signed = SignExisting(TestPdf.Create(objects.ToArray()), certificate);
+        var updated = AppendUpdate(signed,
+            [(appearance, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
+    }
+
+    // A signed field whose /FT /Sig is on its parent, with a lock on every field. The permission check took the missing /FT
+    // for the type "/" instead of inheriting /Sig and did not see the field as signed: adding validation data made the
+    // signature Indeterminate, and filling in the locked field was not reported as forbidden.
+    [Fact]
+    public async Task The_lock_of_a_signed_field_that_inherits_its_type_is_kept()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R] >>",
+            "<< /T (approval) /FT /Sig /Kids [5 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /T (sig) /Parent 4 0 R /Rect [36 36 196 76] /P 3 0 R /Lock << /Type /SigFieldLock /Action /All >> >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (other) /V (before) /Rect [36 400 236 420] /P 3 0 R >>",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, "approval.sig");
+        Assert.Equal(PdfSignatureStatus.Valid,
+            Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] })).Status);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        var withDss = Update(signed, document => PdfDocumentSecurityStore.Add(document, [certificate.RawData]));
+        var filled = AppendUpdate(signed,
+            [(6, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (other) /V (after) /Rect [36 400 236 420] /P 3 0 R >>")]);
+
+        var validated = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withDss, options));
+        var changed = Assert.Single(await PdfSignatureVerifier.VerifyAsync(filled, options));
+
+        Assert.Equal(PdfSignatureStatus.Valid, validated.Status);
+        Assert.NotEqual(PdfSignatureStatus.Valid, changed.Status);
+        Assert.Contains("other", changed.ForbiddenChange);
+    }
+
+    // The file signed in Append mode: in the named existing field, or in a new one.
+    static byte[] SignExisting(byte[] pdf, X509Certificate2 certificate, string? fieldName = null)
+    {
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Append);
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+            new DigitalSignatureOptions { Rectangle = fieldName == null ? new XRect(36, 36, 160, 40) : default, FieldName = fieldName });
+        using var output = new MemoryStream();
+        document.Save(output);
+        return output.ToArray();
+    }
+
     // A visible empty signature widget whose appearance dictionary has more entries than the walk over it visits (10,000):
     // stopping there reported it unchanged, so a changed appearance beyond the limit went unseen.
     [Fact]

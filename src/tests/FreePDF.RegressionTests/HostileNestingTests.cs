@@ -238,18 +238,41 @@ public class HostileNestingTests
     [Fact]
     public async Task The_signature_verifier_refuses_a_file_whose_earlier_revision_exceeds_the_limits()
     {
-        var first = DeepFields(102);
+        var file = WithUpdate(DeepFields(102), 102 + 5, 1, "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>");
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSharp.Pdf.Signatures.PdfSignatureVerifier.VerifyAsync(file));
+        Assert.Contains("earlier revision", refused.Message);
+    }
+
+    // The same through a stream's /Length: in the earlier revision it refers to an array nested past the limit, and the
+    // update makes it a number. Reading the length wrapped the refusal as an ordinary read error, which hid what it was,
+    // and the verifier skipped the earlier revision.
+    [Fact]
+    public async Task The_signature_verifier_refuses_an_earlier_revision_whose_stream_length_exceeds_the_limits()
+    {
+        var first = TestPdf.Create(Start.Concat(new[]
+        {
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>",
+            "<< /Length 5 0 R >>\nstream\nx\nendstream",
+            new string('[', 300) + new string(']', 300),
+        }).ToArray());
+        var file = WithUpdate(first, 6, 5, "1");
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSharp.Pdf.Signatures.PdfSignatureVerifier.VerifyAsync(file));
+        Assert.Contains("earlier revision", refused.Message);
+    }
+
+    // The file with an incremental update that replaces one object.
+    static byte[] WithUpdate(byte[] first, int size, int number, string body)
+    {
         var text = Encoding.Latin1.GetString(first);
         var startXref = text.Substring(text.LastIndexOf("startxref", StringComparison.Ordinal) + 9).Trim().Split('\n', '\r')[0];
         var update = new StringBuilder("\n");
         int offset = first.Length + update.Length;
-        update.Append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>\nendobj\n");
+        update.Append($"{number} 0 obj\n{body}\nendobj\n");
         int xref = first.Length + update.Length;
-        update.Append($"xref\n1 1\n{offset:D10} 00000 n\r\ntrailer\n<< /Size {102 + 5} /Root 1 0 R /Prev {startXref} >>\nstartxref\n{xref}\n%%EOF\n");
-        var file = first.Concat(Encoding.Latin1.GetBytes(update.ToString())).ToArray();
-
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSharp.Pdf.Signatures.PdfSignatureVerifier.VerifyAsync(file));
-        Assert.Contains("earlier revision", refused.Message);
+        update.Append($"xref\n{number} 1\n{offset:D10} 00000 n\r\ntrailer\n<< /Size {size} /Root 1 0 R /Prev {startXref} >>\nstartxref\n{xref}\n%%EOF\n");
+        return first.Concat(Encoding.Latin1.GetBytes(update.ToString())).ToArray();
     }
 
     [Theory]

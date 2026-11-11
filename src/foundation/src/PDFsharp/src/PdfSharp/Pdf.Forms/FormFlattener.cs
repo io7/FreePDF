@@ -35,7 +35,10 @@ namespace PdfSharp.Pdf.Forms
         static void PrepareAppearances(PdfForm form)
         {
             var pending = new List<(PdfFormTextFieldBase Field, FieldContent Content)>();
+            // The message names the first few fields, shortened: a form's names are the file's to choose and could be very long.
+            const int namesShown = 10, nameLength = 200;
             var failures = new List<string>();
+            int failed = 0;
             foreach (var field in form.Fields.GetAllFields())
             {
                 var content = field.CurrentContent();
@@ -44,14 +47,20 @@ namespace PdfSharp.Pdf.Forms
                 if (!form.NeedAppearances && field.GetWidgets().All(widget => NormalAppearance(widget) != null))
                     continue;
                 if (FieldAppearance.CanBuild(textField, content))
+                {
                     pending.Add((textField, content));
-                else
-                    failures.Add($"'{field.FullName}'");
+                }
+                else if (failed++ < namesShown)
+                {
+                    var name = field.FullName;
+                    failures.Add($"'{(name.Length > nameLength ? name.Substring(0, nameLength) + "…" : name)}'");
+                }
             }
-            if (failures.Count > 0)
+            if (failed > 0)
             {
+                var more = failed > namesShown ? $" and {failed - namesShown} more" : "";
                 throw new InvalidOperationException(
-                    $"The form cannot be flattened, because FreePDF cannot draw the value of {String.Join(", ", failures)}: its default " +
+                    $"The form cannot be flattened, because FreePDF cannot draw the value of {String.Join(", ", failures)}{more}: its default " +
                     "appearance needs a font in the form's resources that can encode the text. The document was not changed.");
             }
             foreach (var (field, content) in pending)
@@ -174,7 +183,8 @@ namespace PdfSharp.Pdf.Forms
         /// </summary>
         static string AddXObject(PdfPage page, PdfDictionary appearance)
         {
-            if (appearance.Elements.GetName("/Subtype").Length == 0)
+            // (GetName gives "/", not "", for a missing entry.)
+            if (!appearance.Elements.ContainsKey("/Subtype"))
                 appearance.Elements.SetName("/Subtype", "/Form");
             if (appearance.Reference == null)
                 page.Owner.Internals.AddObject(appearance);

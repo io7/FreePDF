@@ -1145,11 +1145,14 @@ namespace PdfSharp.Pdf.Signatures
             return shows && HasArea(widget);
         }
 
-        // An inheritable field entry: the widget's, else its parents' (at most 32 levels, against loops).
+        // An inheritable field entry: the widget's, else that of its nearest parent that has it.
         static PdfItem? Inherited(PdfDictionary dictionary, string key)
         {
+            // As deep as a field tree may be read (PdfFormField.MaxAncestors), each node once: a shorter limit would miss an
+            // inherited /FT /Sig the reader accepts, and a widget's changed appearance with it.
+            var visited = new HashSet<PdfDictionary>();
             var current = dictionary;
-            for (int level = 0; current != null && level < 32; level++)
+            for (int level = 0; current != null && level <= PdfSharp.Pdf.Forms.PdfFormField.MaxAncestors && visited.Add(current); level++)
             {
                 if (Resolve(current.Elements[key]) is { } value and not PdfNull and not PdfNullObject)
                     return value;
@@ -1288,7 +1291,7 @@ namespace PdfSharp.Pdf.Signatures
                     if (kept)
                         context.Keep(end, revision);
                 }
-                catch (Exception ex) when (ex.Data.Contains(Parser.LimitExceededKey))
+                catch (Exception ex) when (Parser.IsLimitExceeded(ex))
                 {
                     // A revision FreePDF refuses (nesting, field depth) is not a %%EOF that is no revision: skipping it would
                     // leave out the signatures in it. No answer, rather than one that could miss a removed signature.
@@ -1465,7 +1468,9 @@ namespace PdfSharp.Pdf.Signatures
                     decoded = (data, tooLarge);
                     budget.Decoded[stream] = decoded;
                 }
-                if (decoded.TooLarge && revocationData)
+                // Any OCSP response or CRL that is not read (too large, or a filter or parameters FreePDF does not read here)
+                // may be the one that revokes.
+                if (decoded.Data == null && revocationData)
                     budget.Incomplete = true;
                 if (decoded.Data != null)
                     yield return decoded.Data;

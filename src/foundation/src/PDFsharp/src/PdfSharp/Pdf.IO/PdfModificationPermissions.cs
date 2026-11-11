@@ -42,7 +42,7 @@ namespace PdfSharp.Pdf.IO
             }
 
             // Signed signature fields: the FieldMDP and DocMDP references of their signatures, and their locks.
-            foreach (var field in Fields(document))
+            foreach (var field in Fields(document, names: false))
             {
                 if (!IsSigned(field, out var signature))
                     continue;
@@ -639,8 +639,10 @@ namespace PdfSharp.Pdf.IO
 
         const int MaxQualifiedName = 4096;
 
-        // Every node of the form's field tree with its fully qualified name and its field type, which kids inherit.
-        static IEnumerable<FieldNode> Fields(PdfDocument document)
+        // Every node of the form's field tree with its fully qualified name and its field type, which kids inherit. Without
+        // names, every name is "" and none is refused for its length: reading the rules needs no names, and every file opened
+        // in Append mode reads them, signed or not.
+        static IEnumerable<FieldNode> Fields(PdfDocument document, bool names = true)
         {
             var form = Resolve(document.Catalog.Elements[PdfCatalog.Keys.AcroForm]) as PdfDictionary;
             if (Resolve(form?.Elements[PdfAcroFormKeys.Fields]) is not PdfArray fields)
@@ -657,7 +659,7 @@ namespace PdfSharp.Pdf.IO
                 if (item is PdfReference reference && !visited.Add(reference.ObjectID))
                     continue;
                 // A node without /T is a widget of its parent field; /FT is inherited (ISO 32000-1 12.7.3.1).
-                var partial = dictionary.Elements.GetString("/T");
+                var partial = names ? dictionary.Elements.GetString("/T") : "";
                 var name = parent;
                 if (!String.IsNullOrEmpty(partial))
                     name = parent.Length == 0 ? partial : parent + "." + partial;
@@ -665,10 +667,9 @@ namespace PdfSharp.Pdf.IO
                 // is not cut but refused (thousands of kids under one huge name would otherwise cost gigabytes).
                 if (name.Length > MaxQualifiedName)
                     throw new InvalidOperationException($"A form field's fully qualified name is longer than {MaxQualifiedName} characters.");
-                var type = inheritedType;
-                var ownType = dictionary.Elements.GetName("/FT");
-                if (!String.IsNullOrEmpty(ownType))
-                    type = ownType;
+                // GetName gives "/" for a missing entry, which would hide the inherited type: a signed field whose /FT is
+                // on its parent would not count as signed, and its lock would be lost.
+                var type = Resolve(dictionary.Elements["/FT"]) is PdfName { Value.Length: > 1 } ownType ? ownType.Value : inheritedType;
                 var node = new FieldNode(dictionary, item as PdfReference, name, type, parentID);
                 yield return node;
                 if (Resolve(dictionary.Elements["/Kids"]) is PdfArray kids)

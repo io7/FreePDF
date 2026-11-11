@@ -503,9 +503,10 @@ namespace PdfSharp.Pdf.IO
                         if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                             return -1;
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (!IsLimitExceeded(ex))
                     {
                         // If somebody came here, please send us your PDF file so that we can fix it (issues (at) pdfsharp.net).
+                        // (A limit refusal passes through as it is, so that its marker is seen.)
                         throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(_lexer.Position, ex);
                     }
                     finally
@@ -901,6 +902,17 @@ namespace PdfSharp.Pdf.IO
             var exception = new PdfReaderException(message);
             exception.Data[LimitExceededKey] = true;
             return exception;
+        }
+
+        /// <summary>The exception, or one it wraps, is a refusal from <see cref="LimitExceeded"/>.</summary>
+        internal static bool IsLimitExceeded(Exception? exception)
+        {
+            for (int depth = 0; exception != null && depth < 32; depth++, exception = exception.InnerException)
+            {
+                if (exception.Data.Contains(LimitExceededKey))
+                    return true;
+            }
+            return false;
         }
 
         Symbol SkipCharsUntil(Symbol stop)
