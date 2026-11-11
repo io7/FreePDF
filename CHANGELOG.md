@@ -17,14 +17,24 @@
   the stack when it is opened in Append mode (as `PdfSignatureVerifier` does),
   saved or merged: reading an outline item recursed once per level, and a stack
   overflow ends the process. Items more than 200 levels deep are not read; they
-  stay in the file as they are.
-- `PdfSignatureVerifier` reads at most `MaxRevisions` (64 by default) earlier
-  revisions, one at a time, and keeps only those that hold a removed
-  signature. Each revision read is a copy of the file up to its end, so a small
-  file with thousands of incremental updates cost gigabytes and kept them until
-  the check ended. Beyond the limit, later changes are not checked (a reason
-  says so, and a signature that does not cover the whole file is at best
-  Indeterminate) and removed signatures are not found.
+  stay in the file as they are. The deepest item read keeps its unread
+  children (only the sign of its /Count follows `Opened`), and adding a child
+  to it throws `InvalidOperationException`.
+- `PdfSignatureVerifier` bounds its work on hostile files:
+  - Earlier revisions are read one at a time and kept only when they hold a
+    removed signature, and only where a revision ends (a byte range may end
+    anywhere). Each is a copy of the file up to its end; a small file with
+    thousands of updates cost gigabytes and kept them until the check ended.
+  - A file with more than `MaxRevisions` revisions or `MaxSignatures`
+    signatures and document time-stamps (new options, 64 each by default)
+    throws `InvalidOperationException`, rather than give an answer that could
+    leave out a signature a later update removed.
+  - A visible empty signature widget whose /Parent leads back to itself no
+    longer makes the check allocate until memory runs out.
+  - Every byte inflated from the DSS counts against its 64 MiB budget, also
+    when an item turns out too large, and each DSS stream is inflated once.
+  - The DSS of the revision a document time-stamp covers is read once per
+    time-stamp.
 
 ## 7.10.0
 

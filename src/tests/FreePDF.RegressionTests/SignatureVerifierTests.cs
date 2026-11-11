@@ -935,24 +935,105 @@ public class SignatureVerifierTests
     }
 
     // Each earlier revision is read on its own (a copy of the file up to its end), so thousands of tiny updates cost
-    // time and memory with the square of their number. Beyond MaxRevisions they are not read and the result says so.
+    // time and memory with the square of their number. Beyond MaxRevisions the verifier gives no answer rather than one
+    // that could leave out a signature a later update removed.
     [Fact]
-    public async Task Beyond_MaxRevisions_later_changes_are_not_checked()
+    public async Task Beyond_MaxRevisions_the_verifier_gives_no_answer()
     {
         using var certificate = SelfSigned();
         var pdf = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256));
         for (int update = 0; update < 100; update++)
             pdf = AppendUpdate(pdf, [(Size(pdf), "<< /Note (an object nothing refers to) >>")]);
 
-        var limited = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
-        Assert.True(limited.Intact);
-        Assert.True(limited.Trusted);
-        Assert.Equal(PdfSignatureStatus.Indeterminate, limited.Status);
-        Assert.Contains(limited.Reasons, reason => reason.StartsWith("Later changes are not checked: the file has 101 revisions"));
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.Contains("101 revisions", refused.Message);
 
         var raised = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
             new PdfSignatureVerificationOptions { TrustedRoots = [certificate], MaxRevisions = 200 }));
         Assert.Equal(PdfSignatureStatus.Valid, raised.Status);
+    }
+
+    [Fact]
+    public async Task Beyond_MaxSignatures_the_verifier_gives_no_answer()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+                new DigitalSignatureOptions { Reason = "Countersign" }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate], MaxSignatures = 1 }));
+        Assert.Equal(2, (await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] })).Count);
+    }
+
+    // A visible empty signature widget added later whose /Parent is itself: the walk over its parents never ended and
+    // allocated until memory ran out.
+    [Fact]
+    public async Task A_widget_that_is_its_own_parent_is_checked_once()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+        {
+            var appearance = new PdfDictionary(document);
+            appearance.Elements["/Type"] = new PdfName("/XObject");
+            appearance.Elements["/Subtype"] = new PdfName("/Form");
+            appearance.Elements["/BBox"] = new PdfLiteral("[0 0 100 50]");
+            appearance.CreateStream(Encoding.ASCII.GetBytes("0 0 100 50 re f"));
+            document.Internals.AddObject(appearance);
+            var widget = new PdfDictionary(document);
+            document.Internals.AddObject(widget);
+            widget.Elements["/Type"] = new PdfName("/Annot");
+            widget.Elements["/Subtype"] = new PdfName("/Widget");
+            widget.Elements["/FT"] = new PdfName("/Sig");
+            widget.Elements["/Rect"] = new PdfLiteral("[100 100 200 150]");
+            widget.Elements["/F"] = new PdfInteger(4);
+            widget.Elements["/Parent"] = widget.Reference!;
+            widget.Elements["/T"] = new PdfString("Loop");
+            widget.Elements["/P"] = document.Pages[0].Reference!;
+            var states = new PdfDictionary(document);
+            states.Elements["/N"] = appearance.Reference!;
+            widget.Elements["/AP"] = states;
+            document.Pages[0].Elements.GetArray("/Annots")!.Elements.Add(widget.Reference!);
+            // A new empty signature field, which signing permits: the check reaches the visible-widget walk.
+            document.Catalog.Elements.GetDictionary("/AcroForm")!.Elements.GetArray("/Fields")!.Elements.Add(widget.Reference!);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
+    }
+
+    // One small stream that inflates to just over the 16 MiB a DSS item may have, referred to 2,000 times: each reference
+    // inflated it again and the failed attempts did not count against the DSS budget (about 34 GB of work).
+    [Fact]
+    public async Task A_DSS_stream_referred_to_many_times_is_inflated_once()
+    {
+        using var certificate = SelfSigned();
+        using var compressed = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[17 * 1024 * 1024]);
+        var pdf = Update(Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256)), document =>
+        {
+            var crl = new PdfDictionary(document);
+            crl.CreateStream(compressed.ToArray());
+            crl.Elements["/Filter"] = new PdfName("/FlateDecode");
+            document.Internals.AddObject(crl);
+            var crls = new PdfArray(document);
+            for (int index = 0; index < 2000; index++)
+                crls.Elements.Add(crl.Reference!);
+            var dss = new PdfDictionary(document);
+            dss.Elements["/CRLs"] = crls;
+            document.Internals.AddObject(dss);
+            document.Catalog.Elements["/DSS"] = dss.Reference!;
+        });
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+
+        Assert.True(result.Intact);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(30), $"took {started.Elapsed}");
     }
 
     static byte[] SignWithBookmarks(X509Certificate2 certificate, PdfCertificationLevel certification)

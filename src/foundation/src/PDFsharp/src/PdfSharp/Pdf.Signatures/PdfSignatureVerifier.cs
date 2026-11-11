@@ -57,9 +57,17 @@ namespace PdfSharp.Pdf.Signatures
 
         static async Task<IReadOnlyList<PdfSignatureVerification>> VerifyAllAsync(Context context, CancellationToken cancellationToken)
         {
+            // A complete answer or none: a list that left out signatures a later update removed could read as all valid.
+            if (context.RevisionEnds.Count > context.Options.MaxRevisions)
+                throw new InvalidOperationException($"The file has {context.RevisionEnds.Count} revisions (%%EOF markers), more than " +
+                    $"MaxRevisions ({context.Options.MaxRevisions}); raise it to check this file.");
+            var signatures = AllSignatures(context);
+            if (signatures.Count > context.Options.MaxSignatures)
+                throw new InvalidOperationException($"The file has {signatures.Count} signatures and document time-stamps, more than " +
+                    $"MaxSignatures ({context.Options.MaxSignatures}); raise it to check this file.");
 
             var results = new List<PdfSignatureVerification>();
-            foreach (var signature in AllSignatures(context))
+            foreach (var signature in signatures)
             {
                 var result = new PdfSignatureVerification
                 {
@@ -166,11 +174,14 @@ namespace PdfSharp.Pdf.Signatures
             internal List<PdfDocument> Revisions { get; } = [];
             readonly Dictionary<int, PdfDocument> _revisionsByEnd = new();
 
-            // The file up to the end of a revision, read on its own once.
+            // The file up to the end of a revision, read on its own once. Only the end of a revision (a %%EOF marker) is
+            // read: a byte range may end anywhere, and copies of the file up to arbitrary points would cost without bound.
             internal PdfDocument Revision(int end)
             {
                 if (!_revisionsByEnd.TryGetValue(end, out var revision))
                 {
+                    if (!RevisionEnds.Contains(end))
+                        throw new InvalidOperationException("The signed bytes do not end at the end of a revision.");
                     revision = Open(File, end, Options.Password);
                     Keep(end, revision);
                 }
@@ -184,8 +195,27 @@ namespace PdfSharp.Pdf.Signatures
                 Revisions.Add(revision);
             }
 
-            // More revisions than earlier ones are read for (PdfSignatureVerificationOptions.MaxRevisions).
-            internal bool TooManyRevisions => RevisionEnds.Count > Options.MaxRevisions;
+            // The DSS of the file up to the end of a revision, read once; null when that is not a revision or not readable.
+            internal Dss? DssAt(int end)
+            {
+                if (_dssByEnd.TryGetValue(end, out var dss))
+                    return dss;
+                dss = null;
+                if (RevisionEnds.Contains(end))
+                {
+                    try
+                    {
+                        using var revision = Open(File, end, Options.Password);
+                        dss = ReadDss(revision);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                    }
+                }
+                _dssByEnd[end] = dss;
+                return dss;
+            }
+            readonly Dictionary<int, Dss?> _dssByEnd = new();
 
             // Where the objects of the file start, sorted, for the signature dictionary's boundary check.
             internal long[] ObjectPositions => _objectPositions ??= Document.IrefTable.AllReferences
@@ -219,11 +249,11 @@ namespace PdfSharp.Pdf.Signatures
                 result.Status = PdfSignatureStatus.Invalid;
                 return;
             }
-            // A field in an object stream is compared with the signed revision read on its own, which is not read beyond
-            // MaxRevisions: unknown, not broken.
-            if (context.TooManyRevisions && signature.Field is { Position: <= 0 } && end < TrimmedLength(context.File))
+            // A field in an object stream is compared with the signed revision read on its own, which is read only where a
+            // revision ends: elsewhere unknown, not broken.
+            if (signature.Field is { Position: <= 0 } && end < TrimmedLength(context.File) && !context.RevisionEnds.Contains(end))
             {
-                result._reasons.Add($"The signature field cannot be compared with the signed revision: the file has {context.RevisionEnds.Count} revisions, more than {context.Options.MaxRevisions}.");
+                result._reasons.Add("The signature field cannot be compared with the signed revision: the signed bytes do not end at the end of a revision.");
                 result.Status = PdfSignatureStatus.Indeterminate;
                 return;
             }
@@ -416,18 +446,7 @@ namespace PdfSharp.Pdf.Signatures
 
         // The DSS of the revision a document time-stamp covers holds the validation data of the signature.
         static bool CoveredDssHolds(Context context, int stampEnd, PdfSignatureVerification result)
-        {
-            try
-            {
-                using var revision = Open(context.File, stampEnd, context.Options.Password);
-                var dss = ReadDss(revision);
-                return dss.Present && result.LongTermChains.All(c => DssCovers(dss, c, context.ValidationTime));
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                return false;
-            }
-        }
+            => context.DssAt(stampEnd) is { Present: true } dss && result.LongTermChains.All(c => DssCovers(dss, c, context.ValidationTime));
 
         // ===== Byte range =====
 
@@ -989,8 +1008,6 @@ namespace PdfSharp.Pdf.Signatures
         // protected (an approval signature), the first change beyond P=3; or a problem that kept the check from running.
         static (string? Forbidden, string? Unexpected, string? Problem) LaterChanges(Context context, int end)
         {
-            if (context.TooManyRevisions)
-                return (null, null, $"Later changes are not checked: the file has {context.RevisionEnds.Count} revisions, more than {context.Options.MaxRevisions}.");
             var document = context.Document;
             var revisionBytes = context.File.AsSpan(0, end).ToArray();
             PdfDocument revision;
@@ -1115,12 +1132,16 @@ namespace PdfSharp.Pdf.Signatures
             var seen = new HashSet<PdfObjectID>();
             var pending = new Stack<PdfItem>();
             pending.Push(widgetItem);
-            for (var parent = widget.Elements["/Parent"]; parent != null && seen.Count < 64;)
+            // At most 64 parents, each once: a /Parent that leads back to itself ends the chain.
+            var parents = new HashSet<PdfObjectID>();
+            if (widgetItem is PdfReference self)
+                parents.Add(self.ObjectID);
+            for (var parent = widget.Elements["/Parent"]; parent != null && parents.Count < 64;)
             {
+                if (parent is PdfReference r && !parents.Add(r.ObjectID))
+                    break;
                 pending.Push(parent);
                 parent = (Resolve(parent) as PdfDictionary)?.Elements["/Parent"];
-                if (parent is PdfReference r && seen.Contains(r.ObjectID))
-                    break;
             }
             foreach (var key in new[] { "/AP", "/MK" })
             {
@@ -1207,8 +1228,6 @@ namespace PdfSharp.Pdf.Signatures
         static List<FoundSignature> AllSignatures(Context context)
         {
             var result = Signatures(context.Document);
-            if (context.TooManyRevisions)
-                return result;
             var known = new HashSet<string>(result.Select(Key));
             foreach (var end in context.RevisionEnds)
             {
@@ -1358,10 +1377,15 @@ namespace PdfSharp.Pdf.Signatures
             {
                 if (budget.Left <= 0)
                     yield break;
-                if (Resolve(item) is PdfDictionary { Stream: { } } stream && Decode(stream, Math.Min(MaxDssItem, budget.Left)) is { } data)
+                // Each stream once, and every byte inflated counts against the budget, also when the result is not used:
+                // otherwise one small stream that inflates to just over the limit, referred to thousands of times, costs
+                // gigabytes of work.
+                if (Resolve(item) is PdfDictionary { Stream: { } } stream && budget.Read.Add(stream))
                 {
-                    budget.Left -= data.Length;
-                    yield return data;
+                    var data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
+                    budget.Left -= Math.Max(inflated, data?.Length ?? 0);
+                    if (data != null)
+                        yield return data;
                 }
             }
         }
@@ -1369,12 +1393,15 @@ namespace PdfSharp.Pdf.Signatures
         sealed class DssBudget
         {
             internal int Left = MaxDssTotal;
+            // PdfDictionary compares by reference.
+            internal readonly HashSet<PdfDictionary> Read = new();
         }
 
         // The stream's data when it is unfiltered or plain Flate (what a DSS uses), inflated with a size limit; any other
-        // filter, or Flate with parameters, is not read.
-        static byte[]? Decode(PdfDictionary stream, int limit)
+        // filter, or Flate with parameters, is not read. Inflated: how many bytes were produced, also when it was too many.
+        static byte[]? Decode(PdfDictionary stream, int limit, out int inflated)
         {
+            inflated = 0;
             var raw = stream.Stream!.Value;
             var filter = Resolve(stream.Elements["/Filter"]);
             if (filter == null)
@@ -1403,6 +1430,7 @@ namespace PdfSharp.Pdf.Signatures
                 int read;
                 while ((read = inflater.Read(buffer, 0, buffer.Length)) > 0)
                 {
+                    inflated += read;
                     if (output.Length + read > limit)
                         return null;
                     output.Write(buffer, 0, read);

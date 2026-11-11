@@ -72,6 +72,41 @@ public class DeepOutlineTests
         Save(merged);
     }
 
+    // The item at the deepest level read keeps its unread children: /First, /Last and the size of /Count stay as
+    // written, only the sign follows Opened, and adding a child (which would replace /First and /Last) is refused.
+    static PdfOutline DeepestRead(PdfDocument document)
+    {
+        var item = Assert.Single(document.Outlines);
+        for (int level = 1; level < 200; level++)
+            item = Assert.Single(item.Outlines);
+        return item;
+    }
+
+    [Fact]
+    public void The_deepest_item_read_keeps_its_unread_children_when_opened()
+    {
+        using var document = PdfReader.Open(new MemoryStream(DeepOutline()), PdfDocumentOpenMode.Modify);
+        var deepest = DeepestRead(document);
+        Assert.False(deepest.HasChildren);
+        deepest.Opened = true;
+
+        var saved = Save(document);
+
+        var text = TestPdf.Latin1.GetString(saved);
+        var item = System.Text.RegularExpressions.Regex.Match(text, @"(?s)(?<!\d)204 0 obj(.*?)endobj").Groups[1].Value;
+        Assert.Contains("/First 205 0 R", item);
+        Assert.Matches(@"/Count 1\b", item);
+    }
+
+    [Fact]
+    public void A_child_cannot_be_added_below_the_deepest_level_read()
+    {
+        using var document = PdfReader.Open(new MemoryStream(DeepOutline()), PdfDocumentOpenMode.Modify);
+        var deepest = DeepestRead(document);
+
+        Assert.Throws<InvalidOperationException>(() => deepest.Outlines.Add("New", document.Pages[0]));
+    }
+
 #if NET8_0_OR_GREATER
     [Fact]
     public async Task A_very_deep_outline_does_not_stop_the_signature_verifier()

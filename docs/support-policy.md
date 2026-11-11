@@ -228,11 +228,14 @@ reported only for valid signatures. A visible empty signature field added or
 changed after a signature makes that signature Indeterminate until the field
 is signed. The appearance streams that filling in a form field writes (which
 ISO 32000 permits after a signature) are not inspected for what they draw.
-Since 7.10.1 at most `MaxRevisions` (64) earlier revisions are read, one at a
-time; beyond that later changes are not checked and the result says so, which
-bounds the cost of a hostile file with thousands of updates. Outline items more
-than 200 levels deep are not read, so a deeply nested outline cannot overflow
-the stack. It
+Since 7.10.1 a file with more than `MaxRevisions` revisions or `MaxSignatures`
+signatures (64 each by default) throws instead of being checked, earlier
+revisions are read one at a time and only where a revision ends, and DSS
+inflation counts against its budget, which bounds the cost of a hostile file.
+Outline items more than 200 levels deep are not read, so a deeply nested outline
+cannot overflow the stack. Other deep nesting (direct arrays and dictionaries,
+chains of indirect stream lengths, form field /Kids) can still overflow the
+stack when a file is opened; see the hardening item in the roadmap. It
 is a technical check: EU trusted lists,
 qualified status, signature policies and ETSI validation reports are not
 covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are

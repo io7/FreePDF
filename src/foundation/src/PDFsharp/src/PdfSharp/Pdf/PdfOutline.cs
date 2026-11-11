@@ -66,6 +66,12 @@ namespace PdfSharp.Pdf
         readonly int _depth;
 
         /// <summary>
+        /// An item at <see cref="MaxDepth"/> whose children in the file were not read. Its /First, /Last and the size of
+        /// its /Count stay as written; children cannot be added to it.
+        /// </summary>
+        internal bool Truncated { get; private set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="PdfOutline"/> class.
         /// </summary>
         /// <param name="title">The outline text.</param>
@@ -131,6 +137,16 @@ namespace PdfSharp.Pdf
         /// </summary>
         (int Visible, bool Changed) UpdateCounts()
         {
+            if (Truncated)
+            {
+                // Its children were not read: the file's /Count stands for them, and only its sign follows Opened.
+                Elements.TryGetInteger(Keys.Count, out var written);
+                int hidden = Math.Abs(written);
+                if (_countChanged && hidden > 0)
+                    Elements[Keys.Count] = new PdfInteger(_opened ? hidden : -hidden);
+                return (hidden, _countChanged);
+            }
+
             int visible = 0;
             bool changed = !_fromFile || _countChanged;
             if (_outlines != null)
@@ -547,7 +563,10 @@ namespace PdfSharp.Pdf
             // object that already has one (the catalog, a page, an item read earlier in a loop), ends the chain:
             // converting it would destroy that object or never stop. Below MaxDepth nothing is read.
             if (_depth >= MaxDepth)
+            {
+                Truncated = Elements.GetReference(Keys.First) != null;
                 return;
+            }
             var current = Elements.GetReference(Keys.First);
             while (current?.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary))
             {

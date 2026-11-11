@@ -228,6 +228,10 @@ namespace PdfSharp.Pdf
             if (outline.DestinationPage != null && !ReferenceEquals(Owner, outline.DestinationPage.Owner))
                 throw new ArgumentException("Destination page must belong to this document.");
 
+            // Children replace /First and /Last: an item whose children in the file were not read would lose them.
+            if (_parent is { Truncated: true })
+                throw new InvalidOperationException("This outline item is nested deeper than FreePDF reads; its children cannot be changed.");
+
             // TODO_OLD check the parent problems...
             outline.Document = Owner;
             outline.Parent = _parent;
