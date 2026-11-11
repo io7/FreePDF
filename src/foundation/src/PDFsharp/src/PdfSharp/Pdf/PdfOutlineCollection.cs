@@ -231,6 +231,8 @@ namespace PdfSharp.Pdf
             // TODO_OLD check the parent problems...
             outline.Document = Owner;
             outline.Parent = _parent;
+            if (_parent != null)
+                _parent._countChanged = true;
 
             //_outlines.Add(outline);
             if (!Owner.IrefTable.Contains(outline.ObjectID))
@@ -264,6 +266,8 @@ namespace PdfSharp.Pdf
             // TODO_OLD check the parent problems...
             //outline.Document = Owner;
             outline.Parent = null!;
+            if (_parent != null)
+                _parent._countChanged = true;
 
             Owner.IrefTable.Remove(outline.Reference);
         }

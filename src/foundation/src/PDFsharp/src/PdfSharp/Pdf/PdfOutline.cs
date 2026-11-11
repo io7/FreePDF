@@ -44,7 +44,10 @@ namespace PdfSharp.Pdf
         internal PdfOutline(PdfDictionary dict)
             : base(dict)
         {
+            _fromFile = true;
             Initialize();
+            // Reading added the children; that is not a change.
+            _countChanged = false;
         }
 
         /// <summary>
@@ -104,23 +107,46 @@ namespace PdfSharp.Pdf
         }
 
         /// <summary>
-        /// The number of descendants shown while this item is open: its children, and the visible descendants of each
-        /// open child (ISO 32000-1 12.3.3). For the root, the number of visible items.
+        /// Sets /Count on this item and its descendants in one pass from the bottom up, and returns the number of
+        /// descendants shown while this item is open (its children, and the visible descendants of each open child;
+        /// for the root, the number of visible items, ISO 32000-1 12.3.3) and whether anything here changed. An item
+        /// read from a file keeps the /Count it was written with unless it or an item below it changed: signature
+        /// checks compare a document's revisions by their written form, so rewriting an unchanged item would hide a
+        /// later change to it or report one that never happened.
         /// </summary>
-        int VisibleDescendants()
+        (int Visible, bool Changed) UpdateCounts()
         {
-            int count = 0;
+            int visible = 0;
+            bool changed = !_fromFile || _countChanged;
             if (_outlines != null)
             {
                 foreach (var child in _outlines)
                 {
-                    count++;
+                    var (childVisible, childChanged) = child.UpdateCounts();
+                    visible++;
                     if (child._opened)
-                        count += child.VisibleDescendants();
+                        visible += childVisible;
+                    changed |= childChanged;
                 }
             }
-            return count;
+
+            if (changed)
+            {
+                // Required on an item with children (Table 153): positive while open, negative while closed. The root's
+                // is the number of visible items (Table 152). Neither has one without children.
+                if (!HasChildren)
+                    Elements.Remove(Keys.Count);
+                else if (_parent == null || _opened)
+                    Elements[Keys.Count] = new PdfInteger(visible);
+                else
+                    Elements[Keys.Count] = new PdfInteger(-visible);
+            }
+            return (visible, changed);
         }
+
+        // Read from a file, and whether this item's children or open state changed since (PdfOutlineCollection sets it).
+        readonly bool _fromFile;
+        internal bool _countChanged;
 
         /// <summary>
         /// Gets the parent of this outline item. The root item has no parent and returns null.
@@ -204,7 +230,13 @@ namespace PdfSharp.Pdf
         public bool Opened
         {
             get => _opened;
-            set => _opened = value;
+            set
+            {
+                if (_opened == value)
+                    return;
+                _opened = value;
+                _countChanged = true;
+            }
         }
         bool _opened;
 
@@ -525,8 +557,8 @@ namespace PdfSharp.Pdf
                     Elements[Keys.First] = _outlines[0].RequiredReference;
                     Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
 
-                    // The number of visible items: the top-level items and the visible descendants of open ones.
-                    Elements[Keys.Count] = new PdfInteger(VisibleDescendants());
+                    // /Count of every item, once, from the bottom up.
+                    UpdateCounts();
                 }
                 else
                 {
@@ -572,17 +604,6 @@ namespace PdfSharp.Pdf
                     {
                         Elements[Keys.First] = _outlines[0].RequiredReference;
                         Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
-                    }
-                    // Required on an item with children (ISO 32000-1 Table 153): the descendants visible while it is
-                    // open, negative while it is closed. An item without children has none.
-                    if (hasKids)
-                    {
-                        int visible = VisibleDescendants();
-                        Elements[Keys.Count] = new PdfInteger(_opened ? visible : -visible);
-                    }
-                    else
-                    {
-                        Elements.Remove(Keys.Count);
                     }
 
                     if (TextColor != XColor.Empty && Owner.HasVersion("1.4"))

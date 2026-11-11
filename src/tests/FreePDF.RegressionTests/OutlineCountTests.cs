@@ -94,27 +94,73 @@ public class OutlineCountTests
     }
 
     [Fact]
-    public void An_item_with_children_and_no_count_is_written_closed()
+    public void An_unchanged_item_keeps_the_count_it_was_read_with()
     {
-        using var reopened = Reopen(Save(Fixture(closedCount: "", rootCount: ""), PdfDocumentOpenMode.Modify));
+        // Signature checks compare revisions by their written form: rewriting an unchanged item, even to fix it, would
+        // hide a later change to it or report one that never happened.
+        using var reopened = Reopen(Save(Fixture(closedCount: "", rootCount: "/Count 99"), PdfDocumentOpenMode.Modify));
 
-        Assert.Equal(-1, Count(Item(reopened.Outlines, "Closed")));
-        Assert.Equal(3, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));
+        Assert.Null(Count(Item(reopened.Outlines, "Closed")));
+        Assert.Equal(99, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));
     }
 
     [Fact]
-    public void A_count_on_an_item_without_children_is_dropped()
+    public void A_changed_item_and_the_items_above_it_get_their_counts()
     {
-        var bytes = TestPdf.Create(new[] {
-            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-            "<< /Type /Outlines /First 5 0 R /Last 5 0 R /Count 1 >>",
-            "<< /Title (Leaf) /Parent 4 0 R /Count 7 /Dest [3 0 R /Fit] >>" });
+        var saved = Save(Fixture(closedCount: "", rootCount: "/Count 99"), PdfDocumentOpenMode.Modify,
+            document => Item(document.Outlines, "Closed").Outlines.Add("Added", document.Pages[0]));
 
-        using var reopened = Reopen(Save(bytes, PdfDocumentOpenMode.Modify));
+        using var reopened = Reopen(saved);
+        Assert.Equal(-2, Count(Item(reopened.Outlines, "Closed")));
+        Assert.Equal(3, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));   // Open, Child, Closed
+        Assert.Equal(1, Count(Item(reopened.Outlines, "Open")));
+    }
 
-        Assert.Null(Count(Item(reopened.Outlines, "Leaf")));
+    [Fact]
+    public void Opening_an_item_writes_its_count()
+    {
+        var saved = Save(Fixture(), PdfDocumentOpenMode.Modify, document => Item(document.Outlines, "Closed").Opened = true);
+
+        using var reopened = Reopen(saved);
+        Assert.Equal(1, Count(Item(reopened.Outlines, "Closed")));
+        Assert.Equal(4, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));
+    }
+
+    [Fact]
+    public void Removing_the_last_child_drops_the_count()
+    {
+        var saved = Save(Fixture(), PdfDocumentOpenMode.Modify, document =>
+        {
+            var open = Item(document.Outlines, "Open");
+            open.Outlines.Remove(open.Outlines[0]);
+        });
+
+        using var reopened = Reopen(saved);
+        Assert.Null(Count(Item(reopened.Outlines, "Open")));
+        Assert.Equal(2, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));
+    }
+
+    [Fact]
+    public void A_deep_open_chain_is_counted_at_every_level()
+    {
+        // One pass from the bottom up: a long chain of open items costs no more than its length.
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        var outlines = document.Outlines;
+        const int depth = 2000;
+        for (int level = 0; level < depth; level++)
+            outlines = outlines.Add($"Level {level}", page, true).Outlines;
+
+        using var reopened = Reopen(Save(document));
+
+        var item = Assert.Single(reopened.Outlines);
+        Assert.Equal(depth, Count(reopened.Internals.Catalog.Elements.GetDictionary("/Outlines")!));
+        for (int level = 0; level < depth - 1; level++)
+        {
+            Assert.Equal(depth - 1 - level, Count(item));
+            item = Assert.Single(item.Outlines);
+        }
+        Assert.Null(Count(item));
     }
 
     [Fact]

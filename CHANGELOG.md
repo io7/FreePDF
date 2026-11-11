@@ -9,8 +9,10 @@
   children were closed, or were opened after being added (merged bookmarks),
   had no /Count and showed closed; closed bookmarks never got their negative
   count. `PdfOutline.Opened` now reads an opened file's open state from /Count
-  (it read false), and a /Count on an item without children is dropped. An
-  Append-mode save writes no outline item that did not change.
+  (it read false). An item read from a file keeps the /Count it was written
+  with until it or an item below it changes, so signature checks still see a
+  later update that changed only a /Count, and an Append-mode save writes no
+  outline item that did not change. Counts are computed in one pass.
 
 ## 7.10.0
 

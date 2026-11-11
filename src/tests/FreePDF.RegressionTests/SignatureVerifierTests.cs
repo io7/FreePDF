@@ -902,6 +902,50 @@ public class SignatureVerifierTests
         return output.ToArray();
     }
 
+    // Bookmarks are compared as the file wrote them. Opening a revision must not rewrite their /Count: a later update that
+    // changes only a /Count would vanish from the comparison, and an unchanged bookmark could look changed.
+    [Fact]
+    public async Task A_later_update_that_changes_only_a_bookmark_count_is_a_change()
+    {
+        using var certificate = SelfSigned();
+        var pdf = SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling);
+        var text = Latin1(pdf);
+        var number = Regex.Matches(text, @"/Outlines\s+(\d+)\s+0\s+R").Cast<Match>().Last().Groups[1].Value;
+        var body = Regex.Matches(text, $@"(?s)(?<!\d){number} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+        Assert.Matches(@"/Count\s+2\b", body);   // Chapter (open) and Section
+
+        var updated = AppendUpdate(pdf, [(int.Parse(number), Regex.Replace(body, @"/Count\s+2\b", "/Count 99"))]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.NotNull(result.ForbiddenChange);
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+    }
+
+    [Fact]
+    public async Task Bookmarks_are_not_a_change_when_a_permitted_update_follows()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Update(SignWithBookmarks(certificate, PdfCertificationLevel.FormFilling),
+            document => PdfDocumentSecurityStore.Add(document, [certificate.RawData]));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.Null(result.ForbiddenChange);
+        Assert.Null(result.UnexpectedChange);
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    static byte[] SignWithBookmarks(X509Certificate2 certificate, PdfCertificationLevel certification)
+    {
+        using var document = new PdfDocument();
+        var page = document.AddPage();
+        document.Outlines.Add("Chapter", page, true).Outlines.Add("Section", page);
+        DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+            new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Certification = certification });
+        using var output = new MemoryStream();
+        document.Save(output);
+        return output.ToArray();
+    }
+
     // ===== Helpers =====
 
     static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
