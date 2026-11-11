@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.Annotations;
+using PdfSharp.Pdf.IO;
 
 // v7.0.0 TODO review
 
@@ -152,12 +153,12 @@ namespace PdfSharp.Pdf.Forms
                 => PrepareFields(fields, new HashSet<PdfReference>(), 0);
 
             /// <summary>
-            /// The deepest level of a form's field tree that is kept: the /Kids of a field at this depth are dropped, as in
-            /// a damaged file. Typing fields, preparing them for saving and walking their descendants recurse once per
-            /// level, and a hostile file nested thousands of levels deep would overflow the stack, which no exception
-            /// handler stops. Real forms nest a few levels.
+            /// The deepest level of a form's field tree that is read: a file whose fields nest deeper cannot be opened.
+            /// Typing fields, preparing them for saving and walking their descendants recurse once per level, and a hostile
+            /// file nested thousands of levels deep would overflow the stack, which no exception handler stops. Dropping the
+            /// deeper fields instead would hide them from signature checks. Real forms nest a few levels.
             /// </summary>
-            internal const int MaxDepth = 100;
+            internal const int MaxDepth = PdfFormField.MaxAncestors;
 
             /// <summary>
             /// Types the fields of a /Fields or /Kids array and their descendants. Entries that cannot be fields
@@ -182,11 +183,7 @@ namespace PdfSharp.Pdf.Forms
                     var acroField = fields.Elements.GetRequiredDictionary<PdfFormField>(idx);
                     HandleAP(acroField);
                     if (acroField.Elements.ContainsKey(PdfFormField.Keys.Kids) && depth >= MaxDepth)
-                    {
-                        PdfSharpLogHost.Logger.LogWarning("Dropped form fields nested more than {MaxDepth} levels deep.", MaxDepth);
-                        acroField.Elements.Remove(PdfFormField.Keys.Kids);
-                        continue;
-                    }
+                        throw new PdfReaderException($"The form's fields are nested more than {MaxDepth} levels deep.");
                     var kids = acroField.Elements.GetArray(PdfFormField.Keys.Kids);
                     if (kids != null)
                         PrepareFields(kids, seen, depth + 1);

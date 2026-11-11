@@ -306,6 +306,10 @@ namespace PdfSharp.Pdf.Filters
                 // Array length of filter and decode parms should match. If they don’t, return data unmodified.
                 if (decodeArray != null && decodeArray.Elements.Count != itemArray.Elements.Count)
                     return data;
+                // Each entry is a filter name (ISO 32000-1 Table 5). An array (directly, or held indirectly, even by itself)
+                // would make decoding recurse without end: such a filter is not applied, as for mismatched parameters.
+                if (itemArray.Elements.Any(entry => Resolve(entry) is not PdfName))
+                    return data;
                 for (var i = 0; i < itemArray.Elements.Count; i++)
                 {
                     var item = itemArray.Elements[i];

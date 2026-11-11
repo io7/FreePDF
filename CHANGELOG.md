@@ -12,11 +12,24 @@
   - a chain of streams whose /Length is the next stream: a /Length read for
     another stream's /Length is not followed further, and the stream's length is
     found from `endstream`;
-  - a form whose field tree is thousands of levels deep: the /Kids of a field
-    100 levels deep are dropped, as in a damaged file.
+  - a form whose field tree is thousands of levels deep: a file whose fields
+    with kids nest more than 100 levels deep throws `PdfReaderException` when
+    it is opened (dropping the deeper fields would hide them from signature
+    checks).
 
   A file of 50,000 nested arrays and a chain of 20,000 stream lengths crashed
   7.10.0 even in Import mode.
+- More small hostile files that crashed or hung 7.10.0:
+  - a form field whose /Parent is itself: the field's value, flags and full
+    name, and the appearance of a flattened field, followed /Parent without
+    end. Walks up through /Parent now stop at 100 fields and at a field already
+    visited;
+  - a stream whose /Filter is an array that holds itself: a filter array
+    whose entries are not all names is not applied;
+  - 50,000 nested `[` in a content stream read with `ContentReader`: content
+    arrays nest at most 32 levels.
+- XMP metadata nested more than 64 levels deep is not read (the XML DOM reads
+  and writes it recursively); it stays in the file as it is.
 
 ## 7.10.0
 

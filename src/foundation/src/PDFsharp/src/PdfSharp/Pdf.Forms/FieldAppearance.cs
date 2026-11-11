@@ -262,7 +262,7 @@ namespace PdfSharp.Pdf.Forms
 
         static string? Inherited(PdfFormField field, string key)
         {
-            for (PdfFormField? current = field; current != null; current = current.Parent)
+            foreach (var current in field.SelfAndAncestors())
             {
                 var value = current.Elements.GetString(key);
                 if (!String.IsNullOrEmpty(value))
@@ -273,7 +273,7 @@ namespace PdfSharp.Pdf.Forms
 
         static int InheritedInteger(PdfFormField field, string key, PdfForm? form)
         {
-            for (PdfFormField? current = field; current != null; current = current.Parent)
+            foreach (var current in field.SelfAndAncestors())
             {
                 if (current.Elements.TryGetInteger(key, out var value))
                     return value;

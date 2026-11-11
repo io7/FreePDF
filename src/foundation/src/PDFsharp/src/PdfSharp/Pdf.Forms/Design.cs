@@ -43,25 +43,34 @@ namespace PdfSharp.Pdf.Forms
         {
             get
             {
-                var fullName = Parent?.FullName;
-                var name = Name;
-
-                // The /T entry is required. Only a pure widget at a leaf doesn’t have one. It is recognized as a
-                // PdfFormFieldWidget, as the widget may also contain field keys. If it doesn’t have a name, simply
-                // return its parent’s FullName.
-                if (String.IsNullOrEmpty(name))
-                    return fullName ?? throw new NotImplementedException("Should not occur: fullName is null.");
-
-                fullName = String.IsNullOrEmpty(fullName)
-                    ? name
-                    : fullName + "." + name;
-
-                return fullName;
+                // The partial names of the field and its ancestors, from the top. The /T entry is required; only a pure
+                // widget at a leaf doesn’t have one, and then the name is its parent’s.
+                var names = SelfAndAncestors().Select(ancestor => ancestor.Name).Where(name => !String.IsNullOrEmpty(name)).Reverse().ToList();
+                if (names.Count == 0 && String.IsNullOrEmpty(Name) && Parent == null)
+                    throw new NotImplementedException("Should not occur: fullName is null.");
+                return String.Join(".", names);
             }
         }
 
-        public PdfFormField? Parent 
+        public PdfFormField? Parent
             => Elements.GetDictionary<PdfFormField>(Keys.Parent);
+
+        /// <summary>
+        /// The most fields a walk up through /Parent visits: the deepest field tree a file may have
+        /// (<see cref="PdfFormFields.AcroFieldPreparer.MaxDepth"/>), and the bound on a /Parent chain that loops.
+        /// </summary>
+        internal const int MaxAncestors = 100;
+
+        /// <summary>
+        /// This field and its ancestors through /Parent, nearest first: at most <see cref="MaxAncestors"/> + 1, each once.
+        /// A /Parent that leads back to a field already visited (a damaged or hostile file) ends the walk.
+        /// </summary>
+        internal IEnumerable<PdfFormField> SelfAndAncestors()
+        {
+            var seen = new HashSet<PdfFormField>();
+            for (PdfFormField? current = this; current != null && seen.Count <= MaxAncestors && seen.Add(current); current = current.Parent)
+                yield return current;
+        }
 
         /// <summary>
         /// Gets the actual type of the field with inheritance considered.
@@ -78,11 +87,12 @@ namespace PdfSharp.Pdf.Forms
         {
             get
             {
-                if (Elements.TryGetEnum<PdfFormFieldFlags>(Keys.Ff, out var result))
-                    return result;
-
-                var parent = Parent;
-                return parent?.Flags ?? 0;
+                foreach (var ancestor in SelfAndAncestors())
+                {
+                    if (ancestor.Elements.TryGetEnum<PdfFormFieldFlags>(Keys.Ff, out var result))
+                        return result;
+                }
+                return 0;
             }
             set => Elements.SetIntegerFlag(Keys.Ff, (int)value);
         }
@@ -306,18 +316,18 @@ namespace PdfSharp.Pdf.Forms
             // Due to inheritance, the value of an entry can be set at a field, that is not of the type that defines the key.
             // In some cases it is also important to know, at which field in the hierarchy the value is set.
 
-            var value = Elements.GetValue<T>(key);
-            // Option 1: Value is set at this field.
-            if (value != null)
-                fieldHoldingValue = this;
-            // Option 2: Value may be set at parent field: Recursion.
-            else if (Parent != null)
-                value = Parent.GetElementsValue<T>(key, out fieldHoldingValue);
-            // Option 3: Value is not set.
-            else
-                fieldHoldingValue = null;
-
-            return value;
+            // The field itself, else its nearest ancestor that has the entry (bounded, against /Parent loops).
+            foreach (var field in SelfAndAncestors())
+            {
+                var value = field.Elements.GetValue<T>(key);
+                if (value != null)
+                {
+                    fieldHoldingValue = field;
+                    return value;
+                }
+            }
+            fieldHoldingValue = null;
+            return null;
         }
 
         /// <summary>

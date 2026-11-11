@@ -42,21 +42,21 @@ public class HostileNestingTests
         return TestPdf.Create(objects.ToArray());
     }
 
-    // An interactive form whose field tree is Depth levels deep: field n has the single kid n + 1; the last is a widget.
-    static byte[] DeepFields()
+    // An interactive form whose field tree is depth levels deep: field n has the single kid n + 1; the last is a widget.
+    static byte[] DeepFields(int depth = Depth)
     {
         var objects = new List<string>
         {
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{Depth + 4} 0 R] >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{depth + 4} 0 R] >>",
             "<< >>",
         };
-        for (int index = 0; index < Depth; index++)
+        for (int index = 0; index < depth; index++)
         {
             int number = index + 5;
             var parent = index == 0 ? "" : $" /Parent {number - 1} 0 R";
-            objects.Add(index < Depth - 1
+            objects.Add(index < depth - 1
                 ? $"<< /T (f){parent} /Kids [{number + 1} 0 R] >>"
                 : $"<< /Type /Annot /Subtype /Widget /FT /Tx /Rect [10 10 100 30] /P 3 0 R{parent} >>");
         }
@@ -110,19 +110,88 @@ public class HostileNestingTests
         Assert.Single(document.Pages);
     }
 
+    // A field tree whose fields with kids reach 100 levels below the top opens; one level more is refused. Dropping the
+    // deeper fields instead would hide them from signature checks.
     [Fact]
-    public void A_deep_field_tree_is_cut_at_the_deepest_level_kept()
+    public void A_field_tree_is_read_to_100_levels_and_refused_beyond()
     {
-        using var document = PdfReader.Open(new MemoryStream(DeepFields()), PdfDocumentOpenMode.Modify);
-        var field = Assert.Single(document.Catalog.AcroForm!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>());
-        int depth = 0;
-        while (field.HasKids)
+        using (var document = PdfReader.Open(new MemoryStream(DeepFields(101)), PdfDocumentOpenMode.Modify))
+            document.Save(new MemoryStream());
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(DeepFields(102)), PdfDocumentOpenMode.Import));
+    }
+
+    // A text field whose /Parent is itself: inherited values, flags and the full name followed /Parent without end (a stack
+    // overflow, or a loop that never stopped).
+    [Fact]
+    public void A_field_that_is_its_own_parent_can_be_read_and_flattened()
+    {
+        var bytes = TestPdf.Create(new[]
         {
-            field = Assert.Single(field.Kids.Cast<PdfSharp.Pdf.Forms.PdfFormField>());
-            depth++;
-        }
-        Assert.Equal(100, depth);
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Parent 4 0 R /Rect [10 10 150 30] /P 3 0 R >>",
+        });
+
+        using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
+        var field = Assert.Single(document.Catalog.AcroForm!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>());
+        Assert.Equal("name", field.FullName);
+        Assert.Null(field.Value);
+        document.Flatten();
         document.Save(new MemoryStream());
+    }
+
+    // A metadata stream whose /Filter is an array that holds itself: decoding recursed without end.
+    [Fact]
+    public void A_filter_array_that_holds_itself_is_not_applied()
+    {
+        var bytes = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "<< /Type /Metadata /Subtype /XML /Filter 5 0 R /Length 3 >>\nstream\nabc\nendstream",
+            "[5 0 R]",
+        });
+
+        foreach (var mode in new[] { PdfDocumentOpenMode.Import, PdfDocumentOpenMode.Modify, PdfDocumentOpenMode.Append })
+            OpenAndSave(bytes, mode);
+    }
+
+    // XMP metadata whose pdfaid:part holds 50,000 nested elements: the XML DOM read and wrote it recursively.
+    [Fact]
+    public void Deeply_nested_XMP_is_not_read()
+    {
+        const int levels = 50_000;
+        var nested = new StringBuilder();
+        for (int level = 0; level < levels; level++)
+            nested.Append("<x>");
+        nested.Append('1');
+        for (int level = 0; level < levels; level++)
+            nested.Append("</x>");
+        var packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+                     + "<rdf:Description rdf:about=\"\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\"><pdfaid:part>" + nested
+                     + "</pdfaid:part></rdf:Description></rdf:RDF></x:xmpmeta>";
+        var bytes = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            $"<< /Type /Metadata /Subtype /XML /Length {packet.Length} >>\nstream\n{packet}\nendstream",
+        });
+
+        foreach (var mode in new[] { PdfDocumentOpenMode.Import, PdfDocumentOpenMode.Modify, PdfDocumentOpenMode.Append })
+            OpenAndSave(bytes, mode);
+    }
+
+    // A content stream of 50,000 '[': the content parser recursed once per level.
+    [Fact]
+    public void Deeply_nested_content_arrays_are_refused()
+    {
+        var content = Encoding.ASCII.GetBytes(new string('[', 50_000));
+
+        Assert.ThrowsAny<Exception>(() => PdfSharp.Pdf.Content.ContentReader.ReadContent(content));
     }
 
 #if NET8_0_OR_GREATER
