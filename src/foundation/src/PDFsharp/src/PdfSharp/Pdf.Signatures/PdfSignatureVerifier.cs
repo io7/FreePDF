@@ -947,7 +947,7 @@ namespace PdfSharp.Pdf.Signatures
                 var issuer = chain[index + 1];
                 var ocsps = new List<byte[]>(context.Dss.OcspResponses);
                 var crls = new List<byte[]>(context.Dss.Crls);
-                var found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority);
+                var found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority, out var dssUnusable);
                 // Data the DSS holds beyond what is read could revoke the certificate: not revoked is not shown.
                 if (found.Status == PdfRevocationStatus.Good && context.Dss.Incomplete)
                     found = (PdfRevocationStatus.Unknown, "The DSS holds OCSP responses or CRLs that are not read (beyond the 64 MiB read in all, " +
@@ -968,6 +968,10 @@ namespace PdfSharp.Pdf.Signatures
                         fetchedCrls.AddRange(crls);
                     }
                     found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, bestTime, proven, context.ValidationTime, authority);
+                    // What the DSS holds that could revoke the certificate but cannot be used still counts when the DSS's own
+                    // data is left out above: a fetched answer must not lift it.
+                    if (found.Status == PdfRevocationStatus.Good && dssUnusable != null)
+                        found = Unusable(certificate, dssUnusable);
                     result._reasons.AddRange(fetcher.Problems);
                     fetcher.Problems.Clear();
                 }
@@ -993,33 +997,48 @@ namespace PdfSharp.Pdf.Signatures
         // for no stated reason counts whenever it happened: a compromised key can date tokens as it likes.
         static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
             List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority)
+            => Revocation(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out _);
+
+        // unusable: an OCSP response or CRL that FreePDF cannot use but that could revoke the certificate. It leaves only a
+        // revocation shown: not revoked becomes Unknown.
+        static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
+            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority,
+            out string? unusable)
         {
-            var found = Answers(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out var unusable);
-            // An OCSP response or CRL that cannot be used but could revoke the certificate leaves only a revocation shown.
+            var found = Answers(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out unusable);
             if (found.Status == PdfRevocationStatus.Good && unusable != null)
-                return (PdfRevocationStatus.Unknown, $"The validation data holds {unusable} that FreePDF cannot use and that could revoke '{certificate.Subject}'.");
+                return Unusable(certificate, unusable);
             return found;
         }
+
+        static (PdfRevocationStatus Status, string? Problem) Unusable(X509Certificate2 certificate, string unusable)
+            => (PdfRevocationStatus.Unknown, $"The validation data holds {unusable} that FreePDF cannot use and that could revoke '{certificate.Subject}'.");
 
         static (PdfRevocationStatus Status, string? Problem) Answers(X509Certificate2 certificate, X509Certificate2 issuer,
             List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority,
             out string? unusable)
         {
             unusable = null;
+            // A revocation that cannot be checked counts as Revocation weighs a checked one: at or before the best signature
+            // time, or, for a time-stamp authority, for compromise or no stated reason at any time. One that cannot be read
+            // at all has no time and always counts.
+            bool CouldRevoke((DateTimeOffset? Time, int? Reason) claim)
+                => claim.Time is not { } time || time <= bestTime
+                   || authority && !(claim.Reason is { } code && RetirementReasons.Contains(code));
             var answers = new List<(DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, string Source,
                 DateTimeOffset? ExpiredCutoff)>();
             foreach (var response in ocspResponses)
             {
-                if (Ocsp.Check(response, certificate, issuer, out bool couldRevoke) is { } answer)
+                if (Ocsp.Check(response, certificate, issuer, out var claimed) is { } answer)
                     answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "OCSP", answer.ArchiveCutoff));
-                else if (couldRevoke)
+                else if (claimed is { } claim && CouldRevoke(claim))
                     unusable ??= "an OCSP response";
             }
             foreach (var crl in crls)
             {
-                if (Crl.Check(crl, certificate, issuer, out bool couldRevoke) is { } answer)
+                if (Crl.Check(crl, certificate, issuer, out var claimed) is { } answer)
                     answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "CRL", answer.ExpiredCutoff));
-                else if (couldRevoke)
+                else if (claimed is { } claim && CouldRevoke(claim))
                     unusable ??= "a CRL";
             }
             if (answers.Count == 0)
@@ -1657,12 +1676,14 @@ namespace PdfSharp.Pdf.Signatures
         {
             // The answer of a verified response about the certificate, or null if the response is not about it, not
             // successful, says unknown, or is not signed by the issuer or a responder the issuer authorized.
-            // couldRevoke: the response cannot be used, yet it may revoke the certificate: FreePDF cannot read it, or it
-            // says revoked in a signature algorithm FreePDF does not check (RSASSA-PSS).
+            // claimed: a revocation the response may hold but that cannot be checked, with its time and reason; no time
+            // when FreePDF cannot read the response at all. Otherwise it says revoked, but the response or its delegated
+            // responder's certificate is signed in an algorithm FreePDF does not verify (RSASSA-PSS).
             internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate,
-                DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer, out bool couldRevoke)
+                DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer,
+                out (DateTimeOffset? Time, int? Reason)? claimed)
             {
-                couldRevoke = false;
+                claimed = null;
                 try
                 {
                     var response = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
@@ -1725,16 +1746,20 @@ namespace PdfSharp.Pdf.Signatures
                             singleCutoff = ArchiveCutoff(single.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)).ReadSequence());
                         answer = (revocationTime, reason, thisUpdate, nextUpdate);
                     }
-                    if (answer != null && !IsVerifiable(algorithm))
+                    if (answer == null)
+                        return null;
+                    var responder = Responder(responderId, issuer, certificates, producedAt);
+                    bool unverifiable = !IsVerifiable(algorithm)
+                                        || responder == null && certificates.Any(candidate => Names(responderId, candidate)
+                                            && !IsVerifiable(candidate.SignatureAlgorithm.Value ?? ""));
+                    if (unverifiable)
                     {
-                        couldRevoke = answer.Value.Item1 != null;
+                        if (answer.Value.Item1 != null)
+                            claimed = (answer.Value.Item1, answer.Value.Item2);
                         return null;
                     }
-                    if (answer == null || Responder(responderId, issuer, certificates, producedAt) is not { } responder
-                        || !VerifySignature(responder, algorithm, tbsData, signature))
-                    {
+                    if (responder == null || !VerifySignature(responder, algorithm, tbsData, signature))
                         return null;
-                    }
                     // archiveCutoff (RFC 6960 4.4.4): the responder keeps the status of certificates that expired at or
                     // after it. It belongs in the single response's extensions; the response's own are read too.
                     var archiveCutoff = singleCutoff;
@@ -1747,7 +1772,7 @@ namespace PdfSharp.Pdf.Signatures
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
-                    couldRevoke = true;
+                    claimed = (null, null);
                     return null;
                 }
             }
@@ -1835,15 +1860,16 @@ namespace PdfSharp.Pdf.Signatures
 
             // From a complete CRL of the certificate's issuer, signed by it, whose scope includes the certificate: when it
             // was issued, its next update, and when the certificate was revoked, if it is listed; null if the CRL cannot
-            // be used for it. couldRevoke: the CRL cannot be used, yet it may be the issuer's and revoke the certificate,
-            // so it must keep "not revoked" from being shown: FreePDF cannot read it, or it lists the certificate but its
-            // signature is in an algorithm FreePDF does not check (RSASSA-PSS) or it is of a kind FreePDF does not handle
-            // (a delta CRL, a scope or a critical extension it does not read). A CRL of another issuer, one whose signature
-            // fails, or one whose scope leaves the certificate out says nothing about it.
+            // be used for it. claimed: a revocation the CRL may hold but that cannot be checked, with its time and reason;
+            // no time when FreePDF cannot read the CRL at all. Otherwise the CRL lists the certificate, but its signature
+            // is in an algorithm FreePDF does not verify (RSASSA-PSS) or it is of a kind FreePDF does not handle (a delta
+            // CRL, a scope or a critical extension it does not read). A CRL of another issuer, one whose signature fails,
+            // or one whose scope leaves the certificate out says nothing about it.
             internal static (DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, DateTimeOffset? RevocationTime, int? Reason,
-                DateTimeOffset? ExpiredCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer, out bool couldRevoke)
+                DateTimeOffset? ExpiredCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer,
+                out (DateTimeOffset? Time, int? Reason)? claimed)
             {
-                couldRevoke = false;
+                claimed = null;
                 try
                 {
                     var list = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
@@ -1891,21 +1917,23 @@ namespace PdfSharp.Pdf.Signatures
                     // The issuer must have signed it.
                     if (!IsVerifiable(algorithm))
                     {
-                        couldRevoke = listed;
+                        if (listed)
+                            claimed = (revocationTime, reason);
                         return null;
                     }
                     if (!VerifySignature(issuer, algorithm, tbsData, signature) || scope == Scope.Excluded)
                         return null;
                     if (scope == Scope.Unsupported)
                     {
-                        couldRevoke = listed;
+                        if (listed)
+                            claimed = (revocationTime, reason);
                         return null;
                     }
                     return (thisUpdate, nextUpdate, revocationTime, reason, expiredCutoff);
                 }
                 catch (Exception ex) when (ex is AsnContentException or CryptographicException)
                 {
-                    couldRevoke = true;
+                    claimed = (null, null);
                     return null;
                 }
             }
@@ -1983,27 +2011,43 @@ namespace PdfSharp.Pdf.Signatures
                                 return Scope.Unsupported;
                         }
                     }
-                    if (names.Count > 0 && !CertificateNames(certificate).Any(n => names.Any(m => m.AsSpan().SequenceEqual(n))))
-                        scope = Scope.Excluded;
+                    // No match leaves the certificate out only when FreePDF read all its distribution points: one it names
+                    // relative to the CRL issuer, or none at all, could still be this one.
+                    if (scope == Scope.Included && names.Count > 0
+                        && !CertificateNames(certificate, out bool unresolved).Any(n => names.Any(m => m.AsSpan().SequenceEqual(n))))
+                    {
+                        scope = unresolved ? Scope.Unsupported : Scope.Excluded;
+                    }
                 }
                 return scope;
             }
 
             // The full names (GeneralName encodings) of the certificate's CRL distribution points.
-            static List<byte[]> CertificateNames(X509Certificate2 certificate)
+            // unresolved: the certificate has no distribution points, or one that is not given by full names.
+            static List<byte[]> CertificateNames(X509Certificate2 certificate, out bool unresolved)
             {
                 var result = new List<byte[]>();
+                unresolved = false;
                 if (certificate.Extensions["2.5.29.31"] is not { } extension)
+                {
+                    unresolved = true;
                     return result;
+                }
                 var points = new AsnReader(extension.RawData, AsnEncodingRules.DER).ReadSequence();
                 while (points.HasData)
                 {
                     var point = points.ReadSequence();
                     if (!point.HasData || !point.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                    {
+                        unresolved = true;
                         continue;
+                    }
                     var dp = point.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
                     if (!dp.HasData || !dp.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+                    {
+                        unresolved = true;
                         continue;
+                    }
                     var full = dp.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true));
                     while (full.HasData)
                         result.Add(full.ReadEncodedValue().ToArray());

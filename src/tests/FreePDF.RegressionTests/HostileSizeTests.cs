@@ -79,6 +79,7 @@ public class HostileSizeTests
     [InlineData("/FlateDecode")]
     [InlineData("5 0 R")]
     [InlineData("[/ASCIIHexDecode /FlateDecode]")]
+    [InlineData("/FlateDecode /DecodeParms << /Predictor 1 >>")]
     public void Compressed_XMP_of_ordinary_size_is_updated(string filter)
     {
         var data = Zlib(Packet("Old title", 4096));
@@ -91,9 +92,12 @@ public class HostileSizeTests
     }
 
     // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)
-    // before it looked at the data, also for metadata read on save. Rows are now no longer than the data.
-    [Fact]
-    public void A_predictor_with_huge_rows_allocates_no_more_than_its_data()
+    // before it looked at the data, also for metadata read on save. Rows are now no longer than the data, also when
+    // /Colors × /Columns overflows.
+    [Theory]
+    [InlineData(1, 268_435_455)]
+    [InlineData(1_073_741_824, 1_073_741_825)]
+    public void A_predictor_with_huge_rows_allocates_no_more_than_its_data(int colors, int columns)
     {
         using var document = new PdfDocument();
         var stream = new PdfDictionary(document);
@@ -101,7 +105,8 @@ public class HostileSizeTests
         stream.Elements["/Filter"] = new PdfName("/FlateDecode");
         var parameters = new PdfDictionary(document);
         parameters.Elements.SetInteger("/Predictor", 12);
-        parameters.Elements.SetInteger("/Columns", 268_435_455);
+        parameters.Elements.SetInteger("/Colors", colors);
+        parameters.Elements.SetInteger("/Columns", columns);
         stream.Elements["/DecodeParms"] = parameters;
 #if NET8_0_OR_GREATER
         long before = GC.GetAllocatedBytesForCurrentThread();

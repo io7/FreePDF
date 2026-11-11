@@ -237,12 +237,19 @@ namespace PdfSharp.Pdf.Metadata
                 return item is PdfNull or PdfNullObject ? null : item;
             }
 
-            // No parameters, or only null entries and empty dictionaries.
+            // No parameters, or only ones that change nothing: null, or a dictionary without a predictor (or with predictor
+            // 1) and no other entry that matters (LZW's /EarlyChange does).
             static bool WithoutParameters(PdfItem? parameters) => parameters switch
             {
+                PdfArray array => array.Elements.All(entry => NoEffect(Resolve(entry))),
+                _ => NoEffect(parameters),
+            };
+
+            static bool NoEffect(PdfItem? parameters) => parameters switch
+            {
                 null => true,
-                PdfDictionary dictionary => dictionary.Elements.Count == 0,
-                PdfArray array => array.Elements.All(entry => Resolve(entry) is null or PdfDictionary { Elements.Count: 0 }),
+                PdfDictionary dictionary => dictionary.Elements.Keys.All(key => key is "/Predictor" or "/Colors" or "/BitsPerComponent" or "/Columns")
+                                            && dictionary.Elements.GetInteger("/Predictor") <= 1,
                 _ => false,
             };
         }

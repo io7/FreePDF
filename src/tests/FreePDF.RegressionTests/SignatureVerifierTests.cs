@@ -1134,34 +1134,153 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
-    // A CRL or an OCSP response that revokes the signer, signed with RSASSA-PSS (which FreePDF does not verify), next to a
-    // good answer of the other kind: the one FreePDF could not verify was dropped as if it said nothing, and the good
-    // answer made the signature Valid.
+    public enum Unverifiable { PssCrl, PssOcsp, PssResponderCertificate }
+
+    // A CRL or an OCSP response that revokes the signer but that FreePDF cannot verify (signed with RSASSA-PSS, or by a
+    // delegated responder whose certificate is), next to a good answer of the other kind: it was dropped as if it said
+    // nothing, and the good answer made the signature Valid.
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task A_revocation_FreePDF_cannot_verify_does_not_leave_the_signature_valid(bool revokingCrl)
+    [InlineData(Unverifiable.PssCrl)]
+    [InlineData(Unverifiable.PssOcsp)]
+    [InlineData(Unverifiable.PssResponderCertificate)]
+    public async Task A_revocation_FreePDF_cannot_verify_does_not_leave_the_signature_valid(Unverifiable kind)
     {
         using var pki = new TestPki();
         var signed = SignBT(pki);
         var rootCrl = pki.Crl(pki.Root);
         var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
-        var good = revokingCrl ? pki.OcspResponseFor(pki.Signer, pki.Intermediate) : pki.Crl(pki.Intermediate);
+        bool crl = kind == Unverifiable.PssCrl;
+        var good = crl ? pki.OcspResponseFor(pki.Signer, pki.Intermediate) : pki.Crl(pki.Intermediate);
         pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
-        pki.Pss = true;
-        var revoking = revokingCrl ? pki.Crl(pki.Intermediate) : pki.OcspResponseFor(pki.Signer, pki.Intermediate);
-        byte[][] certificates = [pki.Intermediate.RawData, pki.Root.RawData];
+        if (kind == Unverifiable.PssResponderCertificate)
+            pki.Responder = TestPki.OcspResponder.DelegatedPss;
+        else
+            pki.Pss = true;
+        var revoking = crl ? pki.Crl(pki.Intermediate) : pki.OcspResponseFor(pki.Signer, pki.Intermediate);
         var options = new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document };
-        var withGood = Update(signed, document => PdfDocumentSecurityStore.Add(document, certificates,
-            ocspResponses: revokingCrl ? [authority, good] : [authority], crls: [rootCrl, .. revokingCrl ? Array.Empty<byte[]>() : [good]]));
-        var withBoth = Update(signed, document => PdfDocumentSecurityStore.Add(document, certificates,
-            ocspResponses: revokingCrl ? [authority, good] : [authority, revoking], crls: revokingCrl ? [rootCrl, revoking] : [rootCrl, good]));
+        var withGood = WithDss(pki, signed, crl ? [authority, good] : [authority], crl ? [rootCrl] : [rootCrl, good]);
+        var withBoth = WithDss(pki, signed, crl ? [authority, good] : [authority, revoking], crl ? [rootCrl, revoking] : [rootCrl, good]);
 
         Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(withGood, options)).Status);
         var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withBoth, options));
 
         Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The same CRL, signed with RSASSA-PSS, but revoking the signer an hour after the signature's time-stamp: a revocation
+    // after the signature does not count when it can be checked, so it must not make the signature Indeterminate when it
+    // cannot.
+    [Fact]
+    public async Task An_unverifiable_revocation_after_the_signature_leaves_it_valid()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        pki.RevocationTime = DateTimeOffset.UtcNow.AddHours(1);
+        pki.Pss = true;
+        var later = pki.Crl(pki.Intermediate);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl, later]),
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A partitioned CRL (its issuing distribution point names one partition) that revokes a signer whose certificate gives
+    // its distribution point relative to the CRL issuer, or gives none: FreePDF cannot match the two, took that for proof
+    // that the CRL leaves the signer out, and a good OCSP answer made the signature Valid.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_CRL_partition_FreePDF_cannot_match_does_not_leave_the_signature_valid(bool relativeName)
+    {
+        using var pki = new TestPki();
+        using var signer = pki.CreateSigner(relativeName ? RelativeDistributionPoint() : null);
+        var signed = SignBT(pki, signer);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.OcspResponseFor(signer, pki.Intermediate);
+        pki.Revoked.Add(signer.SerialNumberBytes.ToArray());
+        var partition = pki.PartitionCrl(pki.Intermediate, "http://pki.test/partition-1.crl");
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document };
+
+        Assert.Equal(PdfSignatureStatus.Valid,
+            Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl]), options)).Status);
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(WithDss(pki, signed, [authority, good], [rootCrl, partition]), options));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A CRL signed with RSASSA-PSS that revokes the signer, and a DSS entry FreePDF does not read, which makes the DSS
+    // incomplete: the online check then left out everything the DSS held, and a good answer fetched online made the
+    // signature Valid although the revocation was still in the DSS.
+    [Fact]
+    public async Task An_online_answer_does_not_lift_a_revocation_FreePDF_cannot_verify()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        pki.Pss = true;
+        var revoking = pki.Crl(pki.Intermediate);
+        pki.Revoked.Clear();   // online, the responder answers good
+        pki.Pss = false;
+        using var fetcher = pki.CreateClient();
+        var options = new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Online,
+            Online = new PdfValidationDataOptions { HttpClient = fetcher },
+        };
+        var withoutRevocation = Update(WithDss(pki, signed, [authority], [rootCrl]), AddUnreadableCrl);
+        var withRevocation = Update(WithDss(pki, signed, [authority], [rootCrl, revoking]), AddUnreadableCrl);
+
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(withoutRevocation, options)).Status);
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withRevocation, options));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The signed file with a DSS: the intermediate and root certificates, and the given OCSP responses and CRLs.
+    static byte[] WithDss(TestPki pki, byte[] signed, byte[][] ocspResponses, byte[][] crls)
+        => Update(signed, document => PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData],
+            ocspResponses: ocspResponses, crls: crls));
+
+    // A CRL entry in the DSS that FreePDF does not read: Flate with /DecodeParms [null].
+    static void AddUnreadableCrl(PdfDocument document)
+    {
+        var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+        var crl = new PdfDictionary(document);
+        crl.CreateStream([0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        crl.Elements["/Filter"] = new PdfLiteral("[/FlateDecode]");
+        crl.Elements["/DecodeParms"] = new PdfLiteral("[null]");
+        document.Internals.AddObject(crl);
+        var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
+        crls.Elements.Add(crl.Reference!);
+        dss.Elements["/CRLs"] = crls;
+    }
+
+    // CRLDistributionPoints with one point named relative to the CRL issuer (RFC 5280 4.2.1.13): CN=Partition 1.
+    static X509Extension RelativeDistributionPoint()
+    {
+        var writer = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+        using (writer.PushSequence())                                                                                    // CRLDistributionPoints
+        using (writer.PushSequence())                                                                                    // DistributionPoint
+        using (writer.PushSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 0, true)))  // distributionPoint
+        using (writer.PushSetOf(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 1, true)))     // nameRelativeToCRLIssuer
+        using (writer.PushSequence())
+        {
+            writer.WriteObjectIdentifier("2.5.4.3");
+            writer.WriteCharacterString(System.Formats.Asn1.UniversalTagNumber.UTF8String, "Partition 1");
+        }
+        return new X509Extension("2.5.29.31", writer.Encode(), false);
     }
 
     // A good OCSP answer for the signer, then a CRL that revokes it, stored with filter parameters the DSS reader does not
@@ -1458,10 +1577,10 @@ public class SignatureVerifierTests
         }
     }
 
-    static byte[] SignBT(TestPki pki)
+    static byte[] SignBT(TestPki pki, X509Certificate2? signer = null)
     {
         using var authority = new TestTimeStampAuthority(null, pki.TimeStampAuthority);
-        return Sign(new PdfSharpDefaultSigner(pki.Signer, PdfMessageDigestType.SHA256)
+        return Sign(new PdfSharpDefaultSigner(signer ?? pki.Signer, PdfMessageDigestType.SHA256)
         {
             Format = PdfSignatureFormat.Pades,
             TimeStampClient = authority.RespondAsync,

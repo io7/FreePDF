@@ -88,7 +88,19 @@ public sealed class TestPki : IDisposable
         return issued.CopyWithPrivateKey(key);
     }
 
-    X509Certificate2 CreateEndEntity(string name, DateTimeOffset from, DateTimeOffset until, X509KeyUsageFlags usage, X509Extension? extra)
+    /// <summary>
+    /// Another signer the intermediate CA issues, with the given CRL distribution points extension in place of the usual
+    /// one, or none.
+    /// </summary>
+    public X509Certificate2 CreateSigner(X509Extension? distributionPoints)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return CreateEndEntity("CN=FreePDF test signer 2, O=FreePDF tests", now.AddHours(-1), now.AddDays(30),
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.NonRepudiation, distributionPoints, usualDistributionPoint: false);
+    }
+
+    X509Certificate2 CreateEndEntity(string name, DateTimeOffset from, DateTimeOffset until, X509KeyUsageFlags usage, X509Extension? extra,
+        bool usualDistributionPoint = true)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest(name, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -96,7 +108,8 @@ public sealed class TestPki : IDisposable
         request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
         request.CertificateExtensions.Add(X509AuthorityKeyIdentifierExtension.CreateFromCertificate(Intermediate, true, false));
         request.CertificateExtensions.Add(new X509AuthorityInformationAccessExtension([OcspUrl], null));
-        request.CertificateExtensions.Add(CertificateRevocationListBuilder.BuildCrlDistributionPointExtension([IntermediateCrlUrl]));
+        if (usualDistributionPoint)
+            request.CertificateExtensions.Add(CertificateRevocationListBuilder.BuildCrlDistributionPointExtension([IntermediateCrlUrl]));
         if (extra != null)
             request.CertificateExtensions.Add(extra);
         using var issued = request.Create(Intermediate, from, until, Serial());
@@ -136,6 +149,69 @@ public sealed class TestPki : IDisposable
             using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 2, true)))
                 writer.WriteInteger(32);
         }
+    }
+
+    /// <summary>
+    /// A CRL of the issuer for one partition: its issuing distribution point extension (RFC 5280 5.2.5, critical) names
+    /// the URI as the distribution point's full name. It lists the serial numbers in <see cref="Revoked"/>.
+    /// </summary>
+    public byte[] PartitionCrl(X509Certificate2 issuer, string uri)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tbs = new AsnWriter(AsnEncodingRules.DER);
+        using (tbs.PushSequence())
+        {
+            tbs.WriteInteger(1);                                                              // v2
+            using (tbs.PushSequence())
+            {
+                tbs.WriteObjectIdentifier("1.2.840.113549.1.1.11");
+                tbs.WriteNull();
+            }
+            tbs.WriteEncodedValue(issuer.SubjectName.RawData);
+            tbs.WriteUtcTime(now.AddMinutes(-1));
+            tbs.WriteUtcTime(now.AddDays(7));
+            if (Revoked.Count > 0)
+            {
+                using (tbs.PushSequence())
+                {
+                    foreach (var serial in Revoked)
+                    {
+                        using (tbs.PushSequence())
+                        {
+                            tbs.WriteIntegerUnsigned(serial);
+                            tbs.WriteUtcTime(RevocationTime ?? now.AddMinutes(-10));
+                        }
+                    }
+                }
+            }
+            using (tbs.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))         // crlExtensions
+            using (tbs.PushSequence())
+            using (tbs.PushSequence())
+            {
+                tbs.WriteObjectIdentifier("2.5.29.28");                                        // issuingDistributionPoint
+                tbs.WriteBoolean(true);
+                var point = new AsnWriter(AsnEncodingRules.DER);
+                using (point.PushSequence())
+                using (point.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))    // distributionPoint
+                using (point.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))    // fullName
+                    point.WriteCharacterString(UniversalTagNumber.IA5String, uri, new Asn1Tag(TagClass.ContextSpecific, 6));
+                tbs.WriteOctetString(point.Encode());
+            }
+        }
+        var tbsDer = tbs.Encode();
+        var signature = issuer.GetRSAPrivateKey()!.SignData(tbsDer, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var crl = new AsnWriter(AsnEncodingRules.DER);
+        using (crl.PushSequence())
+        {
+            crl.WriteEncodedValue(tbsDer);
+            using (crl.PushSequence())
+            {
+                crl.WriteObjectIdentifier("1.2.840.113549.1.1.11");
+                crl.WriteNull();
+            }
+            crl.WriteBitString(signature);
+        }
+        return crl.Encode();
     }
 
     public byte[] Crl(X509Certificate2 issuer)
@@ -202,7 +278,9 @@ public sealed class TestPki : IDisposable
         var now = DateTimeOffset.UtcNow;
         // The issuing CA signs, or a responder certificate (RFC 6960 4.2.2.2): one the CA issued, or a forgery that
         // only carries the CA's name.
-        var responder = Responder == OcspResponder.Issuer ? issuer : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated);
+        var responder = Responder == OcspResponder.Issuer
+            ? issuer
+            : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated, Responder == OcspResponder.DelegatedPss);
 
         var data = new AsnWriter(AsnEncodingRules.DER);
         using (data.PushSequence())                                                          // ResponseData
@@ -285,9 +363,9 @@ public sealed class TestPki : IDisposable
 
     // A responder certificate with id-kp-OCSPSigning and id-pkix-ocsp-nocheck. The forgery is signed by a key of its
     // own under a CA certificate that only copies the real CA's name.
-    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged)
+    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged, bool pss = false)
     {
-        if (_responders.TryGetValue((issuer.Thumbprint, forged), out var cached))
+        if (_responders.TryGetValue((issuer.Thumbprint + (pss ? "/pss" : ""), forged), out var cached))
             return cached;
         var signingCa = issuer;
         if (forged)
@@ -302,10 +380,11 @@ public sealed class TestPki : IDisposable
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
         request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
-        using var issued = request.Create(signingCa.SubjectName, X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, RSASignaturePadding.Pkcs1),
+        using var issued = request.Create(signingCa.SubjectName,
+            X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1),
             CaFrom, CaUntil, Serial());
         var responder = issued.CopyWithPrivateKey(key);
-        _responders[(issuer.Thumbprint, forged)] = responder;
+        _responders[(issuer.Thumbprint + (pss ? "/pss" : ""), forged)] = responder;
         return responder;
     }
 
@@ -318,6 +397,8 @@ public sealed class TestPki : IDisposable
         Issuer,
         /// <summary>A responder certificate that the CA issued.</summary>
         Delegated,
+        /// <summary>A responder certificate that the CA issued, signed with RSASSA-PSS.</summary>
+        DelegatedPss,
         /// <summary>A responder certificate with the CA's name as issuer, signed by another key.</summary>
         ForgedDelegated,
     }

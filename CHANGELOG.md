@@ -38,8 +38,8 @@
 - XMP metadata is read (to keep a file that claims PDF/A in agreement with its
   document information) only when it is at most 16 MiB. Its filters are applied
   one at a time: Flate is inflated up to that limit, any other filter decodes at
-  most 16 KiB, a chain has at most four filters, and decode parameters
-  (predictors) are not read. A few kilobytes of Flate could inflate to
+  most 16 KiB, a chain has at most four filters, and decode parameters that
+  change the data (predictors, LZW's /EarlyChange) are not read. A few kilobytes of Flate could inflate to
   gigabytes when a file was saved or opened in Append mode. Metadata that is not
   read stays in the file as it is.
 - The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
@@ -118,11 +118,14 @@
     written this way was skipped, and a good OCSP response made the signature
     Valid.
   - An OCSP response or CRL that FreePDF cannot parse, or that says a
-    certificate is revoked but cannot be used (signed with an algorithm FreePDF
-    does not verify, such as RSASSA-PSS; a delta CRL; a CRL scope or critical
-    extension FreePDF does not read), keeps that certificate from being shown
-    as not revoked. It was dropped as if it said nothing, so a good answer of
-    the other kind made the signature Valid.
+    certificate was revoked before the signature but cannot be used (signed
+    with an algorithm FreePDF does not verify, such as RSASSA-PSS, or by a
+    delegated OCSP responder whose certificate is; a delta CRL; a CRL scope,
+    partition or critical extension FreePDF does not read or cannot match to
+    the certificate), keeps that certificate from being shown as not revoked,
+    also when an online check finds a good answer. It was dropped as if it said
+    nothing, so a good answer of the other kind made the signature Valid. A
+    revocation dated after the signature leaves it as it was.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature
