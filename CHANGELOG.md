@@ -28,13 +28,18 @@
   - A file with more than `MaxRevisions` revisions or `MaxSignatures`
     signatures and document time-stamps (new options, 64 each by default)
     throws `InvalidOperationException`, rather than give an answer that could
-    leave out a signature a later update removed.
+    leave out a signature a later update removed. Discovery stops as soon as
+    it finds more, and field names and signature keys are bounded.
+  - A revision that does not open in Append mode is read in Import mode, so the
+    signatures in it are still found.
   - A visible empty signature widget whose /Parent leads back to itself no
     longer makes the check allocate until memory runs out.
   - Every byte inflated from the DSS counts against its 64 MiB budget, also
-    when an item turns out too large, and each DSS stream is inflated once.
+    when an item turns out too large, and each DSS stream is inflated once and
+    read once per kind of entry (a CRL also listed as a certificate is still
+    read as a CRL).
   - The DSS of the revision a document time-stamp covers is read once per
-    time-stamp.
+    time-stamp, one at a time.
 
 ## 7.10.0
 

@@ -61,10 +61,8 @@ namespace PdfSharp.Pdf.Signatures
             if (context.RevisionEnds.Count > context.Options.MaxRevisions)
                 throw new InvalidOperationException($"The file has {context.RevisionEnds.Count} revisions (%%EOF markers), more than " +
                     $"MaxRevisions ({context.Options.MaxRevisions}); raise it to check this file.");
+            // Throws as soon as discovery finds more than MaxSignatures.
             var signatures = AllSignatures(context);
-            if (signatures.Count > context.Options.MaxSignatures)
-                throw new InvalidOperationException($"The file has {signatures.Count} signatures and document time-stamps, more than " +
-                    $"MaxSignatures ({context.Options.MaxSignatures}); raise it to check this file.");
 
             var results = new List<PdfSignatureVerification>();
             foreach (var signature in signatures)
@@ -110,18 +108,27 @@ namespace PdfSharp.Pdf.Signatures
                 }
             }
 
-            // B-LTA: a valid document time-stamp in a later revision covers a DSS that holds the validation data.
-            foreach (var result in results.Where(r => r.PadesLevel == PdfPadesLevel.BaselineLT))
+            // B-LTA: a valid document time-stamp in a later revision covers a DSS that holds the validation data. Each
+            // time-stamp's revision is read once, for every signature it may lift, and let go before the next.
+            var waiting = results.Where(r => r.PadesLevel == PdfPadesLevel.BaselineLT).ToList();
+            foreach (var stampEnd in results.Where(s => s.Kind == PdfSignatureKind.DocumentTimeStamp && s.Status == PdfSignatureStatus.Valid)
+                         .Select(s => s.End).Distinct().OrderBy(end => end))
             {
-                foreach (var stamp in results.Where(s => s.Kind == PdfSignatureKind.DocumentTimeStamp && s.Status == PdfSignatureStatus.Valid
-                             && s.End > result.End))
+                var candidates = waiting.Where(r => stampEnd > r.End).ToList();
+                if (candidates.Count == 0)
+                    continue;
+                if (CoveredDss(context, stampEnd) is not { Present: true } dss)
+                    continue;
+                foreach (var result in candidates)
                 {
-                    if (CoveredDssHolds(context, stamp.End, result))
+                    if (result.LongTermChains.All(c => DssCovers(dss, c, context.ValidationTime)))
                     {
                         result.PadesLevel = PdfPadesLevel.BaselineLTA;
-                        break;
+                        waiting.Remove(result);
                     }
                 }
+                if (waiting.Count == 0)
+                    break;
             }
             return results;
         }
@@ -135,8 +142,10 @@ namespace PdfSharp.Pdf.Signatures
             {
                 return PdfReader.Open(new MemoryStream(file, 0, length, false), password, PdfDocumentOpenMode.Append);
             }
-            catch (Exception ex) when (ex is NotSupportedException or PdfReaderException or InvalidOperationException)
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
             {
+                // Whatever keeps a file from opening in Append mode (which prepares it for saving), read it as it is: a
+                // revision that cannot be read hides the signatures in it.
                 return PdfReader.Open(new MemoryStream(file, 0, length, false), password, PdfDocumentOpenMode.Import);
             }
         }
@@ -195,27 +204,6 @@ namespace PdfSharp.Pdf.Signatures
                 Revisions.Add(revision);
             }
 
-            // The DSS of the file up to the end of a revision, read once; null when that is not a revision or not readable.
-            internal Dss? DssAt(int end)
-            {
-                if (_dssByEnd.TryGetValue(end, out var dss))
-                    return dss;
-                dss = null;
-                if (RevisionEnds.Contains(end))
-                {
-                    try
-                    {
-                        using var revision = Open(File, end, Options.Password);
-                        dss = ReadDss(revision);
-                    }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
-                    {
-                    }
-                }
-                _dssByEnd[end] = dss;
-                return dss;
-            }
-            readonly Dictionary<int, Dss?> _dssByEnd = new();
 
             // Where the objects of the file start, sorted, for the signature dictionary's boundary check.
             internal long[] ObjectPositions => _objectPositions ??= Document.IrefTable.AllReferences
@@ -444,9 +432,21 @@ namespace PdfSharp.Pdf.Signatures
             => chain.Chain.All(dss.Holds)
                && DssRevocation(chain.Chain, dss, chain.Time, chain.Proven, validationTime, chain.Authority) == PdfRevocationStatus.Good;
 
-        // The DSS of the revision a document time-stamp covers holds the validation data of the signature.
-        static bool CoveredDssHolds(Context context, int stampEnd, PdfSignatureVerification result)
-            => context.DssAt(stampEnd) is { Present: true } dss && result.LongTermChains.All(c => DssCovers(dss, c, context.ValidationTime));
+        // The DSS of the revision a document time-stamp covers; null when that is not the end of a revision or not readable.
+        static Dss? CoveredDss(Context context, int stampEnd)
+        {
+            if (!context.RevisionEnds.Contains(stampEnd))
+                return null;
+            try
+            {
+                using var revision = Open(context.File, stampEnd, context.Options.Password);
+                return ReadDss(revision);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+            {
+                return null;
+            }
+        }
 
         // ===== Byte range =====
 
@@ -1227,7 +1227,8 @@ namespace PdfSharp.Pdf.Signatures
         // (each revision is read on its own; a signature is known by its /ByteRange, or by its field name without one).
         static List<FoundSignature> AllSignatures(Context context)
         {
-            var result = Signatures(context.Document);
+            int limit = context.Options.MaxSignatures;
+            var result = Signatures(context.Document, limit);
             var known = new HashSet<string>(result.Select(Key));
             foreach (var end in context.RevisionEnds)
             {
@@ -1240,18 +1241,20 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     // One revision at a time: kept only when a removed signature's dictionary lives in it.
                     revision = Open(context.File, end, context.Options.Password);
-                    foreach (var signature in Signatures(revision))
+                    foreach (var signature in Signatures(revision, limit))
                     {
                         if (known.Add(Key(signature)))
                         {
                             result.Add(signature with { Removed = true });
                             kept = true;
+                            if (result.Count > limit)
+                                throw TooManySignatures(result.Count, limit);
                         }
                     }
                     if (kept)
                         context.Keep(end, revision);
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException && !ex.Data.Contains(TooManySignaturesKey))
                 {
                     // Not a revision that can be read on its own (for example a %%EOF inside a stream).
                 }
@@ -1263,15 +1266,30 @@ namespace PdfSharp.Pdf.Signatures
             }
             return result;
 
+            // A /ByteRange of numbers, else the field name (bounded): never the text of whatever a malformed range holds.
             static string Key(FoundSignature signature)
-                => Resolve(signature.Value.Elements["/ByteRange"]) is PdfArray range
-                    ? "range:" + string.Join(",", range.Elements.Select(e => Resolve(e)?.ToString()))
+                => Resolve(signature.Value.Elements["/ByteRange"]) is PdfArray { Elements.Count: <= 8 } range
+                   && range.Elements.Select(e => Number(Resolve(e))).ToList() is var numbers && numbers.All(n => n != null)
+                    ? "range:" + string.Join(",", numbers.Select(n => n!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)))
                     : "field:" + signature.Name;
+        }
+
+        const int MaxNameLength = 1000;
+
+        // Marks the exception that must leave discovery rather than be taken for an unreadable revision.
+        const string TooManySignaturesKey = "FreePDF.TooManySignatures";
+
+        static InvalidOperationException TooManySignatures(int count, int limit)
+        {
+            var exception = new InvalidOperationException(
+                $"The file has more than {limit} signatures and document time-stamps (MaxSignatures); raise it to check this file.");
+            exception.Data[TooManySignaturesKey] = true;
+            return exception;
         }
 
         // The signature fields with a value, with fully qualified names, and the certification level of the one the
         // catalog's /Perms /DocMDP names or whose /Reference has the DocMDP transform.
-        static List<FoundSignature> Signatures(PdfDocument document)
+        static List<FoundSignature> Signatures(PdfDocument document, int limit)
         {
             var result = new List<FoundSignature>();
             var docMdp = Resolve((Resolve(document.Catalog.Elements["/Perms"]) as PdfDictionary)?.Elements["/DocMDP"]) as PdfDictionary;
@@ -1290,6 +1308,9 @@ namespace PdfSharp.Pdf.Signatures
                 var fieldReference = item as PdfReference ?? field.Reference;
                 var partial = Resolve(field.Elements["/T"]) is PdfString t ? t.Value : "";
                 var name = partial.Length == 0 ? parent : parent.Length == 0 ? partial : parent + "." + partial;
+                // Names are built along the field tree from names the file chooses: bounded, or they could grow without end.
+                if (name.Length > MaxNameLength)
+                    name = name.Substring(0, MaxNameLength);
                 // Any signature dictionary, also one without a /ByteRange, which is then reported as not intact.
                 if (Resolve(field.Elements["/V"]) is PdfDictionary value
                     && (value.Elements.ContainsKey("/ByteRange") || value.Elements.ContainsKey("/Contents")
@@ -1299,6 +1320,8 @@ namespace PdfSharp.Pdf.Signatures
                     // The indirect object whose bytes hold the signature dictionary: its own, or the field's.
                     var holder = field.Elements["/V"] as PdfReference ?? fieldReference;
                     result.Add(new FoundSignature(name, value, level, holder, fieldReference));
+                    if (result.Count > limit)
+                        throw TooManySignatures(result.Count, limit);
                 }
                 if (Resolve(field.Elements["/Kids"]) is PdfArray kids)
                 {
@@ -1373,20 +1396,25 @@ namespace PdfSharp.Pdf.Signatures
         {
             if (Resolve(dss.Elements[key]) is not PdfArray array)
                 yield break;
+            // Each stream once per kind of entry, inflated once whatever kinds list it, and every byte inflated counts against
+            // the budget, also when the result is not used: otherwise one small stream that inflates to just over the limit,
+            // referred to thousands of times, costs gigabytes of work. A stream listed under two kinds is read as both (a CRL
+            // that is also listed as a certificate is still a CRL).
+            var listed = new HashSet<PdfDictionary>();
             foreach (var item in array.Elements)
             {
                 if (budget.Left <= 0)
                     yield break;
-                // Each stream once, and every byte inflated counts against the budget, also when the result is not used:
-                // otherwise one small stream that inflates to just over the limit, referred to thousands of times, costs
-                // gigabytes of work.
-                if (Resolve(item) is PdfDictionary { Stream: { } } stream && budget.Read.Add(stream))
+                if (Resolve(item) is not PdfDictionary { Stream: { } } stream || !listed.Add(stream))
+                    continue;
+                if (!budget.Decoded.TryGetValue(stream, out var data))
                 {
-                    var data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
+                    data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
                     budget.Left -= Math.Max(inflated, data?.Length ?? 0);
-                    if (data != null)
-                        yield return data;
+                    budget.Decoded[stream] = data;
                 }
+                if (data != null)
+                    yield return data;
             }
         }
 
@@ -1394,7 +1422,7 @@ namespace PdfSharp.Pdf.Signatures
         {
             internal int Left = MaxDssTotal;
             // PdfDictionary compares by reference.
-            internal readonly HashSet<PdfDictionary> Read = new();
+            internal readonly Dictionary<PdfDictionary, byte[]?> Decoded = new();
         }
 
         // The stream's data when it is unfiltered or plain Flate (what a DSS uses), inflated with a size limit; any other

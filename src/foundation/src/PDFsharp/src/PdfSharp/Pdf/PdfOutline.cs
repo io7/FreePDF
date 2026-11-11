@@ -65,6 +65,9 @@ namespace PdfSharp.Pdf
         // The level of an item read from a file: 0 for the outline root.
         readonly int _depth;
 
+        // The largest number of hidden descendants a truncated item is taken to stand for.
+        const int MaxCount = 1 << 24;
+
         /// <summary>
         /// An item at <see cref="MaxDepth"/> whose children in the file were not read. Its /First, /Last and the size of
         /// its /Count stay as written; children cannot be added to it.
@@ -141,7 +144,8 @@ namespace PdfSharp.Pdf
             {
                 // Its children were not read: the file's /Count stands for them, and only its sign follows Opened.
                 Elements.TryGetInteger(Keys.Count, out var written);
-                int hidden = Math.Abs(written);
+                // Math.Abs(int.MinValue) overflows, and counts the file chooses are added up for the items above: bounded.
+                int hidden = written == int.MinValue ? MaxCount : Math.Min(Math.Abs(written), MaxCount);
                 if (_countChanged && hidden > 0)
                     Elements[Keys.Count] = new PdfInteger(_opened ? hidden : -hidden);
                 return (hidden, _countChanged);

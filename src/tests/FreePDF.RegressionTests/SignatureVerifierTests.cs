@@ -1005,6 +1005,46 @@ public class SignatureVerifierTests
         Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
     }
 
+    // A CRL that revokes the signer, listed under /Certs as well as /CRLs: reading each stream once across the whole DSS
+    // skipped it as a CRL after it failed as a certificate, and the revocation was lost.
+    [Fact]
+    public async Task A_CRL_also_listed_as_a_certificate_is_still_read_as_a_CRL()
+    {
+        using var pki = new TestPki();
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        var withDss = Update(SignBT(pki), document =>
+            PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData], crls: [pki.Crl(pki.Intermediate)]));
+        var listedTwice = Update(withDss, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            dss.Elements.GetArray("/Certs")!.Elements.Insert(0, dss.Elements.GetArray("/CRLs")!.Elements[0]);
+        });
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(listedTwice, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.Equal(PdfSignatureStatus.Invalid, result.Status);
+    }
+
+    // 5,000 signature fields: discovery stops at MaxSignatures instead of collecting them all first.
+    [Fact]
+    public async Task Thousands_of_signature_fields_are_refused_while_they_are_found()
+    {
+        const int count = 5000;
+        var objects = new List<string>
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{string.Join(" ", Enumerable.Range(4, count).Select(n => $"{n} 0 R"))}] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        };
+        for (int index = 0; index < count; index++)
+            objects.Add($"<< /FT /Sig /T (s{index}) /V << /Type /Sig /ByteRange [0 {index} 10 10] /Contents <00> >> >>");
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => PdfSignatureVerifier.VerifyAsync(TestPdf.Create(objects.ToArray())));
+
+        Assert.Contains("MaxSignatures", refused.Message);
+    }
+
     // One small stream that inflates to just over the 16 MiB a DSS item may have, referred to 2,000 times: each reference
     // inflated it again and the failed attempts did not count against the DSS budget (about 34 GB of work).
     [Fact]

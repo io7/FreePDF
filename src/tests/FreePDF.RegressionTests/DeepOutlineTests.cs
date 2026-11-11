@@ -12,8 +12,9 @@ public class DeepOutlineTests
 {
     const int Depth = 20_000;
 
-    // Objects 1-3 are the catalog, the page tree and the page; 4 is the outline root; 5 to Depth + 4 are the items.
-    static byte[] DeepOutline()
+    // Objects 1-3 are the catalog, the page tree and the page; 4 is the outline root; 5 to Depth + 4 are the items. The
+    // item at the deepest level read (object 204) gets the given /Count.
+    static byte[] DeepOutline(string deepestCount = "-1")
     {
         var objects = new List<string>
         {
@@ -26,8 +27,9 @@ public class DeepOutlineTests
         {
             int number = level + 5;
             int parent = level == 0 ? 4 : number - 1;
+            var count = number == 204 ? deepestCount : "-1";
             objects.Add(level < Depth - 1
-                ? $"<< /Title (L) /Parent {parent} 0 R /First {number + 1} 0 R /Last {number + 1} 0 R /Count -1 /Dest [3 0 R /Fit] >>"
+                ? $"<< /Title (L) /Parent {parent} 0 R /First {number + 1} 0 R /Last {number + 1} 0 R /Count {count} /Dest [3 0 R /Fit] >>"
                 : $"<< /Title (L) /Parent {parent} 0 R /Dest [3 0 R /Fit] >>");
         }
         return TestPdf.Create(objects.ToArray());
@@ -96,6 +98,21 @@ public class DeepOutlineTests
         var item = System.Text.RegularExpressions.Regex.Match(text, @"(?s)(?<!\d)204 0 obj(.*?)endobj").Groups[1].Value;
         Assert.Contains("/First 205 0 R", item);
         Assert.Matches(@"/Count 1\b", item);
+    }
+
+    // Math.Abs(int.MinValue) threw while the file was prepared for Append mode, so the file (or, in the verifier, the
+    // revision that held a signature) could not be opened.
+    [Fact]
+    public void The_smallest_count_on_the_deepest_item_read_does_not_overflow()
+    {
+        var original = DeepOutline("-2147483648");
+
+        using (var document = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Append))
+            Assert.Equal(original, Save(document));
+
+        using var modified = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
+        DeepestRead(modified).Opened = true;
+        Save(modified);
     }
 
     [Fact]
