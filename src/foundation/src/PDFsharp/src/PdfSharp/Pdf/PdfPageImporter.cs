@@ -438,13 +438,17 @@ namespace PdfSharp.Pdf
         /// that leads nowhere only as a parent.
         /// </summary>
         // PdfDictionary has reference equality, so the visited sets compare objects, not contents.
-        List<Bookmark> ReadBookmarks(PdfDictionary parent, HashSet<PdfDictionary> visited)
+        // Below PdfOutline.MaxDepth levels nothing is read: each level is a call, and a hostile file could nest
+        // thousands.
+        List<Bookmark> ReadBookmarks(PdfDictionary parent, HashSet<PdfDictionary> visited, int depth = 0)
         {
             var bookmarks = new List<Bookmark>();
+            if (depth >= PdfOutline.MaxDepth)
+                return bookmarks;
             var item = Resolve(parent.Elements[PdfOutline.Keys.First]) as PdfDictionary;
             while (item != null && visited.Add(item))
             {
-                var children = ReadBookmarks(item, visited);
+                var children = ReadBookmarks(item, visited, depth + 1);
                 var target = DestinationOf(item);
                 PdfItem? destination = target.Destination;
                 PdfItem? action = null;

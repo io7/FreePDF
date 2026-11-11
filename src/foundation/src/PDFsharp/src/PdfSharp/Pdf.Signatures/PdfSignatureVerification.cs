@@ -128,6 +128,22 @@ namespace PdfSharp.Pdf.Signatures
         /// Gets the password of an encrypted document.
         /// </summary>
         public string? Password { get; init; }
+
+        /// <summary>
+        /// Gets the most revisions a file may have to be checked, counted by its %%EOF markers (including any inside
+        /// streams, such as embedded files); 64 by default. Earlier revisions are read on their own, each a copy of the
+        /// file up to its end, so a small file with thousands of updates would cost time and memory that grow with the
+        /// square of their number. A file with more throws <see cref="InvalidOperationException"/> rather than give an
+        /// answer that could leave out a signature a later update removed.
+        /// </summary>
+        public int MaxRevisions { get; init; } = 64;
+
+        /// <summary>
+        /// Gets the most signatures and document time-stamps a file may have to be checked; 64 by default. Each is
+        /// checked against the file's bytes and its later revisions, so the work grows with their number times the
+        /// file's size. A file with more throws <see cref="InvalidOperationException"/>.
+        /// </summary>
+        public int MaxSignatures { get; init; } = 64;
     }
 
     /// <summary>

@@ -637,6 +637,8 @@ namespace PdfSharp.Pdf.IO
 
         static bool Same(byte[] first, byte[] second) => first.Length == second.Length && first.SequenceEqual(second);
 
+        const int MaxQualifiedName = 4096;
+
         // Every node of the form's field tree with its fully qualified name and its field type, which kids inherit.
         static IEnumerable<FieldNode> Fields(PdfDocument document)
         {
@@ -659,6 +661,10 @@ namespace PdfSharp.Pdf.IO
                 var name = parent;
                 if (!String.IsNullOrEmpty(partial))
                     name = parent.Length == 0 ? partial : parent + "." + partial;
+                // Names are built along the tree from names the file chooses; locks match them in full, so a longer one
+                // is not cut but refused (thousands of kids under one huge name would otherwise cost gigabytes).
+                if (name.Length > MaxQualifiedName)
+                    throw new InvalidOperationException($"A form field's fully qualified name is longer than {MaxQualifiedName} characters.");
                 var type = inheritedType;
                 var ownType = dictionary.Elements.GetName("/FT");
                 if (!String.IsNullOrEmpty(ownType))
@@ -901,7 +907,10 @@ namespace PdfSharp.Pdf.IO
             // A name also covers the fields below it. An unknown action locks everything, the safe reading.
             internal bool Locks(string fieldName)
             {
-                bool listed = _names.Any(name => fieldName == name || fieldName.StartsWith(name + ".", StringComparison.Ordinal));
+                // Without building name + "." for every field: a lock may name a field with a very long name.
+                bool listed = _names.Any(name => fieldName == name
+                                                 || (fieldName.Length > name.Length && fieldName[name.Length] == '.'
+                                                     && fieldName.StartsWith(name, StringComparison.Ordinal)));
                 return _action switch
                 {
                     "/Include" => listed,

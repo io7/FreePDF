@@ -42,10 +42,37 @@ namespace PdfSharp.Pdf
         /// After this type transformation the specified dictionary is dead and cannot be used anymore.
         /// </summary>
         internal PdfOutline(PdfDictionary dict)
+            : this(dict, 0)
+        { }
+
+        PdfOutline(PdfDictionary dict, int depth)
             : base(dict)
         {
+            _fromFile = true;
+            _depth = depth;
             Initialize();
+            // Reading added the children; that is not a change.
+            _countChanged = false;
         }
+
+        /// <summary>
+        /// The deepest level of a file's outline that is read; deeper items are left as they are in the file and not
+        /// read, as in a damaged file. Reading, saving and counting outline items recurse once per level, and a hostile
+        /// file nested thousands of levels deep would overflow the stack, which no exception handler stops.
+        /// </summary>
+        internal const int MaxDepth = 200;
+
+        // The level of an item read from a file: 0 for the outline root.
+        readonly int _depth;
+
+        // The largest number of hidden descendants a truncated item is taken to stand for.
+        const int MaxCount = 1 << 24;
+
+        /// <summary>
+        /// An item at <see cref="MaxDepth"/> whose children in the file were not read. Its /First, /Last and the size of
+        /// its /Count stay as written; children cannot be added to it.
+        /// </summary>
+        internal bool Truncated { get; private set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PdfOutline"/> class.
@@ -103,28 +130,58 @@ namespace PdfSharp.Pdf
             DestinationPage = destinationPage;
         }
 
-        internal int Count
-        {
-            get => _count;
-            set => _count = value;
-        }
-        int _count;
-
         /// <summary>
-        /// The total number of open descendants at all lower levels.
+        /// Sets /Count on this item and its descendants in one pass from the bottom up, and returns the number of
+        /// descendants shown while this item is open (its children, and the visible descendants of each open child;
+        /// for the root, the number of visible items, ISO 32000-1 12.3.3) and whether anything here changed. An item
+        /// read from a file keeps the /Count it was written with unless it or an item below it changed: signature
+        /// checks compare a document's revisions by their written form, so rewriting an unchanged item would hide a
+        /// later change to it or report one that never happened.
         /// </summary>
-        internal int OpenCount;
-
-        /// <summary>
-        /// Counts the open outline items. Not yet used.
-        /// </summary>
-        internal int CountOpen()
+        (int Visible, bool Changed) UpdateCounts()
         {
-            int count = _opened ? 1 : 0;
+            if (Truncated)
+            {
+                // Its children were not read: the file's /Count stands for them, and only its sign follows Opened.
+                Elements.TryGetInteger(Keys.Count, out var written);
+                // Math.Abs(int.MinValue) overflows, and counts the file chooses are added up for the items above: bounded.
+                int hidden = written == int.MinValue ? MaxCount : Math.Min(Math.Abs(written), MaxCount);
+                if (_countChanged && hidden > 0)
+                    Elements[Keys.Count] = new PdfInteger(_opened ? hidden : -hidden);
+                return (hidden, _countChanged);
+            }
+
+            int visible = 0;
+            bool changed = !_fromFile || _countChanged;
             if (_outlines != null)
-                count += _outlines.CountOpen();
-            return count;
+            {
+                foreach (var child in _outlines)
+                {
+                    var (childVisible, childChanged) = child.UpdateCounts();
+                    visible++;
+                    if (child._opened)
+                        visible += childVisible;
+                    changed |= childChanged;
+                }
+            }
+
+            if (changed)
+            {
+                // Required on an item with children (Table 153): positive while open, negative while closed. The root's
+                // is the number of visible items (Table 152). Neither has one without children.
+                if (!HasChildren)
+                    Elements.Remove(Keys.Count);
+                else if (_parent == null || _opened)
+                    Elements[Keys.Count] = new PdfInteger(visible);
+                else
+                    Elements[Keys.Count] = new PdfInteger(-visible);
+            }
+            return (visible, changed);
         }
+
+        // Read from a file, and whether this item's children or open state changed since (PdfOutlineCollection sets it).
+        readonly bool _fromFile;
+        internal bool _countChanged;
 
         /// <summary>
         /// Gets the parent of this outline item. The root item has no parent and returns null.
@@ -202,12 +259,19 @@ namespace PdfSharp.Pdf
         double? _zoom; // PDF treats 0 and null equally.
 
         /// <summary>
-        /// Gets or sets whether the outline item is opened (or expanded).
+        /// Gets or sets whether the outline item is opened (or expanded). An item read from a file is open when its
+        /// /Count is positive; saving writes /Count for every item with children, negative while it is closed.
         /// </summary>
         public bool Opened
         {
             get => _opened;
-            set => _opened = value;
+            set
+            {
+                if (_opened == value)
+                    return;
+                _opened = value;
+                _countChanged = true;
+            }
         }
         bool _opened;
 
@@ -266,9 +330,10 @@ namespace PdfSharp.Pdf
                     Parent = parent;
             }
 
-            // A /Count or /C of the wrong type in a damaged file is ignored rather than failing the document.
+            // A positive /Count is an open item. A /Count or /C of the wrong type in a damaged file is ignored rather
+            // than failing the document.
             Elements.TryGetInteger(Keys.Count, out var count);
-            Count = count;
+            _opened = count > 0;
 
             if (Elements.GetValue(Keys.C) is PdfArray { Elements.Count: 3 } colors
                 && colors.Elements.TryGetReal(0, out var r) && colors.Elements.TryGetReal(1, out var g) && colors.Elements.TryGetReal(2, out var b))
@@ -500,11 +565,16 @@ namespace PdfSharp.Pdf
         {
             // Follow /First and /Next only to dictionaries that have no type yet. A link to a non-dictionary, or to an
             // object that already has one (the catalog, a page, an item read earlier in a loop), ends the chain:
-            // converting it would destroy that object or never stop.
+            // converting it would destroy that object or never stop. Below MaxDepth nothing is read.
+            if (_depth >= MaxDepth)
+            {
+                Truncated = Elements.GetReference(Keys.First) != null;
+                return;
+            }
             var current = Elements.GetReference(Keys.First);
             while (current?.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary))
             {
-                var item = new PdfOutline(dict);
+                var item = new PdfOutline(dict, _depth + 1);
                 Outlines.Add(item);
                 current = item.Elements.GetReference(Keys.Next);
             }
@@ -527,10 +597,8 @@ namespace PdfSharp.Pdf
                     Elements[Keys.First] = _outlines[0].RequiredReference;
                     Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
 
-                    // TODO_OLD: /Count - the meaning is not completely clear to me.
-                    // Get PDFs created with Acrobat and analyze what to implement.
-                    if (OpenCount > 0)
-                        Elements[Keys.Count] = new PdfInteger(OpenCount);
+                    // /Count of every item, once, from the bottom up.
+                    UpdateCounts();
                 }
                 else
                 {
@@ -539,7 +607,11 @@ namespace PdfSharp.Pdf
                     Elements[Keys.Parent] = _parent.RequiredReference;
 
                     int count = _parent!._outlines!.Count;
-                    int index = _parent._outlines.IndexOf(this);
+                    // The position the parent gave while preparing its children; searched for only when called otherwise
+                    // (a search per item is quadratic in a wide outline).
+                    int index = _indexInParent >= 0 && _indexInParent < count && ReferenceEquals(_parent._outlines[_indexInParent], this)
+                        ? _indexInParent
+                        : _parent._outlines.IndexOf(this);
                     Debug.Assert(index != -1);
 
                     // Has destination? /Dest is not permitted next to /A (ISO 32000-1 Table 153). An action the
@@ -577,9 +649,6 @@ namespace PdfSharp.Pdf
                         Elements[Keys.First] = _outlines[0].RequiredReference;
                         Elements[Keys.Last] = _outlines[_outlines.Count - 1].RequiredReference;
                     }
-                    // TODO_OLD: /Count - the meaning is not completely clear to me
-                    if (OpenCount > 0)
-                        Elements[Keys.Count] = new PdfInteger((_opened ? 1 : -1) * OpenCount);
 
                     if (TextColor != XColor.Empty && Owner.HasVersion("1.4"))
                         Elements[Keys.C] = new PdfLiteral("[{0}]", PdfEncoders.ToString(TextColor, PdfColorMode.Rgb));  // #US309
@@ -592,11 +661,16 @@ namespace PdfSharp.Pdf
                 // Prepare child elements.
                 if (hasKids)
                 {
-                    foreach (var outline in _outlines!)
-                        outline.PrepareForSave();
+                    for (int position = 0; position < _outlines!.Count; position++)
+                    {
+                        _outlines[position]._indexInParent = position;
+                        _outlines[position].PrepareForSave();
+                    }
                 }
             }
         }
+
+        int _indexInParent = -1;
 
         PdfArray CreateDestArray()
         {
