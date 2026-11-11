@@ -154,10 +154,10 @@ namespace PdfSharp.Pdf.Filters
         }
 
         /// <summary>
-        /// The zlib data inflated, refusing to produce more than limit bytes (<see cref="IO.Parser.LimitExceeded"/>), then
-        /// the decode parameters (a predictor) applied.
+        /// The zlib data inflated within the limit (<see cref="IO.Parser.LimitExceeded"/> beyond it). Each piece counts as
+        /// it comes out, so that what was inflated before damaged data stops the stream counts too.
         /// </summary>
-        internal static byte[] InflateBounded(byte[] data, PdfDictionary? decodeParms, long limit)
+        internal static byte[] InflateBounded(byte[] data, DecodeLimit limit)
         {
             if (data.Length < 2)
                 return [];
@@ -168,12 +168,12 @@ namespace PdfSharp.Pdf.Filters
             int read;
             while ((read = zip.Read(buffer, 0, buffer.Length)) > 0)
             {
-                if (output.Length + read > limit)
-                    throw IO.Parser.LimitExceeded($"Flate data inflates to more than {limit} bytes.");
+                limit.Charge(read);
+                if (output.Length + read > limit.PerStage)
+                    throw IO.Parser.LimitExceeded($"Flate data inflates to more than {limit.PerStage} bytes.");
                 output.Write(buffer, 0, read);
             }
-            var result = output.ToArray();
-            return decodeParms != null ? StreamDecoder.Decode(result, decodeParms) : result;
+            return output.ToArray();
         }
 
         /// <summary>

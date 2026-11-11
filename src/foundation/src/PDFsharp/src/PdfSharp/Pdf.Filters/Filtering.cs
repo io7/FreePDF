@@ -118,6 +118,8 @@ namespace PdfSharp.Pdf.Filters
     {
         public long Spent { get; private set; }
 
+        public long PerStage => perStage;
+
         public long Available => Math.Min(perStage, left - Spent);
 
         public void Charge(long bytes)
@@ -364,9 +366,9 @@ namespace PdfSharp.Pdf.Filters
         {
             byte[] decoded;
             if (filter is FlateDecode)
-                decoded = FlateDecode.InflateBounded(data, null, limit.Available);
+                decoded = FlateDecode.InflateBounded(data, limit);
             else if (filter is LzwDecode lzw)
-                decoded = lzw.Decode(data, null, limit.Available);
+                decoded = lzw.Decode(data, null, limit);
             else
             {
                 if (4L * data.Length > limit.Available)
@@ -375,7 +377,6 @@ namespace PdfSharp.Pdf.Filters
                 limit.Charge(decoded.Length);
                 return decoded;
             }
-            limit.Charge(decoded.Length);
             return parms != null ? StreamDecoder.Decode(decoded, parms) : decoded;
         }
 

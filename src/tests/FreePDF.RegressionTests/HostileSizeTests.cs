@@ -472,6 +472,46 @@ public class HostileSizeTests
         Assert.True(started.Elapsed < TimeSpan.FromSeconds(10), $"took {started.Elapsed}");
     }
 
+    // A file without a usable cross-reference table, so that it is rebuilt from its objects, with 16 object streams each
+    // inflating 32 MiB of zeros and then reaching an invalid Deflate block: a stream that failed charged nothing, and the
+    // rebuild went on to the next. What a stream inflates counts as it comes out now.
+    [Fact]
+    public void Inflation_before_damaged_data_counts_against_the_budget()
+    {
+        const int streams = 16;
+        // zlib header, Deflate blocks of 32 MiB of zeros that are not the last, then a block of the reserved type 3.
+        byte[] inner;
+        using (var raw = new MemoryStream())
+        {
+            raw.WriteByte(0x78);
+            raw.WriteByte(0xDA);
+            var deflate = new DeflateStream(raw, CompressionLevel.Optimal, true);
+            var zeros = new byte[1024 * 1024];
+            for (int index = 0; index < 32; index++)
+                deflate.Write(zeros, 0, zeros.Length);
+            deflate.Flush();
+            raw.WriteByte(0x07);
+            inner = raw.ToArray();
+        }
+        var data = Zlib(inner);
+        using var file = new MemoryStream();
+        void Write(byte[] bytes) => file.Write(bytes, 0, bytes.Length);
+        void Text(string text) => Write(TestPdf.Latin1.GetBytes(text));
+        Text("%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+             + "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n");
+        for (int index = 0; index < streams; index++)
+        {
+            Text($"{10 + index} 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter [/FlateDecode /FlateDecode] /Length {data.Length} >>\nstream\n");
+            Write(data);
+            Text("\nendstream\nendobj\n");
+        }
+        Text("trailer\n<< /Root 1 0 R /Size 4 >>\nstartxref\n999999999\n%%EOF\n");
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(file.ToArray()), PdfDocumentOpenMode.Import));
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(10), $"took {started.Elapsed}");
+    }
+
     // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)
     // before it looked at the data, also for metadata read on save. Rows are now no longer than the data, also when
     // /Colors × /Columns overflows.

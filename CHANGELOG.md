@@ -46,9 +46,10 @@
   file decode to at most 64 MiB each, and to at most 256 MiB or 64 times the
   file's size together; beyond that the file is refused with
   `PdfReaderException`. Flate and LZW stop at the limit as they decode, at
-  every filter of a chain, and every stage's output counts, also what a
-  predictor then drops: a few hundred bytes of Flate applied twice could
-  inflate to gigabytes before anything was checked.
+  every filter of a chain, and every stage's output counts as it comes out,
+  also what a predictor then drops and what came before damaged data ended
+  the stream: a few hundred bytes of Flate applied twice could inflate to
+  gigabytes before anything was checked.
 - The objects read from an object stream may together span no more bytes than
   the stream holds. Its header could point many objects at the same bytes, such
   as one long string, and each was read and kept on its own: 1 MiB read 4,096
