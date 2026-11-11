@@ -220,7 +220,11 @@ public class FormFlatteningTests
         var original = document.Internals.GetObject(new PdfObjectID(6)) as PdfDictionary;
         Assert.NotNull(original?.Elements["/Filter"]);
         Assert.Equal(content.Length, original!.Stream!.Value.Length);
-        Assert.Equal(3, document.Pages[0].Elements.GetArray("/Contents")!.Elements.Count);
+        var contents = document.Pages[0].Elements.GetArray("/Contents")!;
+        Assert.Equal(3, contents.Elements.Count);
+        // The streams are read as one: the Q after the page's content starts on its own line.
+        var last = (contents.Elements[2] as PdfSharp.Pdf.Advanced.PdfReference)!.Value as PdfDictionary;
+        Assert.StartsWith("\nQ\n", TestPdf.Latin1.GetString(last!.Stream!.UnfilteredValue));
     }
 
     // An appearance stream without /Subtype becomes a form XObject when it is drawn into the page: the check for a missing

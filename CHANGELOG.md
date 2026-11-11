@@ -80,8 +80,14 @@
 - Flattening adds its streams around the page's content without decoding it:
   a page whose content was Flate applied twice was inflated whole.
 - The object number at a position is read once, however many cross-reference
-  entries point there: a number padded with a megabyte of zeros was scanned
-  again for every entry.
+  entries point there, and what the entries' headers span together is limited
+  to twice the file: a number padded with a megabyte of zeros was scanned again
+  for every entry, also for entries pointing one byte further into the zeros
+  each.
+- Flattening refuses forms whose values would make more than 64 Mi characters
+  of new appearances (one long value with thousands of widgets), and leaves the
+  document as it was. Its closing `Q` starts on a new line, so it cannot join
+  the page's last token or comment.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
   needs to be drawn into the page. The check for a missing entry never matched.
 - Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the

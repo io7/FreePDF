@@ -116,10 +116,21 @@ namespace PdfSharp.Pdf.IO
             _lexer.Position = position;
             int objectNumber = ReadInteger();
             int generationNumber = ReadInteger();
+            ChargeHeaderScan(_lexer.Position - position);
             return _objectNumbersAt[position] = new(objectNumber, generationNumber);
         }
 
         Dictionary<SizeType, PdfObjectID>? _objectNumbersAt;
+
+        // The headers read for cross-reference entries may together span at most twice the file, and 1 MiB: entries that
+        // point at successive places in one long run of zeros would each scan the rest of it.
+        void ChargeHeaderScan(SizeType bytes)
+        {
+            _headerScanBytes += Math.Max(0, bytes);
+            if (_headerScanBytes > 2L * _lexer.PdfLength + (1L << 20))
+                throw LimitExceeded("The cross-reference entries point into one another's object headers.");
+        }
+        long _headerScanBytes;
         Dictionary<SizeType, (int, int)>? _checkedEntries;
 
         /// <summary>
@@ -2353,6 +2364,7 @@ namespace PdfSharp.Pdf.IO
                 if (symbol != Symbol.Obj)
                     ParserDiagnostics.ThrowParserException(Invariant($"Invalid entry in XRef table, ID={id} {generation} at position={position}")); // TODO_OLD L10N using PsMsgs
                 _checkedEntries[position] = (idChecked, generationChecked);
+                ChargeHeaderScan(_lexer.Position - position);
 
                 if (id != idChecked || generation != generationChecked)
                     return false;

@@ -32,6 +32,9 @@ namespace PdfSharp.Pdf.Forms
         /// to build appearances (NeedAppearances), otherwise those with a widget that has none. Nothing is changed if
         /// a value cannot be drawn, so the document is either flattened completely or left as it was.
         /// </summary>
+        // The text that flattening may write into new appearances in all.
+        const long MaxAppearanceText = 64L * 1024 * 1024;
+
         static void PrepareAppearances(PdfForm form)
         {
             var pending = new List<(PdfFormTextFieldBase Field, FieldContent Content)>();
@@ -39,6 +42,7 @@ namespace PdfSharp.Pdf.Forms
             const int namesShown = 10;
             var failures = new List<string>();
             int failed = 0;
+            long planned = 0;
             foreach (var field in form.Fields.GetAllFields())
             {
                 var content = field.CurrentContent();
@@ -49,6 +53,15 @@ namespace PdfSharp.Pdf.Forms
                 if (FieldAppearance.CanBuild(textField, content))
                 {
                     pending.Add((textField, content));
+                    // Each widget gets its own appearance with the whole value: one long value and thousands of widgets
+                    // would build gigabytes.
+                    planned += (long)content.AllText.Length * Math.Max(1, field.GetWidgets().Count());
+                    if (planned > MaxAppearanceText)
+                    {
+                        throw new InvalidOperationException(
+                            $"The form cannot be flattened, because its field values would make more than {MaxAppearanceText} characters " +
+                            "of appearances. The document was not changed.");
+                    }
                 }
                 else if (failed++ < namesShown)
                 {
@@ -104,7 +117,8 @@ namespace PdfSharp.Pdf.Forms
             if (drawing.Length == 0)
                 return;
             // Keep the page's own graphics state from leaking into the drawn fields. The page's content is not decoded.
-            page.WrapContent(PdfEncoders.RawEncoding.GetBytes("q\n"), PdfEncoders.RawEncoding.GetBytes("Q\n" + drawing));
+            // The streams are read as one: a newline first keeps the Q from joining the page's last token or comment.
+            page.WrapContent(PdfEncoders.RawEncoding.GetBytes("q\n"), PdfEncoders.RawEncoding.GetBytes("\nQ\n" + drawing));
         }
 
         /// <summary>

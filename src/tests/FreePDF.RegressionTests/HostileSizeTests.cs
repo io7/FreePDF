@@ -318,7 +318,7 @@ public class HostileSizeTests
     // with a different generation each, or a stream. In a classic table the repair kept each entry's generation, so the
     // entries stayed apart and each read and kept the string: 64 copies from a file that holds one. (A stream's entries
     // were already read once.)
-    static byte[] AliasedObjectsFile(bool xrefStream, int aliases = 64, int padding = 0, int length = 256 * 1024)
+    static byte[] AliasedObjectsFile(bool xrefStream, int aliases = 64, int padding = 0, int length = 256 * 1024, bool successive = false)
     {
         using var file = new MemoryStream();
         void Text(string text)
@@ -349,7 +349,7 @@ public class HostileSizeTests
                 Text($"{offsets[number]:D10} 00000 n \n");
             Text($"5 {aliases}\n");
             for (int index = 0; index < aliases; index++)
-                Text($"{offsets[4]:D10} {index + 1:D5} n \n");
+                Text($"{offsets[4] + (successive ? index : 0):D10} {index + 1:D5} n \n");
             Text($"trailer\n<< /Size {5 + aliases} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
             return file.ToArray();
         }
@@ -366,7 +366,7 @@ public class HostileSizeTests
         for (int number = 1; number <= 4; number++)
             Row(1, offsets[number], 0);
         for (int index = 0; index < aliases; index++)
-            Row(1, offsets[4], 0);
+            Row(1, offsets[4] + (successive ? index : 0), 0);
         Row(1, xref, 0);
         var rowBytes = rows.ToArray();
         int xrefNumber = 5 + aliases;
@@ -390,6 +390,20 @@ public class HostileSizeTests
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
 
         Assert.Single(document.Internals.GetAllObjects().OfType<PdfStringObject>());
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(5), $"took {started.Elapsed}");
+    }
+
+    // The same 2,048 entries, each pointing one byte further into the zeros: no two read the same place, and each scanned
+    // the rest of the megabyte. What the entries' headers span is now limited to twice the file.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Entries_that_point_into_one_run_of_zeros_are_refused(bool xrefStream)
+    {
+        var pdf = AliasedObjectsFile(xrefStream, aliases: 2048, padding: 1024 * 1024, length: 16, successive: true);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import));
         Assert.True(started.Elapsed < TimeSpan.FromSeconds(5), $"took {started.Elapsed}");
     }
 
@@ -497,6 +511,32 @@ public class HostileSizeTests
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Append);
         document.Info.Title = "Updated";
         document.Save(new MemoryStream());
+    }
+
+    // One text field with a 256 KiB value and 512 widgets without appearances: flattening built an appearance with the
+    // whole value for each widget, 128 MiB from a file of 256 KiB, and with more widgets gigabytes. It now refuses more
+    // than 64 Mi characters of appearances, and leaves the document as it was.
+    [Fact]
+    public void A_flatten_that_would_multiply_one_value_is_refused()
+    {
+        const int widgets = 512;
+        var kids = string.Join(" ", Enumerable.Range(5, widgets).Select(n => $"{n} 0 R"));
+        var objects = new List<string>
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv {5 + widgets} 0 R >> >> >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{kids}] >>",
+            $"<< /FT /Tx /T (name) /V ({new string('a', 256 * 1024)}) /Kids [{kids}] >>",
+        };
+        for (int index = 0; index < widgets; index++)
+            objects.Add("<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [10 10 100 30] /P 3 0 R >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        using var document = PdfReader.Open(new MemoryStream(TestPdf.Create(objects.ToArray())), PdfDocumentOpenMode.Modify);
+
+        var refused = Assert.Throws<InvalidOperationException>(() => document.Flatten());
+
+        Assert.Contains("characters of appearances", refused.Message);
+        Assert.NotNull(document.Catalog.Elements["/AcroForm"]);
     }
 
     // A form whose 200 text fields are kids of a field with a 20,000-character name, with values but no font to draw them:
