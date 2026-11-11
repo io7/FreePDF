@@ -154,6 +154,29 @@ namespace PdfSharp.Pdf.Filters
         }
 
         /// <summary>
+        /// The zlib data inflated, refusing to produce more than limit bytes (<see cref="IO.Parser.LimitExceeded"/>), then
+        /// the decode parameters (a predictor) applied.
+        /// </summary>
+        internal static byte[] InflateBounded(byte[] data, PdfDictionary? decodeParms, long limit)
+        {
+            if (data.Length < 2)
+                return [];
+            using var input = new MemoryStream(data, 2, data.Length - 2, false);
+            using var zip = new DeflateStream(input, CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            var buffer = new byte[81920];
+            int read;
+            while ((read = zip.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (output.Length + read > limit)
+                    throw IO.Parser.LimitExceeded($"Flate data inflates to more than {limit} bytes.");
+                output.Write(buffer, 0, read);
+            }
+            var result = output.ToArray();
+            return decodeParms != null ? StreamDecoder.Decode(result, decodeParms) : result;
+        }
+
+        /// <summary>
         /// Decodes the specified data.
         /// </summary>
         public override byte[] Decode(byte[] data, FilterParms? parms)

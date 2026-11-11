@@ -1134,15 +1134,17 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
-    public enum Unverifiable { PssCrl, PssOcsp, PssResponderCertificate }
+    public enum Unverifiable { PssCrl, PssOcsp, PssResponderCertificate, ResponderWithoutNoCheck }
 
     // A CRL or an OCSP response that revokes the signer but that FreePDF cannot verify (signed with RSASSA-PSS, or by a
-    // delegated responder whose certificate is), next to a good answer of the other kind: it was dropped as if it said
-    // nothing, and the good answer made the signature Valid.
+    // delegated responder whose certificate is, or that lacks id-pkix-ocsp-nocheck so that its own revocation would need
+    // checking), next to a good answer of the other kind: it was dropped as if it said nothing, and the good answer made
+    // the signature Valid.
     [Theory]
     [InlineData(Unverifiable.PssCrl)]
     [InlineData(Unverifiable.PssOcsp)]
     [InlineData(Unverifiable.PssResponderCertificate)]
+    [InlineData(Unverifiable.ResponderWithoutNoCheck)]
     public async Task A_revocation_FreePDF_cannot_verify_does_not_leave_the_signature_valid(Unverifiable kind)
     {
         using var pki = new TestPki();
@@ -1154,6 +1156,8 @@ public class SignatureVerifierTests
         pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
         if (kind == Unverifiable.PssResponderCertificate)
             pki.Responder = TestPki.OcspResponder.DelegatedPss;
+        else if (kind == Unverifiable.ResponderWithoutNoCheck)
+            pki.Responder = TestPki.OcspResponder.DelegatedWithoutNoCheck;
         else
             pki.Pss = true;
         var revoking = crl ? pki.Crl(pki.Intermediate) : pki.OcspResponseFor(pki.Signer, pki.Intermediate);

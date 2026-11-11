@@ -91,6 +91,42 @@ public class HostileSizeTests
         Assert.Contains("New title", Encoding.UTF8.GetString(metadata.Stream!.UnfilteredValue));
     }
 
+    // zlib of count zero bytes, written in pieces so that the zeros are never held at once.
+    static byte[] ZlibOfZeros(long count)
+    {
+        using var output = new MemoryStream();
+        output.WriteByte(0x78);
+        output.WriteByte(0xDA);
+        using (var deflate = new DeflateStream(output, CompressionLevel.Optimal, true))
+        {
+            var zeros = new byte[1024 * 1024];
+            for (long left = count; left > 0; left -= zeros.Length)
+                deflate.Write(zeros, 0, (int)Math.Min(zeros.Length, left));
+        }
+        output.Write(new byte[4], 0, 4);   // the Adler-32 checksum, which no reader here checks
+        return output.ToArray();
+    }
+
+    // A file whose cross-reference stream is Flate applied twice to 65 MiB of zeros, a few hundred bytes in all: the reader
+    // inflated it whole while opening, before it could check anything, so a few such bytes could take gigabytes. Each
+    // cross-reference or object stream now decodes to at most 64 MiB.
+    [Fact]
+    public void A_cross_reference_stream_that_inflates_too_far_is_refused()
+    {
+        var data = Zlib(ZlibOfZeros(65L * 1024 * 1024));
+        var head = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n";
+        int xref = head.Length;
+        var text = head + $"4 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Root 1 0 R /Filter [/FlateDecode /FlateDecode] /Length {data.Length} >>\nstream\n"
+                   + new string('@', data.Length) + $"\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n";
+        var pdf = TestPdf.Latin1.GetBytes(text);
+        Array.Copy(data, 0, pdf, text.IndexOf("stream\n@", StringComparison.Ordinal) + "stream\n".Length, data.Length);
+
+        var refused = Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import));
+
+        Assert.Contains("64", refused.Message + refused.InnerException?.Message);
+    }
+
     // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)
     // before it looked at the data, also for metadata read on save. Rows are now no longer than the data, also when
     // /Colors × /Columns overflows.

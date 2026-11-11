@@ -42,6 +42,12 @@
   change the data (predictors, LZW's /EarlyChange) are not read. A few kilobytes of Flate could inflate to
   gigabytes when a file was saved or opened in Append mode. Metadata that is not
   read stays in the file as it is.
+- The cross-reference and object streams the reader decodes while it opens a
+  file decode to at most 64 MiB each, and to at most 256 MiB or 64 times the
+  file's size together; beyond that the file is refused with
+  `PdfReaderException`. Flate and LZW stop at the limit as they decode, at
+  every filter of a chain: a few hundred bytes of Flate applied twice could
+  inflate to gigabytes before anything was checked.
 - The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
   rows from the data: a few bytes whose /Columns claimed rows of 256 MiB
   allocated two such rows before reading anything. An incomplete last row is
@@ -120,7 +126,9 @@
   - An OCSP response or CRL that FreePDF cannot parse, or that says a
     certificate was revoked before the signature but cannot be used (signed
     with an algorithm FreePDF does not verify, such as RSASSA-PSS, or by a
-    delegated OCSP responder whose certificate is; a delta CRL; a CRL scope,
+    delegated OCSP responder whose certificate is, or whose certificate lacks
+    id-pkix-ocsp-nocheck, so that its own revocation would need checking; a
+    delta CRL; a CRL scope,
     partition or critical extension FreePDF does not read or cannot match to
     the certificate), keeps that certificate from being shown as not revoked,
     also when an online check finds a good answer. It was dropped as if it said

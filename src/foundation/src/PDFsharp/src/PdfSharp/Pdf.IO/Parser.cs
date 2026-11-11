@@ -881,6 +881,32 @@ namespace PdfSharp.Pdf.IO
         // Set on the document's parser while it reads an indirect /Length.
         bool _readingStreamLength;
 
+        // Cross-reference and object streams are decoded while a file is opened, before anything else can be checked: each
+        // to at most MaxStructuralStream bytes, and all of a file's together to at most StructuralBudget, so that a few
+        // kilobytes of Flate (or several Flate filters in a row) cannot inflate to gigabytes.
+        internal const long MaxStructuralStream = 64L * 1024 * 1024;
+        long StructuralBudget => Math.Max(256L * 1024 * 1024, 64L * Math.Max(0L, _document.FileSize));
+        long _structuralDecoded;   // on the document's parser
+
+        /// <summary>
+        /// The decoded data of a cross-reference or object stream, within <see cref="MaxStructuralStream"/> and what is left
+        /// of the file's budget; beyond them <see cref="LimitExceeded"/> is thrown.
+        /// </summary>
+        internal byte[] StructuralData(PdfDictionary stream)
+        {
+            var raw = stream.Stream?.Value ?? [];
+            var filter = stream.Elements.GetValue("/Filter");
+            if (filter == null)
+                return raw;
+            var owner = _documentParser;
+            long left = owner.StructuralBudget - owner._structuralDecoded;
+            if (left <= 0)
+                throw LimitExceeded($"The file's cross-reference and object streams decode to more than {owner.StructuralBudget} bytes.");
+            var data = Filters.Filtering.Decode(raw, filter, stream.Elements.GetValue("/DecodeParms"), Math.Min(MaxStructuralStream, left));
+            owner._structuralDecoded += data.Length;
+            return data;
+        }
+
         void Nest()
         {
             if (++_nesting > MaxNesting)
@@ -1250,7 +1276,7 @@ namespace PdfSharp.Pdf.IO
                     }
 
                     // Create the parser for the object stream.
-                    var objectStreamParser = new Parser(_document, new MemoryStream(objectStream.Stream!.UnfilteredValue), _documentParser);
+                    var objectStreamParser = new Parser(_document, new MemoryStream(StructuralData(objectStream)), _documentParser);
 
                     // Select individual members using the current cross-reference
                     // revision, rather than collecting stale copies in the stream.
@@ -1324,7 +1350,7 @@ namespace PdfSharp.Pdf.IO
                             continue;
                         }
 
-                        var objectStreamParser = new Parser(_document, new MemoryStream(objectStream.Stream.UnfilteredValue), _documentParser);
+                        var objectStreamParser = new Parser(_document, new MemoryStream(StructuralData(objectStream)), _documentParser);
                         _objectStreamsWithParsers.Add(objectStreamID, (objectStream, objectStreamParser));
 
                         // Read and add all References to objects residing in the object stream.
@@ -1992,7 +2018,7 @@ namespace PdfSharp.Pdf.IO
                 if (ReadIndirectObject(reference, null, true) is not PdfDictionary objectStream || objectStream.Stream == null)
                     return;
                 int count = objectStream.Elements.GetInteger("/N");
-                var lexer = new Lexer(new MemoryStream(objectStream.Stream.UnfilteredValue), _logger);
+                var lexer = new Lexer(new MemoryStream(StructuralData(objectStream)), _logger);
                 for (int index = 0; index < count; index++)
                 {
                     if (lexer.ScanNextToken(false) != Symbol.Integer)
@@ -2363,7 +2389,7 @@ namespace PdfSharp.Pdf.IO
             byte[] bytes;
             try
             {
-                bytes = xrefStream.Stream.UnfilteredValue;
+                bytes = StructuralData(xrefStream);
             }
             catch (Exception ex) when (ex is not PdfReaderException)
             {

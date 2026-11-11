@@ -280,7 +280,8 @@ public sealed class TestPki : IDisposable
         // only carries the CA's name.
         var responder = Responder == OcspResponder.Issuer
             ? issuer
-            : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated, Responder == OcspResponder.DelegatedPss);
+            : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated, Responder == OcspResponder.DelegatedPss,
+                noCheck: Responder != OcspResponder.DelegatedWithoutNoCheck);
 
         var data = new AsnWriter(AsnEncodingRules.DER);
         using (data.PushSequence())                                                          // ResponseData
@@ -363,9 +364,10 @@ public sealed class TestPki : IDisposable
 
     // A responder certificate with id-kp-OCSPSigning and id-pkix-ocsp-nocheck. The forgery is signed by a key of its
     // own under a CA certificate that only copies the real CA's name.
-    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged, bool pss = false)
+    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged, bool pss = false, bool noCheck = true)
     {
-        if (_responders.TryGetValue((issuer.Thumbprint + (pss ? "/pss" : ""), forged), out var cached))
+        var cacheKey = issuer.Thumbprint + (pss ? "/pss" : "") + (noCheck ? "" : "/check");
+        if (_responders.TryGetValue((cacheKey, forged), out var cached))
             return cached;
         var signingCa = issuer;
         if (forged)
@@ -379,12 +381,13 @@ public sealed class TestPki : IDisposable
         var request = new CertificateRequest("CN=FreePDF test OCSP responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
-        request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
+        if (noCheck)
+            request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
         using var issued = request.Create(signingCa.SubjectName,
             X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1),
             CaFrom, CaUntil, Serial());
         var responder = issued.CopyWithPrivateKey(key);
-        _responders[(issuer.Thumbprint + (pss ? "/pss" : ""), forged)] = responder;
+        _responders[(cacheKey, forged)] = responder;
         return responder;
     }
 
@@ -399,6 +402,8 @@ public sealed class TestPki : IDisposable
         Delegated,
         /// <summary>A responder certificate that the CA issued, signed with RSASSA-PSS.</summary>
         DelegatedPss,
+        /// <summary>A responder certificate that the CA issued, without id-pkix-ocsp-nocheck.</summary>
+        DelegatedWithoutNoCheck,
         /// <summary>A responder certificate with the CA's name as issuer, signed by another key.</summary>
         ForgedDelegated,
     }

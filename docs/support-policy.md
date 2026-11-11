@@ -244,10 +244,12 @@ field names in results are cut at 1,000 characters; in a signed file with a
 form field name over 4,096 characters, updates after a signature are not
 compared, so that signature is not reported Valid, and FreePDF does not save
 such a file in Append mode; and bookmarks more than 200 levels deep are left out when
-pages are merged or extracted. Streams the
-reader inflates while opening a file (cross-reference and object streams) have
-no size limit yet, so a small file can still make opening it use a lot of
-memory. It
+pages are merged or extracted. Since 7.10.1 the
+cross-reference and object streams the reader decodes while opening a file
+decode to at most 64 MiB each, and to at most 256 MiB or 64 times the file's
+size together; a file beyond that throws `PdfReaderException`. Other streams
+(page content, images, fonts) are decoded only when they are used, without
+such a limit. It
 is a technical check: EU trusted lists,
 qualified status, signature policies and ETSI validation reports are not
 covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are

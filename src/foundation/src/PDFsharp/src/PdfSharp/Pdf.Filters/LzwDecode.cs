@@ -21,7 +21,12 @@ namespace PdfSharp.Pdf.Filters
         /// <summary>
         /// Decodes the specified data.
         /// </summary>
-        public override byte[] Decode(byte[] data, FilterParms? parms)
+        public override byte[] Decode(byte[] data, FilterParms? parms) => Decode(data, parms, Int64.MaxValue);
+
+        /// <summary>
+        /// Decodes the data, refusing to produce more than limit bytes (<see cref="IO.Parser.LimitExceeded"/>).
+        /// </summary>
+        internal byte[] Decode(byte[] data, FilterParms? parms, long limit)
         {
             if (data[0] == 0x00 && data[1] == 0x01)
                 throw new Exception("LZW flavor not supported.");
@@ -49,6 +54,8 @@ namespace PdfSharp.Pdf.Filters
                     }
                     outputStream.Write(_stringTable[code], 0, _stringTable[code].Length);
                     oldCode = code;
+                    if (outputStream.Length > limit)
+                        throw IO.Parser.LimitExceeded($"LZW data decodes to more than {limit} bytes.");
 
                 }
                 else
@@ -59,6 +66,8 @@ namespace PdfSharp.Pdf.Filters
                         outputStream.Write(str, 0, str.Length);
                         AddEntry(_stringTable[oldCode], str[0]);
                         oldCode = code;
+                        if (outputStream.Length > limit)
+                            throw IO.Parser.LimitExceeded($"LZW data decodes to more than {limit} bytes.");
                     }
                     else
                     {
@@ -69,6 +78,8 @@ namespace PdfSharp.Pdf.Filters
                         str = _stringTable[_tableIndex - 1];
                         outputStream.Write(str, 0, str.Length);
                         oldCode = code;
+                        if (outputStream.Length > limit)
+                            throw IO.Parser.LimitExceeded($"LZW data decodes to more than {limit} bytes.");
                     }
                 }
             }

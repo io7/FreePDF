@@ -264,7 +264,13 @@ namespace PdfSharp.Pdf.Filters
         /// <summary>
         /// Decodes the data with the specified filter.
         /// </summary>
-        public static byte[] Decode(byte[] data, PdfItem filterItem, PdfItem? decodeParms)
+        public static byte[] Decode(byte[] data, PdfItem filterItem, PdfItem? decodeParms) => Decode(data, filterItem, decodeParms, null);
+
+        /// <summary>
+        /// Decodes the data, refusing (<see cref="IO.Parser.LimitExceeded"/>) to produce more than limit bytes at any filter:
+        /// for data the reader must decode while it opens a file, where Flate filters in a row multiply their ratios.
+        /// </summary>
+        internal static byte[] Decode(byte[] data, PdfItem filterItem, PdfItem? decodeParms, long? limit)
         {
             byte[]? result = null;
 
@@ -297,7 +303,11 @@ namespace PdfSharp.Pdf.Filters
                     return data;
                 var filter = GetFilter(filterName.Value);
                 if (filter != null!)
-                    result = filter.Decode(data, new FilterParms(parmsValue as PdfDictionary));
+                {
+                    result = limit is { } max
+                        ? DecodeBounded(filter, data, parmsValue as PdfDictionary, max)
+                        : filter.Decode(data, new FilterParms(parmsValue as PdfDictionary));
+                }
             }
             else if (filterValue is PdfArray itemArray
                      && (parmsValue is null or PdfArray || (parmsValue is PdfDictionary lone && (itemArray.Elements.Count == 1 || IsCryptFilterParms(lone)))))
@@ -323,11 +333,24 @@ namespace PdfSharp.Pdf.Filters
                         parms = parmsValue;
                     else
                         parms = null;
-                    data = Decode(data, item, parms);
+                    data = Decode(data, item, parms, limit);
                 }
                 result = data;
             }
             return result ?? NRT.ThrowOnNull<byte[]>();
+        }
+
+        // Flate and LZW stop at the limit; the other filters give at most four bytes for each one read (ASCII85's 'z'),
+        // so they run only when that cannot pass it.
+        static byte[] DecodeBounded(Filter filter, byte[] data, PdfDictionary? parms, long limit)
+        {
+            if (filter is FlateDecode)
+                return FlateDecode.InflateBounded(data, parms, limit);
+            if (filter is LzwDecode lzw)
+                return lzw.Decode(data, new FilterParms(parms), limit);
+            if (4L * data.Length > limit)
+                throw IO.Parser.LimitExceeded($"Filtered data may decode to more than {limit} bytes.");
+            return filter.Decode(data, new FilterParms(parms));
         }
 
         static bool IsCryptFilterParms(PdfDictionary parameters)
