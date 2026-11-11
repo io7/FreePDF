@@ -1172,6 +1172,30 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A revocation from a delegated responder whose certificate is not in the response (RFC 6960 makes that list
+    // optional) but in the DSS: only the response's own certificates were searched, the revocation was dropped, and a
+    // good CRL made the signature Valid.
+    [Fact]
+    public async Task A_responder_certificate_in_the_DSS_is_found()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.Crl(pki.Intermediate);
+        pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+        pki.Responder = TestPki.OcspResponder.Delegated;
+        pki.OmitResponderCertificate = true;
+        var revoking = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(
+            WithDss(pki, signed, [authority, revoking], [rootCrl, good], pki.DelegatedResponderFor(pki.Intermediate)),
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A revocation from a delegated responder whose response lists, first, another certificate with the same name and
     // authorization but another key (as after a key rollover): the first certificate with the name was taken as the
     // responder, its key did not verify the response, the revocation was dropped, and a good CRL made the signature Valid.
@@ -1276,9 +1300,11 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
-    // The signed file with a DSS: the intermediate and root certificates, and the given OCSP responses and CRLs.
-    static byte[] WithDss(TestPki pki, byte[] signed, byte[][] ocspResponses, byte[][] crls)
-        => Update(signed, document => PdfDocumentSecurityStore.Add(document, [pki.Intermediate.RawData, pki.Root.RawData],
+    // The signed file with a DSS: the intermediate and root certificates and any others, and the given OCSP responses and
+    // CRLs.
+    static byte[] WithDss(TestPki pki, byte[] signed, byte[][] ocspResponses, byte[][] crls, params X509Certificate2[] others)
+        => Update(signed, document => PdfDocumentSecurityStore.Add(document,
+            [pki.Intermediate.RawData, pki.Root.RawData, .. others.Select(certificate => certificate.RawData)],
             ocspResponses: ocspResponses, crls: crls));
 
     // A CRL entry in the DSS that FreePDF does not read: Flate with /DecodeParms [null].

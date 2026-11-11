@@ -52,6 +52,10 @@
   the stream holds. Its header could point many objects at the same bytes, such
   as one long string, and each was read and kept on its own: 1 MiB read 4,096
   times is 4 GiB of text.
+- A classic cross-reference entry that is repaired (it names another object
+  than the one at its position) takes the generation found there as well as the
+  number. Thousands of entries pointing at one long string, each with another
+  generation, stayed apart and each read and kept the string.
 - The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
   rows from the data: a few bytes whose /Columns claimed rows of 256 MiB
   allocated two such rows before reading anything. An incomplete last row is
@@ -140,8 +144,11 @@
     revocation dated after the signature leaves it as it was.
   - An OCSP response that lists several responder certificates with the same
     name (as after a key rollover) is checked against each until one verifies
-    it. Only the first was tried, so a revocation signed with the other key was
-    dropped and a good CRL made the signature Valid.
+    it, and a delegated responder's certificate is also looked for among the
+    DSS's certificates (RFC 6960 lets a response leave it out). Only the first
+    certificate in the response was tried, so a revocation signed with another
+    key, or by a responder whose certificate was only in the DSS, was dropped
+    and a good CRL made the signature Valid.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

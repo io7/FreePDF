@@ -85,6 +85,7 @@ namespace PdfSharp.Pdf.IO
             ClearToken();
 
             char ch = MoveToNonWhiteSpace();
+            TokenStart = _charIndex;
             switch (ch)
             {
                 case '%':
@@ -1561,6 +1562,9 @@ namespace PdfSharp.Pdf.IO
         /// Gets the length of the PDF output.  
         /// </summary>
         public SizeType PdfLength => _pdfLength;
+
+        /// <summary>Where the token last scanned by ScanNextToken begins.</summary>
+        internal SizeType TokenStart { get; private set; }
         readonly SizeType _pdfLength;
 
         SizeType _charIndex;

@@ -1141,11 +1141,13 @@ namespace PdfSharp.Pdf.IO
             if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                 return null!;
             // The objects of a stream count the bytes they span against what it holds (with a little room for each, as the
-            // lexer reads one character ahead): a header may point many objects at the same bytes, such as one long
-            // string, and they would build far more than the stream holds.
+            // lexer reads a character or two ahead): a header may point many objects at the same bytes, such as one long
+            // string, and they would build far more than the stream holds. An array or dictionary ends where the token
+            // read after it begins: the parser reads that whole token, to see whether a stream follows.
             if ((objectStreamParser._spannedObjects ??= new()).Add(objectID))
             {
-                objectStreamParser._spannedBytes += Math.Max(0, objectStreamParser._lexer.Position - offset);
+                var end = pdfObject is PdfDictionary or PdfArray ? objectStreamParser._lexer.TokenStart : objectStreamParser._lexer.Position;
+                objectStreamParser._spannedBytes += Math.Max(0, end - offset);
                 if (objectStreamParser._spannedBytes > objectStreamParser._lexer.PdfLength + 16L * objectStreamParser._spannedObjects.Count)
                     throw LimitExceeded("The objects of an object stream overlap: together they span more bytes than the stream holds.");
             }
@@ -2214,6 +2216,7 @@ namespace PdfSharp.Pdf.IO
                                 continue;
 
                             int idToUse = id;
+                            int generationToUse = generation;
 #if true
                             // The following issue in PDF files is rare, but must be fixed here to prevent PdfReference with wrong IDs.
                             // We found PDF files where the ID of the referenced object was misaligned by one relative to
@@ -2225,6 +2228,8 @@ namespace PdfSharp.Pdf.IO
                                 // Found the keyword "obj", but ID or generation did not match.
                                 // There is a producer app where ID is off by one.
                                 // In this case we use the ID from the object, not the ID from the XRef table.
+                                // The generation found there too: entries that differ only in generation and point at the same
+                                // object then collapse into one, rather than each reading and keeping that object again.
                                 if (generation == generationChecked && id == idChecked + 1)
                                 {
                                     idToUse = idChecked;
@@ -2233,6 +2238,7 @@ namespace PdfSharp.Pdf.IO
                                 {
                                     // File is corrupt, but try to recover it by using the ID we found at the location.
                                     idToUse = idChecked;
+                                    generationToUse = generationChecked;
                                     //ParserDiagnostics.ThrowParserException("Invalid entry in XRef table, ID=" + id + ", Generation=" + generation + ", Position=" + position + ", ID of referenced object=" + idChecked + ", Generation of referenced object=" + generationChecked);  // TODO_OLD L10N using PsMsgs
                                 }
                                 var message = id == idChecked ?
@@ -2243,7 +2249,7 @@ namespace PdfSharp.Pdf.IO
 #endif
                             // Even if it is restricted, an object can exist in more than one subsection.
                             // (PDF Reference Implementation Notes 15).
-                            var objectID = new PdfObjectID(idToUse, generation);
+                            var objectID = new PdfObjectID(idToUse, generationToUse);
                             // Ignore the latter one.
                             if (xrefTable.Contains(objectID))
                                 continue;

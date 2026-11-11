@@ -127,22 +127,35 @@ public class HostileSizeTests
         Assert.Contains("64", refused.Message + refused.InnerException?.Message);
     }
 
+    public enum Layout { Separate, Shared, DictionaryThenString }
+
     // A file whose objects 5 to 68 are in one object stream. Shared: its header points all 64 at one 1 MiB string (a few
     // kilobytes of Flate), so reading them built 64 MiB of strings from a stream that holds 1 MiB; with more objects and a
-    // longer string, gigabytes. Otherwise each object has its own short string, as in any file.
-    static byte[] ObjectStreamFile(bool shared)
+    // longer string, gigabytes. Separate: each object has its own short string, as in any file. DictionaryThenString:
+    // dictionaries and 256-byte strings in turn, as in any file.
+    static byte[] ObjectStreamFile(Layout layout)
     {
         const int count = 64;
         string header, objects;
-        if (shared)
+        if (layout == Layout.Shared)
         {
             header = string.Join(" ", Enumerable.Range(5, count).Select(number => $"{number} 0")) + " ";
             objects = "(" + new string('a', 1024 * 1024) + ")";
         }
         else
         {
-            header = string.Join(" ", Enumerable.Range(0, count).Select(index => $"{index + 5} {index * 4}")) + " ";
-            objects = string.Concat(Enumerable.Repeat("(a) ", count));
+            var bodies = Enumerable.Range(0, count)
+                .Select(index => layout == Layout.Separate || index % 2 == 1 ? "(" + new string('a', layout == Layout.Separate ? 1 : 256) + ")" : "<< /A 1 >>")
+                .ToList();
+            var starts = new List<int>();
+            int at = 0;
+            foreach (var body in bodies)
+            {
+                starts.Add(at);
+                at += body.Length + 1;
+            }
+            header = string.Join(" ", starts.Select((offset, index) => $"{index + 5} {offset}")) + " ";
+            objects = string.Join(" ", bodies) + " ";
         }
         var stream = Zlib(Encoding.ASCII.GetBytes(header + objects));
         int xrefNumber = 5 + count;
@@ -196,10 +209,92 @@ public class HostileSizeTests
     [Fact]
     public void Objects_that_share_their_bytes_in_an_object_stream_are_refused()
     {
-        using (var ordinary = PdfReader.Open(new MemoryStream(ObjectStreamFile(shared: false)), PdfDocumentOpenMode.Import))
+        using (var ordinary = PdfReader.Open(new MemoryStream(ObjectStreamFile(Layout.Separate)), PdfDocumentOpenMode.Import))
             Assert.Equal("a", (ordinary.Internals.GetObject(new PdfObjectID(68)) as PdfStringObject)?.Value);
 
-        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(ObjectStreamFile(shared: true)), PdfDocumentOpenMode.Import));
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(ObjectStreamFile(Layout.Shared)), PdfDocumentOpenMode.Import));
+    }
+
+    // Dictionaries followed by long strings: after a dictionary the parser reads the next token whole (to see whether a
+    // stream follows), and that token was counted as part of the dictionary, so an ordinary object stream was refused.
+    [Fact]
+    public void A_dictionary_before_a_long_string_in_an_object_stream_opens()
+    {
+        using var document = PdfReader.Open(new MemoryStream(ObjectStreamFile(Layout.DictionaryThenString)), PdfDocumentOpenMode.Import);
+
+        Assert.Equal(new string('a', 256), (document.Internals.GetObject(new PdfObjectID(68)) as PdfStringObject)?.Value);
+    }
+
+    // A file whose objects 5 to 68 are all the 256 KiB string of object 4, by their cross-reference entries: classic,
+    // with a different generation each, or a stream. In a classic table the repair kept each entry's generation, so the
+    // entries stayed apart and each read and kept the string: 64 copies from a file that holds one. (A stream's entries
+    // were already read once.)
+    static byte[] AliasedObjectsFile(bool xrefStream)
+    {
+        const int aliases = 64;
+        using var file = new MemoryStream();
+        void Text(string text)
+        {
+            var bytes = TestPdf.Latin1.GetBytes(text);
+            file.Write(bytes, 0, bytes.Length);
+        }
+        var bodies = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "(" + new string('a', 256 * 1024) + ")",
+        };
+        var offsets = new long[5];
+        Text("%PDF-1.7\n");
+        for (int number = 1; number <= 4; number++)
+        {
+            offsets[number] = file.Position;
+            Text($"{number} 0 obj\n{bodies[number - 1]}\nendobj\n");
+        }
+        long xref = file.Position;
+        if (!xrefStream)
+        {
+            Text($"xref\n0 5\n0000000000 65535 f \n");
+            for (int number = 1; number <= 4; number++)
+                Text($"{offsets[number]:D10} 00000 n \n");
+            Text($"5 {aliases}\n");
+            for (int index = 0; index < aliases; index++)
+                Text($"{offsets[4]:D10} {index + 1:D5} n \n");
+            Text($"trailer\n<< /Size {5 + aliases} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+            return file.ToArray();
+        }
+        var rows = new MemoryStream();
+        void Row(int type, long second, int third)
+        {
+            rows.WriteByte((byte)type);
+            for (int shift = 24; shift >= 0; shift -= 8)
+                rows.WriteByte((byte)(second >> shift));
+            rows.WriteByte((byte)(third >> 8));
+            rows.WriteByte((byte)third);
+        }
+        Row(0, 0, 65535);
+        for (int number = 1; number <= 4; number++)
+            Row(1, offsets[number], 0);
+        for (int index = 0; index < aliases; index++)
+            Row(1, offsets[4], 0);
+        Row(1, xref, 0);
+        var rowBytes = rows.ToArray();
+        int xrefNumber = 5 + aliases;
+        Text($"{xrefNumber} 0 obj\n<< /Type /XRef /Size {xrefNumber + 1} /W [1 4 2] /Root 1 0 R /Length {rowBytes.Length} >>\nstream\n");
+        file.Write(rowBytes, 0, rowBytes.Length);
+        Text($"\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n");
+        return file.ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Entries_that_point_at_one_object_read_it_once(bool xrefStream)
+    {
+        using var document = PdfReader.Open(new MemoryStream(AliasedObjectsFile(xrefStream)), PdfDocumentOpenMode.Import);
+
+        Assert.Single(document.Internals.GetAllObjects().OfType<PdfStringObject>());
     }
 
     // A tiny Flate stream whose PNG predictor claims rows of 268,435,455 bytes: the decoder allocated two rows (512 MiB)

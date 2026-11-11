@@ -63,6 +63,12 @@ public sealed class TestPki : IDisposable
     /// </summary>
     public X509Certificate2? DecoyResponder { get; set; }
 
+    /// <summary>Leaves the responder certificate out of OCSP responses (RFC 6960 makes the list optional).</summary>
+    public bool OmitResponderCertificate { get; set; }
+
+    /// <summary>The delegated responder certificate the issuer's responses are signed with.</summary>
+    public X509Certificate2 DelegatedResponderFor(X509Certificate2 issuer) => ResponderFor(issuer, false);
+
     /// <summary>A new delegated responder certificate for the issuer, with the usual name and a new key.</summary>
     public X509Certificate2 CreateDelegatedResponder(X509Certificate2 issuer)
     {
@@ -354,7 +360,7 @@ public sealed class TestPki : IDisposable
                 }
             }
             basic.WriteBitString(signature);
-            if (!ReferenceEquals(responder, issuer))
+            if (!ReferenceEquals(responder, issuer) && !OmitResponderCertificate)
             {
                 using (basic.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))   // certs
                 using (basic.PushSequence())

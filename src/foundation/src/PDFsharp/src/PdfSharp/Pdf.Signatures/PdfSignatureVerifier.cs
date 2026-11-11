@@ -926,7 +926,7 @@ namespace PdfSharp.Pdf.Signatures
             var status = PdfRevocationStatus.Good;
             for (int index = 0; index + 1 < chain.Count; index++)
             {
-                var found = Revocation(chain[index], chain[index + 1], dss.OcspResponses, dss.Crls, bestTime, proven, validationTime, authority);
+                var found = Revocation(chain[index], chain[index + 1], dss.OcspResponses, dss.Crls, dss.Certificates, bestTime, proven, validationTime, authority);
                 if (found.Status == PdfRevocationStatus.Revoked)
                     return PdfRevocationStatus.Revoked;
                 if (found.Status == PdfRevocationStatus.Unknown || dss.Incomplete)
@@ -947,7 +947,8 @@ namespace PdfSharp.Pdf.Signatures
                 var issuer = chain[index + 1];
                 var ocsps = new List<byte[]>(context.Dss.OcspResponses);
                 var crls = new List<byte[]>(context.Dss.Crls);
-                var found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority, out var dssUnusable);
+                var found = Revocation(certificate, issuer, ocsps, crls, context.Dss.Certificates, bestTime, proven, context.ValidationTime, authority,
+                    out var dssUnusable);
                 // Data the DSS holds beyond what is read could revoke the certificate: not revoked is not shown.
                 if (found.Status == PdfRevocationStatus.Good && context.Dss.Incomplete)
                     found = (PdfRevocationStatus.Unknown, "The DSS holds OCSP responses or CRLs that are not read (beyond the 64 MiB read in all, " +
@@ -967,7 +968,7 @@ namespace PdfSharp.Pdf.Signatures
                         fetchedOcsps.AddRange(ocsps);
                         fetchedCrls.AddRange(crls);
                     }
-                    found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, bestTime, proven, context.ValidationTime, authority);
+                    found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, context.Dss.Certificates, bestTime, proven, context.ValidationTime, authority);
                     // What the DSS holds that could revoke the certificate but cannot be used still counts when the DSS's own
                     // data is left out above: a fetched answer must not lift it.
                     if (found.Status == PdfRevocationStatus.Good && dssUnusable != null)
@@ -995,17 +996,19 @@ namespace PdfSharp.Pdf.Signatures
         // was issued at or after that time, or, for a time that no time-stamp proves (the validation time), when its
         // validity window covers the validation time. For a time-stamp authority's chain, a revocation for compromise or
         // for no stated reason counts whenever it happened: a compromised key can date tokens as it likes.
+        // known: certificates from the DSS, among which a delegated OCSP responder's may be when its response leaves it out.
         static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
-            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority)
-            => Revocation(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out _);
+            List<byte[]> ocspResponses, List<byte[]> crls, List<X509Certificate2> known, DateTimeOffset bestTime, bool proven,
+            DateTimeOffset validationTime, bool authority)
+            => Revocation(certificate, issuer, ocspResponses, crls, known, bestTime, proven, validationTime, authority, out _);
 
         // unusable: an OCSP response or CRL that FreePDF cannot use but that could revoke the certificate. It leaves only a
         // revocation shown: not revoked becomes Unknown.
         static (PdfRevocationStatus Status, string? Problem) Revocation(X509Certificate2 certificate, X509Certificate2 issuer,
-            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority,
-            out string? unusable)
+            List<byte[]> ocspResponses, List<byte[]> crls, List<X509Certificate2> known, DateTimeOffset bestTime, bool proven,
+            DateTimeOffset validationTime, bool authority, out string? unusable)
         {
-            var found = Answers(certificate, issuer, ocspResponses, crls, bestTime, proven, validationTime, authority, out unusable);
+            var found = Answers(certificate, issuer, ocspResponses, crls, known, bestTime, proven, validationTime, authority, out unusable);
             if (found.Status == PdfRevocationStatus.Good && unusable != null)
                 return Unusable(certificate, unusable);
             return found;
@@ -1015,8 +1018,8 @@ namespace PdfSharp.Pdf.Signatures
             => (PdfRevocationStatus.Unknown, $"The validation data holds {unusable} that FreePDF cannot use and that could revoke '{certificate.Subject}'.");
 
         static (PdfRevocationStatus Status, string? Problem) Answers(X509Certificate2 certificate, X509Certificate2 issuer,
-            List<byte[]> ocspResponses, List<byte[]> crls, DateTimeOffset bestTime, bool proven, DateTimeOffset validationTime, bool authority,
-            out string? unusable)
+            List<byte[]> ocspResponses, List<byte[]> crls, List<X509Certificate2> known, DateTimeOffset bestTime, bool proven,
+            DateTimeOffset validationTime, bool authority, out string? unusable)
         {
             unusable = null;
             // A revocation that cannot be checked counts as Revocation weighs a checked one: at or before the best signature
@@ -1029,7 +1032,7 @@ namespace PdfSharp.Pdf.Signatures
                 DateTimeOffset? ExpiredCutoff)>();
             foreach (var response in ocspResponses)
             {
-                if (Ocsp.Check(response, certificate, issuer, out var claimed) is { } answer)
+                if (Ocsp.Check(response, certificate, issuer, known, out var claimed) is { } answer)
                     answers.Add((answer.RevocationTime, answer.Reason, answer.ThisUpdate, answer.NextUpdate, "OCSP", answer.ArchiveCutoff));
                 else if (claimed is { } claim && CouldRevoke(claim))
                     unusable ??= "an OCSP response";
@@ -1681,7 +1684,7 @@ namespace PdfSharp.Pdf.Signatures
             // responder's certificate is signed in an algorithm FreePDF does not verify (RSASSA-PSS).
             internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate,
                 DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer,
-                out (DateTimeOffset? Time, int? Reason)? claimed)
+                List<X509Certificate2> known, out (DateTimeOffset? Time, int? Reason)? claimed)
             {
                 claimed = null;
                 try
@@ -1758,6 +1761,9 @@ namespace PdfSharp.Pdf.Signatures
                     // tried until one verifies the signature.
                     X509Certificate2? responder = null;
                     bool signedWithoutNoCheck = false;
+                    // The response's own certificates first, then those the DSS holds (RFC 6960 makes the response's list
+                    // optional).
+                    certificates.AddRange(known);
                     foreach (var (candidate, noCheck) in Responders(responderId, issuer, certificates, producedAt))
                     {
                         if (!VerifySignature(candidate, algorithm, tbsData, signature))
