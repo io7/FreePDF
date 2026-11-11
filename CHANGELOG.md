@@ -13,6 +13,18 @@
   with until it or an item below it changes, so signature checks still see a
   later update that changed only a /Count, and an Append-mode save writes no
   outline item that did not change. Counts are computed in one pass.
+- A file whose outline is nested thousands of levels deep no longer overflows
+  the stack when it is opened in Append mode (as `PdfSignatureVerifier` does),
+  saved or merged: reading an outline item recursed once per level, and a stack
+  overflow ends the process. Items more than 200 levels deep are not read; they
+  stay in the file as they are.
+- `PdfSignatureVerifier` reads at most `MaxRevisions` (64 by default) earlier
+  revisions, one at a time, and keeps only those that hold a removed
+  signature. Each revision read is a copy of the file up to its end, so a small
+  file with thousands of incremental updates cost gigabytes and kept them until
+  the check ended. Beyond the limit, later changes are not checked (a reason
+  says so, and a signature that does not cover the whole file is at best
+  Indeterminate) and removed signatures are not found.
 
 ## 7.10.0
 

@@ -143,11 +143,12 @@ public class OutlineCountTests
     [Fact]
     public void A_deep_open_chain_is_counted_at_every_level()
     {
-        // One pass from the bottom up: a long chain of open items costs no more than its length.
+        // One pass from the bottom up: a long chain of open items costs no more than its length. (Within the depth a
+        // file's outline is read to; see DeepOutlineTests for deeper files.)
         using var document = new PdfDocument();
         var page = document.AddPage();
         var outlines = document.Outlines;
-        const int depth = 2000;
+        const int depth = 200;   // PdfOutline.MaxDepth
         for (int level = 0; level < depth; level++)
             outlines = outlines.Add($"Level {level}", page, true).Outlines;
 

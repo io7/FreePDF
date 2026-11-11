@@ -140,6 +140,7 @@ namespace PdfSharp.Pdf.Signatures
                 File = file;
                 Document = document;
                 Options = options;
+                CancellationToken = cancellationToken;
                 ValidationTime = options.ValidationTime ?? DateTimeOffset.UtcNow;
                 TrustedRoots = options.TrustedRoots?.ToList();
                 RevisionEnds = RevisionEnds(file);
@@ -153,6 +154,7 @@ namespace PdfSharp.Pdf.Signatures
             internal byte[] File { get; }
             internal PdfDocument Document { get; }
             internal PdfSignatureVerificationOptions Options { get; }
+            internal CancellationToken CancellationToken { get; }
             internal DateTimeOffset ValidationTime { get; }
             internal List<X509Certificate2>? TrustedRoots { get; }
             internal List<int> RevisionEnds { get; }
@@ -170,11 +172,20 @@ namespace PdfSharp.Pdf.Signatures
                 if (!_revisionsByEnd.TryGetValue(end, out var revision))
                 {
                     revision = Open(File, end, Options.Password);
-                    _revisionsByEnd[end] = revision;
-                    Revisions.Add(revision);
+                    Keep(end, revision);
                 }
                 return revision;
             }
+
+            // A revision read on its own that results will use, disposed at the end.
+            internal void Keep(int end, PdfDocument revision)
+            {
+                _revisionsByEnd[end] = revision;
+                Revisions.Add(revision);
+            }
+
+            // More revisions than earlier ones are read for (PdfSignatureVerificationOptions.MaxRevisions).
+            internal bool TooManyRevisions => RevisionEnds.Count > Options.MaxRevisions;
 
             // Where the objects of the file start, sorted, for the signature dictionary's boundary check.
             internal long[] ObjectPositions => _objectPositions ??= Document.IrefTable.AllReferences
@@ -202,8 +213,21 @@ namespace PdfSharp.Pdf.Signatures
 
             // The byte range: from 0, one gap that is exactly this signature's /Contents.
             if (!ByteRange(context.File, value, out var covered, out var contents, out var end, out var cleanPadding, out var problem,
-                    out var gapStart, out var gapEnd)
-                || !InsideSignedObject(context, signature, gapStart, gapEnd, end, out problem))
+                    out var gapStart, out var gapEnd))
+            {
+                result._reasons.Add(problem);
+                result.Status = PdfSignatureStatus.Invalid;
+                return;
+            }
+            // A field in an object stream is compared with the signed revision read on its own, which is not read beyond
+            // MaxRevisions: unknown, not broken.
+            if (context.TooManyRevisions && signature.Field is { Position: <= 0 } && end < TrimmedLength(context.File))
+            {
+                result._reasons.Add($"The signature field cannot be compared with the signed revision: the file has {context.RevisionEnds.Count} revisions, more than {context.Options.MaxRevisions}.");
+                result.Status = PdfSignatureStatus.Indeterminate;
+                return;
+            }
+            if (!InsideSignedObject(context, signature, gapStart, gapEnd, end, out problem))
             {
                 result._reasons.Add(problem);
                 result.Status = PdfSignatureStatus.Invalid;
@@ -965,6 +989,8 @@ namespace PdfSharp.Pdf.Signatures
         // protected (an approval signature), the first change beyond P=3; or a problem that kept the check from running.
         static (string? Forbidden, string? Unexpected, string? Problem) LaterChanges(Context context, int end)
         {
+            if (context.TooManyRevisions)
+                return (null, null, $"Later changes are not checked: the file has {context.RevisionEnds.Count} revisions, more than {context.Options.MaxRevisions}.");
             var document = context.Document;
             var revisionBytes = context.File.AsSpan(0, end).ToArray();
             PdfDocument revision;
@@ -1181,23 +1207,39 @@ namespace PdfSharp.Pdf.Signatures
         static List<FoundSignature> AllSignatures(Context context)
         {
             var result = Signatures(context.Document);
+            if (context.TooManyRevisions)
+                return result;
             var known = new HashSet<string>(result.Select(Key));
             foreach (var end in context.RevisionEnds)
             {
                 if (end >= TrimmedLength(context.File))
                     continue;
+                context.CancellationToken.ThrowIfCancellationRequested();
+                PdfDocument? revision = null;
+                bool kept = false;
                 try
                 {
-                    var revision = context.Revision(end);
+                    // One revision at a time: kept only when a removed signature's dictionary lives in it.
+                    revision = Open(context.File, end, context.Options.Password);
                     foreach (var signature in Signatures(revision))
                     {
                         if (known.Add(Key(signature)))
+                        {
                             result.Add(signature with { Removed = true });
+                            kept = true;
+                        }
                     }
+                    if (kept)
+                        context.Keep(end, revision);
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
                 {
                     // Not a revision that can be read on its own (for example a %%EOF inside a stream).
+                }
+                finally
+                {
+                    if (!kept)
+                        revision?.Dispose();
                 }
             }
             return result;

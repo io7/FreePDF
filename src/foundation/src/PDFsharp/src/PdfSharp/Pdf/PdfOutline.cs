@@ -42,13 +42,28 @@ namespace PdfSharp.Pdf
         /// After this type transformation the specified dictionary is dead and cannot be used anymore.
         /// </summary>
         internal PdfOutline(PdfDictionary dict)
+            : this(dict, 0)
+        { }
+
+        PdfOutline(PdfDictionary dict, int depth)
             : base(dict)
         {
             _fromFile = true;
+            _depth = depth;
             Initialize();
             // Reading added the children; that is not a change.
             _countChanged = false;
         }
+
+        /// <summary>
+        /// The deepest level of a file's outline that is read; deeper items are left as they are in the file and not
+        /// read, as in a damaged file. Reading, saving and counting outline items recurse once per level, and a hostile
+        /// file nested thousands of levels deep would overflow the stack, which no exception handler stops.
+        /// </summary>
+        internal const int MaxDepth = 200;
+
+        // The level of an item read from a file: 0 for the outline root.
+        readonly int _depth;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PdfOutline"/> class.
@@ -530,11 +545,13 @@ namespace PdfSharp.Pdf
         {
             // Follow /First and /Next only to dictionaries that have no type yet. A link to a non-dictionary, or to an
             // object that already has one (the catalog, a page, an item read earlier in a loop), ends the chain:
-            // converting it would destroy that object or never stop.
+            // converting it would destroy that object or never stop. Below MaxDepth nothing is read.
+            if (_depth >= MaxDepth)
+                return;
             var current = Elements.GetReference(Keys.First);
             while (current?.Value is PdfDictionary dict && dict.GetType() == typeof(PdfDictionary))
             {
-                var item = new PdfOutline(dict);
+                var item = new PdfOutline(dict, _depth + 1);
                 Outlines.Add(item);
                 current = item.Elements.GetReference(Keys.Next);
             }

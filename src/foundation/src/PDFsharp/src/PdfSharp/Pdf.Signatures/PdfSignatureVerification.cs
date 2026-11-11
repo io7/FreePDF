@@ -128,6 +128,16 @@ namespace PdfSharp.Pdf.Signatures
         /// Gets the password of an encrypted document.
         /// </summary>
         public string? Password { get; init; }
+
+        /// <summary>
+        /// Gets the most revisions (incremental updates, counted by their %%EOF markers) whose changes are checked; 64
+        /// by default. Each earlier revision is read on its own, a copy of the file up to its end, so a small file with
+        /// thousands of updates would cost time and memory that grow with the square of their number. Beyond the
+        /// limit, earlier revisions are not read: later changes are not checked (a reason says so, and a signature that
+        /// does not cover the whole file is at best Indeterminate), and signatures that a later update removed are not
+        /// found.
+        /// </summary>
+        public int MaxRevisions { get; init; } = 64;
     }
 
     /// <summary>

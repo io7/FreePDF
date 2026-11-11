@@ -934,6 +934,27 @@ public class SignatureVerifierTests
         Assert.Equal(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // Each earlier revision is read on its own (a copy of the file up to its end), so thousands of tiny updates cost
+    // time and memory with the square of their number. Beyond MaxRevisions they are not read and the result says so.
+    [Fact]
+    public async Task Beyond_MaxRevisions_later_changes_are_not_checked()
+    {
+        using var certificate = SelfSigned();
+        var pdf = Sign(new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256));
+        for (int update = 0; update < 100; update++)
+            pdf = AppendUpdate(pdf, [(Size(pdf), "<< /Note (an object nothing refers to) >>")]);
+
+        var limited = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }));
+        Assert.True(limited.Intact);
+        Assert.True(limited.Trusted);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, limited.Status);
+        Assert.Contains(limited.Reasons, reason => reason.StartsWith("Later changes are not checked: the file has 101 revisions"));
+
+        var raised = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
+            new PdfSignatureVerificationOptions { TrustedRoots = [certificate], MaxRevisions = 200 }));
+        Assert.Equal(PdfSignatureStatus.Valid, raised.Status);
+    }
+
     static byte[] SignWithBookmarks(X509Certificate2 certificate, PdfCertificationLevel certification)
     {
         using var document = new PdfDocument();
