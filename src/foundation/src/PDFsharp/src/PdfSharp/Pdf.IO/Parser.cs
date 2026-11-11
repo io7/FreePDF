@@ -483,12 +483,20 @@ namespace PdfSharp.Pdf.IO
 
                     lengthObject = pdfIntegerObject;
                 }
+                else if (_documentParser._readingStreamLength)
+                {
+                    // The length object read for another stream's /Length is a stream whose /Length is indirect again: a
+                    // chain of such objects would recurse once per object until the stack overflows. A length is a number;
+                    // recover this one from 'endstream' below.
+                    lengthObject = null!;
+                }
                 else
                 {
                     // OMG: The length of a stream is an indirect object in another dictionary that is not yet read.
                     // And this other dictionary can be wrapped in an object stream.
                     // Makes no sense at all, but some producer apps do it this way.
                     var state = SaveState();
+                    _documentParser._readingStreamLength = true;
                     try
                     {
                         lengthObject = ReadIndirectObject(reference, suppressObjectOrderExceptions);
@@ -499,6 +507,10 @@ namespace PdfSharp.Pdf.IO
                     {
                         // If somebody came here, please send us your PDF file so that we can fix it (issues (at) pdfsharp.net).
                         throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(_lexer.Position, ex);
+                    }
+                    finally
+                    {
+                        _documentParser._readingStreamLength = false;
                     }
                     RestoreState(state);
                 }
@@ -804,13 +816,29 @@ namespace PdfSharp.Pdf.IO
 
                     case Symbol.BeginArray:
                         var array = new PdfArray(_document);
-                        ReadArray(array, false);
+                        Nest();
+                        try
+                        {
+                            ReadArray(array, false);
+                        }
+                        finally
+                        {
+                            _nesting--;
+                        }
                         items.Add(array);
                         break;
 
                     case Symbol.BeginDictionary:
                         var dict = new PdfDictionary(_document);
-                        ReadDictionary(dict, false);
+                        Nest();
+                        try
+                        {
+                            ReadDictionary(dict, false);
+                        }
+                        finally
+                        {
+                            _nesting--;
+                        }
                         items.Add(dict);
                         break;
 
@@ -839,6 +867,27 @@ namespace PdfSharp.Pdf.IO
 
         Symbol ScanNextToken(bool testForObjectReference = false)
             => _lexer.ScanNextToken(testForObjectReference);
+
+        /// <summary>
+        /// The deepest nesting of direct arrays and dictionaries read. Reading, and much of what later walks a direct
+        /// object (writing, decrypting, copying, hashing), recurses once per level, and a hostile file nested tens of
+        /// thousands of levels deep would overflow the stack, which no exception handler stops. Real files nest a few
+        /// levels.
+        /// </summary>
+        internal const int MaxNesting = 256;
+        int _nesting;
+
+        // Set on the document's parser while it reads an indirect /Length.
+        bool _readingStreamLength;
+
+        void Nest()
+        {
+            if (++_nesting > MaxNesting)
+            {
+                _nesting--;
+                ParserDiagnostics.ThrowParserException($"Arrays and dictionaries are nested more than {MaxNesting} levels deep.");
+            }
+        }
 
         Symbol SkipCharsUntil(Symbol stop)
         {

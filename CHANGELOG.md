@@ -1,5 +1,23 @@
 # FreePDF changelog
 
+## Unreleased
+
+- Small hostile files no longer overflow the stack when they are opened, in any
+  mode (and so also in `PdfSignatureVerifier`). A stack overflow ends the
+  process; no exception handler stops it. Three structures recursed once per
+  level:
+  - arrays and dictionaries nested inside each other: deeper than 256 levels
+    they are now a parse error (`PdfReaderException`), which also bounds the
+    code that later walks a direct object (writing, decrypting, copying);
+  - a chain of streams whose /Length is the next stream: a /Length read for
+    another stream's /Length is not followed further, and the stream's length is
+    found from `endstream`;
+  - a form whose field tree is thousands of levels deep: the /Kids of a field
+    100 levels deep are dropped, as in a damaged file.
+
+  A file of 50,000 nested arrays and a chain of 20,000 stream lengths crashed
+  7.10.0 even in Import mode.
+
 ## 7.10.0
 
 - PAdES baseline signatures: `PdfSharpDefaultSigner` with

@@ -149,7 +149,15 @@ namespace PdfSharp.Pdf.Forms
             /// added to a document later (PdfDocument.AppendPages).
             /// </summary>
             public static void PrepareFields(PdfArray fields)
-                => PrepareFields(fields, new HashSet<PdfReference>());
+                => PrepareFields(fields, new HashSet<PdfReference>(), 0);
+
+            /// <summary>
+            /// The deepest level of a form's field tree that is kept: the /Kids of a field at this depth are dropped, as in
+            /// a damaged file. Typing fields, preparing them for saving and walking their descendants recurse once per
+            /// level, and a hostile file nested thousands of levels deep would overflow the stack, which no exception
+            /// handler stops. Real forms nest a few levels.
+            /// </summary>
+            internal const int MaxDepth = 100;
 
             /// <summary>
             /// Types the fields of a /Fields or /Kids array and their descendants. Entries that cannot be fields
@@ -157,7 +165,7 @@ namespace PdfSharp.Pdf.Forms
             /// seen (a loop through /Kids) are dropped: they carry no field, and converting them would destroy them
             /// or never end.
             /// </summary>
-            static void PrepareFields(PdfArray fields, HashSet<PdfReference> seen)
+            static void PrepareFields(PdfArray fields, HashSet<PdfReference> seen, int depth)
             {
                 for (int idx = 0; idx < fields.Elements.Count; idx++)
                 {
@@ -173,9 +181,15 @@ namespace PdfSharp.Pdf.Forms
                     CreateDerivedField(fields, idx);
                     var acroField = fields.Elements.GetRequiredDictionary<PdfFormField>(idx);
                     HandleAP(acroField);
+                    if (acroField.Elements.ContainsKey(PdfFormField.Keys.Kids) && depth >= MaxDepth)
+                    {
+                        PdfSharpLogHost.Logger.LogWarning("Dropped form fields nested more than {MaxDepth} levels deep.", MaxDepth);
+                        acroField.Elements.Remove(PdfFormField.Keys.Kids);
+                        continue;
+                    }
                     var kids = acroField.Elements.GetArray(PdfFormField.Keys.Kids);
                     if (kids != null)
-                        PrepareFields(kids, seen);
+                        PrepareFields(kids, seen, depth + 1);
                 }
             }
 
