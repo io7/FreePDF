@@ -269,8 +269,9 @@ namespace PdfSharp.Pdf.IO
                 CheckKeys(old, now, oldObject, newObject, $"the form field '{old.Fields[id].Name}'", FieldKeys);
                 return;
             }
-            // Appearance streams that a page also draws change the page, which falls under the last rule.
-            bool drawnByPage = old.PageXObjects.Contains(id);
+            // Appearance streams that a page also draws, directly or through what it draws, change the page, which falls
+            // under the last rule.
+            bool drawnByPage = old.PageObjectsIncomplete || old.PageObjects.Contains(id);
             if (old.Appearances.Contains(id) && !drawnByPage)
             {
                 Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
@@ -720,15 +721,8 @@ namespace PdfSharp.Pdf.IO
                     var page = document.Pages[index];
                     if (page.Reference != null)
                         Pages[page.ObjectID] = index;
-                    if (Resolve(page.Elements["/Resources"]) is PdfDictionary resources
-                        && Resolve(resources.Elements["/XObject"]) is PdfDictionary xObjects)
-                    {
-                        foreach (var value in xObjects.Elements.Values)
-                        {
-                            if (value is PdfReference xObject)
-                                PageXObjects.Add(xObject.ObjectID);
-                        }
-                    }
+                    CollectPageObjects(page.Elements["/Contents"]);
+                    CollectPageObjects(page.Elements["/Resources"]);
                     var annotationsItem = page.Elements["/Annots"];
                     if (annotationsItem is PdfReference annotationsReference)
                         AnnotationArrays[annotationsReference.ObjectID] = index;
@@ -758,7 +752,49 @@ namespace PdfSharp.Pdf.IO
             internal Dictionary<PdfObjectID, FieldNode> Fields { get; } = new();
             internal HashSet<PdfObjectID> Appearances { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
-            internal HashSet<PdfObjectID> PageXObjects { get; } = new();
+            // Everything a page's content and resources reach, through form XObjects, fonts, patterns and soft masks
+            // within them, but not its annotations or the page tree: an appearance stream among them is also drawn by
+            // the page. Beyond MaxPageObjects the walk stops, and every appearance counts as drawn by a page.
+            internal HashSet<PdfObjectID> PageObjects { get; } = new();
+            internal bool PageObjectsIncomplete { get; private set; }
+            const int MaxPageObjects = 100_000;
+
+            void CollectPageObjects(PdfItem? start)
+            {
+                var pending = new Stack<PdfItem>();
+                if (start != null)
+                    pending.Push(start);
+                while (pending.Count > 0 && !PageObjectsIncomplete)
+                {
+                    var item = pending.Pop();
+                    if (item is PdfReference reference)
+                    {
+                        if (!PageObjects.Add(reference.ObjectID))
+                            continue;
+                        if (PageObjects.Count > MaxPageObjects)
+                        {
+                            PageObjectsIncomplete = true;
+                            break;
+                        }
+                        if (reference.Value is PdfPage)
+                            continue;
+                        item = reference.Value;
+                    }
+                    if (item is PdfDictionary dictionary)
+                    {
+                        foreach (var key in dictionary.Elements.Keys)
+                        {
+                            if (key is not ("/Parent" or "/Annots" or "/P") && dictionary.Elements[key] is { } value)
+                                pending.Push(value);
+                        }
+                    }
+                    else if (item is PdfArray array)
+                    {
+                        foreach (var element in array.Elements)
+                            pending.Push(element);
+                    }
+                }
+            }
             internal Dictionary<PdfObjectID, int> Pages { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
             internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();

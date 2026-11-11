@@ -247,7 +247,9 @@ such a file in Append mode; and bookmarks more than 200 levels deep are left out
 pages are merged or extracted. Since 7.10.1 the
 cross-reference and object streams the reader decodes while opening a file
 decode to at most 64 MiB each, and to at most 256 MiB or 64 times the file's
-size together; a file beyond that throws `PdfReaderException`. Other streams
+size together, counting every filter stage's output, also output a predictor
+then drops or that damaged data cuts short; a file beyond that throws
+`PdfReaderException`. Other streams
 (page content, images, fonts) are decoded only when they are used, without
 such a limit. It
 is a technical check: EU trusted lists,

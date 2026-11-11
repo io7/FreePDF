@@ -186,6 +186,11 @@
     not revoked whatever FreePDF makes of the CRL's scope: a partition whose
     distribution point differed from the certificate's only in the host name's
     case was taken to leave it out.
+  - An appearance stream that the page also draws, through another form
+    XObject, a font, a pattern or a soft mask, counts as page content: changing
+    it after a signature is not form filling. Only the XObjects the page named
+    itself counted, so a field appearance that a nested XObject also drew could
+    change the signed page and leave the signature Valid.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

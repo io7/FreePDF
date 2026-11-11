@@ -1502,6 +1502,34 @@ public class SignatureVerifierTests
         Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
     }
 
+    // A page that draws form XObject A, which draws B, where B is also a text field's normal appearance; after the
+    // signature an update replaces B. Only the page's own XObjects counted as drawn by it, so the change passed as a new
+    // field appearance (allowed after a signature) although it changed what the signed page shows.
+    [Fact]
+    public async Task An_appearance_the_page_also_draws_through_another_XObject_is_page_content()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /A 6 0 R >> >> /Annots [5 0 R] >>",
+            "<< /Length 5 >>\nstream\n/A Do\nendstream",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /B 7 0 R >> >> /Length 5 >>\nstream\n/B Do\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed,
+            [(7, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A signed field whose /FT /Sig is on its parent, with a lock on every field. The permission check took the missing /FT
     // for the type "/" instead of inheriting /Sig and did not see the field as signed: adding validation data made the
     // signature Indeterminate, and filling in the locked field was not reported as forbidden. The same with the parent's
