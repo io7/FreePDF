@@ -1173,10 +1173,12 @@ public class SignatureVerifierTests
     }
 
     // A revocation from a delegated responder whose certificate is not in the response (RFC 6960 makes that list
-    // optional) but in the DSS: only the response's own certificates were searched, the revocation was dropped, and a
-    // good CRL made the signature Valid.
-    [Fact]
-    public async Task A_responder_certificate_in_the_DSS_is_found()
+    // optional) but in the DSS, readable or in a form FreePDF does not read: only the response's own certificates were
+    // searched, the revocation was dropped, and a good CRL made the signature Valid.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_responder_certificate_in_the_DSS_is_found(bool unreadable)
     {
         using var pki = new TestPki();
         var signed = SignBT(pki);
@@ -1188,12 +1190,37 @@ public class SignatureVerifierTests
         pki.OmitResponderCertificate = true;
         var revoking = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
 
-        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(
-            WithDss(pki, signed, [authority, revoking], [rootCrl, good], pki.DelegatedResponderFor(pki.Intermediate)),
+        var responder = pki.DelegatedResponderFor(pki.Intermediate);
+        var pdf = unreadable
+            ? Update(WithDss(pki, signed, [authority, revoking], [rootCrl, good]),
+                document => AddDssStream(document, "/Certs", ZlibOf(responder.RawData), "/FlateDecode", "<< /Predictor 12 /Columns 4 >>"))
+            : WithDss(pki, signed, [authority, revoking], [rootCrl, good], responder);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
             new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
 
-        Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
+        Assert.Equal(unreadable ? PdfRevocationStatus.Unknown : PdfRevocationStatus.Revoked, result.Revocation);
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A good CRL stored as Flate with /DecodeParms [null] (no parameters, written as an array) next to a good OCSP answer:
+    // the DSS reader did not read that form, took the CRL for one that could revoke, and the signature was Indeterminate.
+    [Fact]
+    public async Task A_good_CRL_with_parameters_that_change_nothing_leaves_the_signature_valid()
+    {
+        using var pki = new TestPki();
+        var signed = SignBT(pki);
+        var rootCrl = pki.Crl(pki.Root);
+        var authority = pki.OcspResponseFor(pki.TimeStampAuthority, pki.Intermediate);
+        var good = pki.OcspResponseFor(pki.Signer, pki.Intermediate);
+        var goodCrl = ZlibOf(pki.Crl(pki.Intermediate));
+        var pdf = Update(WithDss(pki, signed, [authority, good], [rootCrl]),
+            document => AddDssStream(document, "/CRLs", goodCrl, "[/FlateDecode]", "[null]"));
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(pdf,
+            new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root], Revocation = PdfRevocationCheck.Document }));
+
+        Assert.Equal(PdfSignatureStatus.Valid, result.Status);
     }
 
     // A revocation from a delegated responder whose response lists, first, another certificate with the same name and
@@ -1307,18 +1334,31 @@ public class SignatureVerifierTests
             [pki.Intermediate.RawData, pki.Root.RawData, .. others.Select(certificate => certificate.RawData)],
             ocspResponses: ocspResponses, crls: crls));
 
-    // A CRL entry in the DSS that FreePDF does not read: Flate with /DecodeParms [null].
-    static void AddUnreadableCrl(PdfDocument document)
+    // A CRL entry in the DSS that FreePDF does not read: Flate with a PNG predictor.
+    static void AddUnreadableCrl(PdfDocument document) => AddDssStream(document, "/CRLs", [0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01],
+        "/FlateDecode", "<< /Predictor 12 /Columns 4 >>");
+
+    // Data added to a DSS entry (/Certs, /OCSPs, /CRLs) as a stream with the given /Filter and /DecodeParms.
+    static void AddDssStream(PdfDocument document, string key, byte[] data, string filter, string? parameters)
     {
         var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
-        var crl = new PdfDictionary(document);
-        crl.CreateStream([0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
-        crl.Elements["/Filter"] = new PdfLiteral("[/FlateDecode]");
-        crl.Elements["/DecodeParms"] = new PdfLiteral("[null]");
-        document.Internals.AddObject(crl);
-        var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
-        crls.Elements.Add(crl.Reference!);
-        dss.Elements["/CRLs"] = crls;
+        var stream = new PdfDictionary(document);
+        stream.CreateStream(data);
+        stream.Elements["/Filter"] = new PdfLiteral(filter);
+        if (parameters != null)
+            stream.Elements["/DecodeParms"] = new PdfLiteral(parameters);
+        document.Internals.AddObject(stream);
+        var entries = dss.Elements.GetArray(key) ?? new PdfArray(document);
+        entries.Elements.Add(stream.Reference!);
+        dss.Elements[key] = entries;
+    }
+
+    static byte[] ZlibOf(byte[] data)
+    {
+        using var compressed = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(data);
+        return compressed.ToArray();
     }
 
     // CRLDistributionPoints with one point named relative to the CRL issuer (RFC 5280 4.2.1.13): CN=Partition 1.
@@ -1337,11 +1377,13 @@ public class SignatureVerifierTests
         return new X509Extension("2.5.29.31", writer.Encode(), false);
     }
 
-    // A good OCSP answer for the signer, then a CRL that revokes it, stored with filter parameters the DSS reader does not
-    // read (/DecodeParms [null]): only a CRL too large to read counted as unread, so this one was skipped without a trace
-    // and the good answer made the signature Valid.
-    [Fact]
-    public async Task A_revoking_CRL_in_a_form_the_DSS_reader_skips_does_not_leave_the_signature_valid()
+    // A good OCSP answer for the signer, then a CRL that revokes it, stored with filter parameters the DSS reader once did
+    // not read (/DecodeParms [null], now read as no parameters) or still does not (a PNG predictor): only a CRL too large
+    // to read counted as unread, so this one was skipped without a trace and the good answer made the signature Valid.
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("<< /Predictor 12 /Columns 4 >>")]
+    public async Task A_revoking_CRL_in_a_form_the_DSS_reader_skips_does_not_leave_the_signature_valid(string parameters)
     {
         using var pki = new TestPki();
         byte[] withOcsp;
@@ -1358,21 +1400,8 @@ public class SignatureVerifierTests
             (await PdfSignatureVerifier.VerifyAsync(withOcsp, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0].Status);
 
         pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
-        using var compressed = new MemoryStream();
-        using (var zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, true))
-            zlib.Write(pki.Crl(pki.Intermediate));
-        var withCrl = Update(withOcsp, document =>
-        {
-            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
-            var crl = new PdfDictionary(document);
-            crl.CreateStream(compressed.ToArray());
-            crl.Elements["/Filter"] = new PdfLiteral("[/FlateDecode]");
-            crl.Elements["/DecodeParms"] = new PdfLiteral("[null]");
-            document.Internals.AddObject(crl);
-            var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
-            crls.Elements.Add(crl.Reference!);
-            dss.Elements["/CRLs"] = crls;
-        });
+        var crl = ZlibOf(pki.Crl(pki.Intermediate));
+        var withCrl = Update(withOcsp, document => AddDssStream(document, "/CRLs", crl, "[/FlateDecode]", parameters));
 
         var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withCrl, new PdfSignatureVerificationOptions
         {

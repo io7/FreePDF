@@ -127,20 +127,19 @@ public class HostileSizeTests
         Assert.Contains("64", refused.Message + refused.InnerException?.Message);
     }
 
-    public enum Layout { Separate, Shared, DictionaryThenString }
+    public enum Layout { Separate, Shared, DictionaryThenString, SharedArrayBeforeString }
 
     // A file whose objects 5 to 68 are in one object stream. Shared: its header points all 64 at one 1 MiB string (a few
     // kilobytes of Flate), so reading them built 64 MiB of strings from a stream that holds 1 MiB; with more objects and a
     // longer string, gigabytes. Separate: each object has its own short string, as in any file. DictionaryThenString:
     // dictionaries and 256-byte strings in turn, as in any file.
-    static byte[] ObjectStreamFile(Layout layout)
+    static byte[] ObjectStreamFile(Layout layout, int count = 64)
     {
-        const int count = 64;
         string header, objects;
-        if (layout == Layout.Shared)
+        if (layout is Layout.Shared or Layout.SharedArrayBeforeString)
         {
             header = string.Join(" ", Enumerable.Range(5, count).Select(number => $"{number} 0")) + " ";
-            objects = "(" + new string('a', 1024 * 1024) + ")";
+            objects = (layout == Layout.SharedArrayBeforeString ? "[] " : "") + "(" + new string('a', 1024 * 1024) + ")";
         }
         else
         {
@@ -213,6 +212,60 @@ public class HostileSizeTests
             Assert.Equal("a", (ordinary.Internals.GetObject(new PdfObjectID(68)) as PdfStringObject)?.Value);
 
         Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(ObjectStreamFile(Layout.Shared)), PdfDocumentOpenMode.Import));
+    }
+
+    // 4,096 objects that all point at one empty array, followed by a 1 MiB string: after an array the parser read the next
+    // token whole (to see whether a stream follows, which cannot in an object stream), once for every object: 4 GiB of
+    // scanning, and with more objects and a longer string hours. Nothing after an object in an object stream is read now.
+    [Fact]
+    public void Objects_that_point_at_one_array_do_not_read_what_follows_it()
+    {
+        const int count = 4096;
+        var pdf = ObjectStreamFile(Layout.SharedArrayBeforeString, count);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
+
+        Assert.IsType<PdfArray>(document.Internals.GetObject(new PdfObjectID(4 + count)));
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(5), $"took {started.Elapsed}");
+    }
+
+    // Objects 4 to 67 written inside one another's strings, each with its own right cross-reference entry, around one
+    // 256 KiB text: each object's string holds all those inside it and the text, so reading them kept 64 copies. The
+    // objects read from a file may together span at most twice the file.
+    [Fact]
+    public void Objects_nested_in_one_another_s_strings_are_refused()
+    {
+        const int count = 64;
+        using var file = new MemoryStream();
+        void Text(string text)
+        {
+            var bytes = TestPdf.Latin1.GetBytes(text);
+            file.Write(bytes, 0, bytes.Length);
+        }
+        var offsets = new List<long>();
+        Text("%PDF-1.7\n");
+        foreach (var body in new[] { "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>" })
+        {
+            offsets.Add(file.Position);
+            Text($"{offsets.Count} 0 obj\n{body}\nendobj\n");
+        }
+        for (int index = 0; index < count; index++)
+        {
+            offsets.Add(file.Position);
+            Text($"{offsets.Count} 0 obj\n(");
+        }
+        Text(new string('a', 256 * 1024));
+        for (int index = 0; index < count; index++)
+            Text(")\nendobj\n");
+        long xref = file.Position;
+        Text($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
+        foreach (var offset in offsets)
+            Text($"{offset:D10} 00000 n \n");
+        Text($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+
+        Assert.Throws<PdfReaderException>(() => PdfReader.Open(new MemoryStream(file.ToArray()), PdfDocumentOpenMode.Import));
     }
 
     // Dictionaries followed by long strings: after a dictionary the parser reads the next token whole (to see whether a

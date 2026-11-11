@@ -52,6 +52,12 @@
   the stream holds. Its header could point many objects at the same bytes, such
   as one long string, and each was read and kept on its own: 1 MiB read 4,096
   times is 4 GiB of text.
+- An object in an object stream is read without the token after it (it can
+  have no stream): thousands of objects pointing at one empty array before a
+  long string each scanned that string again.
+- The objects read from a file may together span at most twice the file:
+  objects written inside one another's strings, each with its own right
+  cross-reference entry, each kept the same long text.
 - A classic cross-reference entry that is repaired (it names another object
   than the one at its position) takes the generation found there as well as the
   number. Thousands of entries pointing at one long string, each with another
@@ -126,29 +132,25 @@
   - The DSS of the revision a document time-stamp covers is read once per
     time-stamp, one at a time.
   - An OCSP response or CRL in a form the DSS reader does not read (a filter
-    other than plain Flate, or Flate with parameters such as
-    `/DecodeParms [null]`) also makes the DSS show no certificate as not
-    revoked. Only a response or CRL too large to read did; a revoking CRL
-    written this way was skipped, and a good OCSP response made the signature
-    Valid.
+    other than plain Flate, or Flate with a predictor) also makes the DSS show
+    no certificate as not revoked. Only a response or CRL too large to read
+    did; a revoking CRL written this way was skipped, and a good OCSP response
+    made the signature Valid. Parameters that change nothing, such as
+    `/DecodeParms [null]`, are read as none.
   - An OCSP response or CRL that FreePDF cannot parse, or that says a
-    certificate was revoked before the signature but cannot be used (signed
-    with an algorithm FreePDF does not verify, such as RSASSA-PSS, or by a
-    delegated OCSP responder whose certificate is, or whose certificate lacks
-    id-pkix-ocsp-nocheck, so that its own revocation would need checking; a
-    delta CRL; a CRL scope,
-    partition or critical extension FreePDF does not read or cannot match to
-    the certificate), keeps that certificate from being shown as not revoked,
-    also when an online check finds a good answer. It was dropped as if it said
-    nothing, so a good answer of the other kind made the signature Valid. A
-    revocation dated after the signature leaves it as it was.
-  - An OCSP response that lists several responder certificates with the same
-    name (as after a key rollover) is checked against each until one verifies
-    it, and a delegated responder's certificate is also looked for among the
-    DSS's certificates (RFC 6960 lets a response leave it out). Only the first
-    certificate in the response was tried, so a revocation signed with another
-    key, or by a responder whose certificate was only in the DSS, was dropped
-    and a good CRL made the signature Valid.
+    certificate was revoked before the signature but cannot be used for
+    whatever reason, keeps that certificate from being shown as not revoked:
+    signed with an algorithm FreePDF does not verify (such as RSASSA-PSS), by
+    a responder it cannot find (its certificate may be only in the DSS, or in
+    the response among others with the same name, as after a key rollover) or
+    does not use (a delegated responder without id-pkix-ocsp-nocheck), with a
+    signature that fails, or of a kind it does not handle (a delta CRL, a CRL
+    scope, partition or critical extension it does not read or cannot match
+    to the certificate). Such data was dropped as if it said nothing, so a good
+    answer of the other kind made the signature Valid. A forged entry can now
+    only make a result worse. A revocation dated after the signature leaves it
+    as it was. A responder is looked for among all the response's certificates
+    and the DSS's.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

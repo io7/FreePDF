@@ -317,6 +317,10 @@ namespace PdfSharp.Pdf.IO
                     ParserDiagnostics.HandleUnexpectedToken(_lexer.Token, _lexer.DumpNeighborhoodOfPosition());
                     break;
             }
+            // An object in an object stream has no stream and no 'endobj' (ISO 32000-1 7.5.7), so nothing after it is read:
+            // a long token there would otherwise be scanned once for every object that points just before it.
+            if (fromObjectStream)
+                return pdfObject ?? NRT.ThrowOnNull<PdfObject>();
             symbol = ScanNextToken();
             if (symbol == Symbol.BeginStream)
             {
@@ -1099,6 +1103,17 @@ namespace PdfSharp.Pdf.IO
                     if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                         return null!;
 
+                    // The objects read from the file count the bytes they span, from their header to the token after
+                    // them ('endobj'), as those in an object stream do: objects nested in one another's strings, each with
+                    // a right cross-reference entry, would each keep the same long text. Twice the file, and 1 MiB, is
+                    // allowed.
+                    if ((_spannedObjects ??= new()).Add(objectID))
+                    {
+                        _spannedBytes += Math.Max(0, _lexer.TokenStart - pdfReference.Position);
+                        if (_spannedBytes > 2L * _lexer.PdfLength + (1L << 20))
+                            throw LimitExceeded("The file's objects overlap: together they span more than twice the file.");
+                    }
+
                     // Decrypt file level object.
                     if (!withoutDecrypting)
                         _document.EffectiveSecurityHandler?.DecryptObject(pdfObject);
@@ -1142,12 +1157,10 @@ namespace PdfSharp.Pdf.IO
                 return null!;
             // The objects of a stream count the bytes they span against what it holds (with a little room for each, as the
             // lexer reads a character or two ahead): a header may point many objects at the same bytes, such as one long
-            // string, and they would build far more than the stream holds. An array or dictionary ends where the token
-            // read after it begins: the parser reads that whole token, to see whether a stream follows.
+            // string, and they would build far more than the stream holds.
             if ((objectStreamParser._spannedObjects ??= new()).Add(objectID))
             {
-                var end = pdfObject is PdfDictionary or PdfArray ? objectStreamParser._lexer.TokenStart : objectStreamParser._lexer.Position;
-                objectStreamParser._spannedBytes += Math.Max(0, end - offset);
+                objectStreamParser._spannedBytes += Math.Max(0, objectStreamParser._lexer.Position - offset);
                 if (objectStreamParser._spannedBytes > objectStreamParser._lexer.PdfLength + 16L * objectStreamParser._spannedObjects.Count)
                     throw LimitExceeded("The objects of an object stream overlap: together they span more bytes than the stream holds.");
             }

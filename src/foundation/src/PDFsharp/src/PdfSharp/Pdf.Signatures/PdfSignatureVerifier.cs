@@ -1546,6 +1546,9 @@ namespace PdfSharp.Pdf.Signatures
             // Parameters that change nothing (none, null, an empty dictionary, predictor 1) are plain Flate; predictors are
             // not read.
             var parameterItem = Resolve(stream.Elements["/DecodeParms"]);
+            // The parameters of a one-filter array may be in a one-element array, and null means none.
+            if (parameterItem is PdfArray { Elements.Count: 1 } oneParameter)
+                parameterItem = Resolve(oneParameter.Elements[0]);
             if (parameterItem is PdfNull or PdfNullObject)
                 parameterItem = null;
             if (parameterItem is PdfDictionary parameters
@@ -1751,39 +1754,25 @@ namespace PdfSharp.Pdf.Signatures
                     }
                     if (answer == null)
                         return null;
-                    if (!IsVerifiable(algorithm))
-                    {
-                        if (answer.Value.Item1 != null)
-                            claimed = (answer.Value.Item1, answer.Value.Item2);
-                        return null;
-                    }
                     // The responder that signed it: several certificates may carry the name (a key rollover), so each is
-                    // tried until one verifies the signature.
+                    // tried until one verifies the signature; the response's own certificates first, then those the DSS
+                    // holds (RFC 6960 makes the response's list optional). A responder without id-pkix-ocsp-nocheck is
+                    // not used: its own revocation would have to be checked (RFC 6960 4.2.2.2.1).
                     X509Certificate2? responder = null;
-                    bool signedWithoutNoCheck = false;
-                    // The response's own certificates first, then those the DSS holds (RFC 6960 makes the response's list
-                    // optional).
-                    certificates.AddRange(known);
-                    foreach (var (candidate, noCheck) in Responders(responderId, issuer, certificates, producedAt))
+                    if (IsVerifiable(algorithm))
                     {
-                        if (!VerifySignature(candidate, algorithm, tbsData, signature))
-                            continue;
-                        if (noCheck)
-                        {
-                            responder = candidate;
-                            break;
-                        }
-                        signedWithoutNoCheck = true;
+                        certificates.AddRange(known);
+                        responder = Responders(responderId, issuer, certificates, producedAt)
+                            .Where(candidate => candidate.NoCheck)
+                            .Select(candidate => candidate.Certificate)
+                            .FirstOrDefault(candidate => VerifySignature(candidate, algorithm, tbsData, signature));
                     }
                     if (responder == null)
                     {
-                        // Signed by a responder the issuer authorized but without id-pkix-ocsp-nocheck: its own revocation
-                        // would have to be checked (RFC 6960 4.2.2.2.1), which FreePDF does not do, so its answer is not
-                        // used. Or by one whose certificate FreePDF cannot verify. A revocation it holds still keeps the
-                        // certificate from being shown as not revoked.
-                        bool unverifiableResponder = certificates.Any(candidate => Names(responderId, candidate)
-                                                                                   && !IsVerifiable(candidate.SignatureAlgorithm.Value ?? ""));
-                        if ((signedWithoutNoCheck || unverifiableResponder) && answer.Value.Item1 != null)
+                        // A revocation in a response that cannot be used, for whatever reason (an algorithm FreePDF does
+                        // not verify, a responder it cannot find or does not use, a signature that fails), is still one
+                        // FreePDF cannot rule out. (A forged one can then only make a result worse, never Valid.)
+                        if (answer.Value.Item1 != null)
                             claimed = (answer.Value.Item1, answer.Value.Item2);
                         return null;
                     }
@@ -1913,8 +1902,7 @@ namespace PdfSharp.Pdf.Signatures
                     if (!name.Span.SequenceEqual(certificate.IssuerName.RawData) || !name.Span.SequenceEqual(issuer.SubjectName.RawData))
                         return null;
                     // The issuer must be allowed to sign CRLs.
-                    if (issuer.Extensions["2.5.29.15"] is X509KeyUsageExtension usage && (usage.KeyUsages & X509KeyUsageFlags.CrlSign) == 0)
-                        return null;
+                    bool crlSign = issuer.Extensions["2.5.29.15"] is not X509KeyUsageExtension usage || (usage.KeyUsages & X509KeyUsageFlags.CrlSign) != 0;
 
                     var thisUpdate = ReadTime(tbs);
                     DateTimeOffset? nextUpdate = tbs.HasData && IsTime(tbs.PeekTag()) ? ReadTime(tbs) : null;
@@ -1942,16 +1930,13 @@ namespace PdfSharp.Pdf.Signatures
                     if (tbs.HasData && tbs.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
                         scope = ScopeOf(tbs.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)).ReadSequence(), certificate, out expiredCutoff);
 
-                    // The issuer must have signed it.
-                    if (!IsVerifiable(algorithm))
-                    {
-                        if (listed)
-                            claimed = (revocationTime, reason);
+                    // A CRL whose scope leaves the certificate out says nothing about it. Otherwise the issuer must have
+                    // signed it, in a form this reader handles; one that cannot be used, for whatever reason, and that
+                    // lists the certificate is still a revocation FreePDF cannot rule out. (A forged one can then only
+                    // make a result worse, never Valid.)
+                    if (scope == Scope.Excluded)
                         return null;
-                    }
-                    if (!VerifySignature(issuer, algorithm, tbsData, signature) || scope == Scope.Excluded)
-                        return null;
-                    if (scope == Scope.Unsupported)
+                    if (!crlSign || scope == Scope.Unsupported || !IsVerifiable(algorithm) || !VerifySignature(issuer, algorithm, tbsData, signature))
                     {
                         if (listed)
                             claimed = (revocationTime, reason);

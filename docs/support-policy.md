@@ -256,6 +256,10 @@ covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are
 not verified. Since 7.10.1 an OCSP response or CRL that FreePDF cannot read,
 parse or verify, and that could revoke a certificate, keeps that certificate
 from being shown as not revoked, so the signature is at best Indeterminate.
+With `PdfRevocationCheck.Online`, a current answer fetched from the issuer's
+responder or CRL can still show a certificate not revoked next to DSS data
+FreePDF could not read (too large, or in a form it does not decode), but not
+next to data it read and could not use.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
