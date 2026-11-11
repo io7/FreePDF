@@ -34,7 +34,8 @@ namespace PdfSharp.Pdf.Annotations
         internal PdfTextAnnotation(PdfDictionary dict)
             : base(dict)
         {
-            Initialize();
+            // Read from a file: its icon stays as it is (it was reset to /Comment, which changed the file on saving and
+            // hid a later change from signature checks).
         }
 
         void Initialize()

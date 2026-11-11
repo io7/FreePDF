@@ -1790,6 +1790,69 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // The structure tree's root also lies in a page's /Annots as a stamp. Under a certification that permits annotations,
+    // an update gives it another structure (here other /ActualText). The root got the annotation exemption: the walk that
+    // looks for other ways to an annotation left out the whole structure tree.
+    [Fact]
+    public async Task The_structure_tree_listed_as_an_annotation_gets_no_exemption()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /MarkInfo << /Marked true >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Annots [5 0 R] >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /StructTreeRoot /Subtype /Stamp /Rect [0 0 0 0] /K [] >>",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: PdfCertificationLevel.FormFillingAndAnnotations);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        int element = Size(signed);
+        var updated = AppendUpdate(signed,
+        [
+            (5, $"<< /Type /StructTreeRoot /Subtype /Stamp /Rect [0 0 0 0] /K [{element} 0 R] >>"),
+            (element, "<< /Type /StructElem /S /P /P 5 0 R /Pg 3 0 R /ActualText (Not what was signed) >>"),
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // Values that the reader set while opening a file hid their change: a text annotation's icon (/Name) was reset to
+    // /Comment and a stamp's colour (/C) to yellow, so under a certification that permits form filling only, an update
+    // that changed them was not seen; the root of the page tree got the counted number of pages as /Count, so an update
+    // that lowered it (a viewer may then show fewer pages) was not seen after an approval signature.
+    [Theory]
+    [InlineData("<< /Type /Annot /Subtype /Text /Rect [0 0 20 20] /Name /Comment >>", "<< /Type /Annot /Subtype /Text /Rect [0 0 20 20] /Name /Key >>", true)]
+    [InlineData("<< /Type /Annot /Subtype /Stamp /Rect [0 0 200 50] /C [1 0 0] >>", "<< /Type /Annot /Subtype /Stamp /Rect [0 0 200 50] /C [0 0 1] >>", true)]
+    [InlineData(null, null, false)]
+    public async Task Values_the_reader_sets_do_not_hide_their_change(string? annotation, string? changed, bool certified)
+    {
+        var objects = new List<string>
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]{(annotation != null ? " /Annots [5 0 R]" : "")} >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        };
+        if (annotation != null)
+            objects.Add(annotation);
+        using var certificate = SelfSigned();
+        var signed = SignExisting(TestPdf.Create(objects.ToArray()), certificate,
+            certification: certified ? PdfCertificationLevel.FormFilling : null);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = changed != null
+            ? AppendUpdate(signed, [(5, changed)])
+            : AppendUpdate(signed, [(2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 1 >>")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A white stamp lies under a filled-in field in the page's /Annots (later entries are drawn over earlier ones). After
     // the signature an update moves the stamp after the field, so that it covers the field. The rule for /Annots compared
     // the annotations without their order.

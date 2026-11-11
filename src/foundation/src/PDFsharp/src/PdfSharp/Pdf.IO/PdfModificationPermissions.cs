@@ -869,11 +869,12 @@ namespace PdfSharp.Pdf.IO
                 }
                 if (AnnotationArrays.Count > 0 || Annotations.Values.Any(annotation => !annotation.IsWidget))
                 {
-                    // Left out: the pages' /Annots, and the structure tree, which refers to annotations without showing
-                    // anything.
+                    // Left out: the pages' /Annots, and the structure tree's references to annotations (an object
+                    // reference's /Obj), which show nothing. The structure tree itself is walked: its root may also lie
+                    // in /Annots.
                     var otherwise = ReachableWithout(document, (dictionary, key) =>
                         key == "/Annots" && dictionary.Reference is { } reference && Pages.ContainsKey(reference.ObjectID)
-                        || key == "/StructTreeRoot" && dictionary.Reference?.ObjectID == catalog);
+                        || key == "/Obj" && NameValue(dictionary.Elements["/Type"]) is null or "/OBJR");
                     AnnotationsReachedOtherwise.UnionWith(Annotations.Keys.Where(otherwise.Contains));
                     AnnotationsReachedOtherwise.UnionWith(AnnotationArrays.Keys.Where(otherwise.Contains));
                 }

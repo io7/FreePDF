@@ -236,7 +236,15 @@
     not compared, so a stamp moved after a filled-in field could cover it and
     leave the signature Valid.
   - The checks that tell the roles apart no longer fail on a resource map with
-    entries named /AP and /Subtype.
+    entries named /AP and /Subtype. The structure tree is walked when they look
+    for other ways to an annotation (only its references to annotations are
+    left out): its root, also placed in /Annots as a stamp, could otherwise be
+    rewritten as an annotation.
+- Opening a file no longer resets a text annotation's icon (/Name) to Comment
+  or a stamp's colour (/C) to yellow; saving wrote the reset values, and
+  `PdfSignatureVerifier` could not see an update that changed them. In Append
+  mode the page tree's root keeps the /Count of the file, so a later update
+  that changes it is a change.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature
