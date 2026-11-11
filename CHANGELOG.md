@@ -199,10 +199,11 @@
     the end, whatever it reaches: a dictionary that calls itself a page, the
     catalog or a page used as resources no longer ends the walk. What a page
     draws gets none of the exemptions for later changes, whatever else it also
-    is (an appearance, the document information, a field). Beyond 1,000,000
-    objects reached from pages, or 100,000 from one field or widget, a page
-    counts as drawing every appearance, a widget counts as changed, and a
-    protected field's update is refused.
+    is (an appearance, the document information, a field, validation data).
+    Beyond 1,000,000 objects reached from pages, 100,000 from a protected field
+    or 10,000 from an empty signature widget, a page counts as drawing every
+    appearance and DSS object, the protected field's update is refused, and the
+    widget counts as changed.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

@@ -253,7 +253,9 @@ namespace PdfSharp.Pdf.IO
                 }
                 else if (item is PdfDictionary dictionary)
                 {
-                    bool isField = ReferenceEquals(dictionary, field);
+                    // The field's own /Parent, /P and /Kids are structure when it is walked as the field; reached again as
+                    // something the field draws (its appearance may use it as resources), every entry is followed.
+                    bool isField = ReferenceEquals(dictionary, field) && !drawn;
                     foreach (var key in dictionary.Elements.Keys)
                     {
                         if (isField && key is "/Parent" or "/P" or "/Kids")
@@ -283,8 +285,9 @@ namespace PdfSharp.Pdf.IO
             if (old.PageObjects.Contains(id))
                 throw Refusal($"changing {Describe(oldObject, id)}, which a page draws");
             bool maybeDrawn = old.PageObjectsIncomplete;
-            // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level.
-            if (old.DssObjects.Contains(id))
+            // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level, unless a page
+            // could draw them (the walk over what pages draw stopped at its limit).
+            if (old.DssObjects.Contains(id) && !maybeDrawn)
                 return;
 
             if (old.Fields.ContainsKey(id) && !maybeDrawn)

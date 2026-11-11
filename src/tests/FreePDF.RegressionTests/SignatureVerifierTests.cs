@@ -1653,8 +1653,12 @@ public class SignatureVerifierTests
     [InlineData(false, "catalog")]
     [InlineData(true, "catalog, reached first through /Z")]
     [InlineData(false, "parent")]
+    [InlineData(true, "own field")]
     public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField, string resourcesAre)
     {
+        // "own field": the locked widget's appearance uses the widget itself as its XObject map, and the widget's /P
+        // names B; the walk skipped the field's own /P also when it came back to it as something drawn.
+        bool ownField = resourcesAre == "own field";
         // "catalog, reached first through /Z": the locked field also names its appearance under a custom key that the walk
         // reaches first, where it stopped at the catalog; the appearance was then not walked again. "parent": the empty
         // signature widget's appearance uses its parent field as resources, where the walk stopped.
@@ -1664,6 +1668,7 @@ public class SignatureVerifierTests
         {
             "page" => "9 0 R",
             "parent" => "9 0 R",
+            "own field" => "<< /XObject 5 0 R >>",
             _ when resourcesAre.StartsWith("catalog", StringComparison.Ordinal) => "1 0 R",
             _ => "<< /XObject << /P 8 0 R >> >>",
         };
@@ -1673,7 +1678,7 @@ public class SignatureVerifierTests
             : "<< /Type /Page /XObject << /P 8 0 R >> >>";
         var fifthField = parent ? "9 0 R" : "5 0 R";
         var first = lockedField
-            ? $"<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >>{(viaZ ? " /Z 7 0 R" : "")} >>"
+            ? $"<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P {(ownField ? "8" : "3")} 0 R /AP << /N 7 0 R >>{(viaZ ? " /Z 7 0 R" : "")} >>"
             : parent
                 ? "<< /Type /Annot /Subtype /Widget /Parent 9 0 R /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>"
                 : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
