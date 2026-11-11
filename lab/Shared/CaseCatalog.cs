@@ -33,6 +33,6 @@ public static class CaseCatalog
         new() { Id = "nested-glyphs", Title = "Nested composite font glyphs", KnownReferenceDefect = "Preview 1 omits nested components from a font subset; upstream issue 348." },
         new() { Id = "incremental-content", Title = "Content after incremental updates", KnownReferenceDefect = "Preview 1 selects an obsolete compressed content array from another revision; independently reproduced content-loss category from issue 302." },
         new() { Id = "shared-ownership", Title = "Shared content object ownership", KnownReferenceDefect = "Preview 1 invalidates a typed stream when a second page accesses it; independently reproduced ownership category from issue 369." },
-        new() { Id = "semantic-roundtrip", Title = "Text, navigation, forms and attachments after saving" }
+        new() { Id = "semantic-roundtrip", Title = "Text, navigation, forms and attachments after saving", KnownReferenceDefect = "Preview 1 resets a text annotation it reads to the Comment icon; the fixture's note has no /Name, so it keeps the default Note icon (ISO 32000-1 Table 172) since FreePDF 7.10.1." }
     };
 }
