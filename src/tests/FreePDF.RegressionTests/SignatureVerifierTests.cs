@@ -1504,18 +1504,24 @@ public class SignatureVerifierTests
 
     // A page that draws form XObject A, which draws B, where B is also a text field's normal appearance; after the
     // signature an update replaces B. Only the page's own XObjects counted as drawn by it, so the change passed as a new
-    // field appearance (allowed after a signature) although it changed what the signed page shows.
-    [Fact]
-    public async Task An_appearance_the_page_also_draws_through_another_XObject_is_page_content()
+    // field appearance (allowed after a signature) although it changed what the signed page shows. The same when the page
+    // calls B /P itself, a name the walk over what a page draws once skipped.
+    [Theory]
+    [InlineData(true, "B")]
+    [InlineData(false, "P")]
+    [InlineData(true, "Parent")]
+    public async Task An_appearance_the_page_also_draws_through_another_XObject_is_page_content(bool nested, string name)
     {
+        var resources = nested ? "<< /XObject << /A 6 0 R >> >>" : $"<< /XObject << /{name} 7 0 R >> >>";
+        var drawn = nested ? "/A Do" : $"/{name} Do";
         var unsigned = TestPdf.Create(new[]
         {
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /A 6 0 R >> >> /Annots [5 0 R] >>",
-            "<< /Length 5 >>\nstream\n/A Do\nendstream",
+            $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources {resources} /Annots [5 0 R] >>",
+            $"<< /Length {drawn.Length} >>\nstream\n{drawn}\nendstream",
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>",
-            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /B 7 0 R >> >> /Length 5 >>\nstream\n/B Do\nendstream",
+            $"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /XObject << /{name} 7 0 R >> >> /Length {name.Length + 4} >>\nstream\n/{name} Do\nendstream",
             "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
         });
         using var certificate = SelfSigned();

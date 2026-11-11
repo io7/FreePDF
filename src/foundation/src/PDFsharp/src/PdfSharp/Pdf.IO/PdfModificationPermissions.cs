@@ -753,8 +753,10 @@ namespace PdfSharp.Pdf.IO
             internal HashSet<PdfObjectID> Appearances { get; } = new();
             internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
             // Everything a page's content and resources reach, through form XObjects, fonts, patterns and soft masks
-            // within them, but not its annotations or the page tree: an appearance stream among them is also drawn by
-            // the page. Beyond MaxPageObjects the walk stops, and every appearance counts as drawn by a page.
+            // within them: an appearance stream among them is also drawn by the page. Every entry is followed, whatever
+            // its name (a resource may be called /P or /Parent), but not into a page, the page tree or the catalog, which
+            // would reach the whole document. Beyond MaxPageObjects the walk stops, and every appearance counts as
+            // drawn by a page.
             internal HashSet<PdfObjectID> PageObjects { get; } = new();
             internal bool PageObjectsIncomplete { get; private set; }
             const int MaxPageObjects = 100_000;
@@ -776,15 +778,15 @@ namespace PdfSharp.Pdf.IO
                             PageObjectsIncomplete = true;
                             break;
                         }
-                        if (reference.Value is PdfPage)
-                            continue;
                         item = reference.Value;
+                        if (item is PdfPage || item is PdfDictionary target && NameOf(target, "/Type") is "/Page" or "/Pages" or "/Catalog")
+                            continue;
                     }
                     if (item is PdfDictionary dictionary)
                     {
-                        foreach (var key in dictionary.Elements.Keys)
+                        foreach (var value in dictionary.Elements.Values)
                         {
-                            if (key is not ("/Parent" or "/Annots" or "/P") && dictionary.Elements[key] is { } value)
+                            if (value != null)
                                 pending.Push(value);
                         }
                     }
