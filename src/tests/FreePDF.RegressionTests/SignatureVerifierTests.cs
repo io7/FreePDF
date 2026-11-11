@@ -1605,6 +1605,37 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // The page's resources are the document information dictionary (the trailer's /Info): after the signature an update
+    // rewrites that dictionary to draw another XObject. The information may change after an approval signature, and
+    // that exemption was given although the page draws the dictionary.
+    [Fact]
+    public async Task What_a_page_draws_gets_no_exemption_as_document_information()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources 5 0 R >>",
+            "<< /Length 5 >>\nstream\n/A Do\nendstream",
+            "<< /Title (Report) /XObject << /A 6 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+        }, _ => "/Info 5 0 R");
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        int other = Size(signed);
+        var updated = AppendUpdate(signed,
+        [
+            (5, $"<< /Title (Report) /XObject << /A {other} 0 R >> >>"),
+            (other, "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream"),
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A field whose appearance draws XObject B under the resource name /P, while an editable text field uses B as its own
     // appearance; after the signature an update replaces B. Two walks over what a field or widget refers to skipped the
     // keys /P, /Parent and /Kids in every dictionary, also where they are resource names, so B was not seen as part of
@@ -1620,17 +1651,36 @@ public class SignatureVerifierTests
     [InlineData(false, "page")]
     [InlineData(true, "catalog")]
     [InlineData(false, "catalog")]
+    [InlineData(true, "catalog, reached first through /Z")]
+    [InlineData(false, "parent")]
     public async Task What_a_field_draws_under_the_name_P_belongs_to_it(bool lockedField, string resourcesAre)
     {
-        var resources = resourcesAre switch { "page" => "9 0 R", "catalog" => "1 0 R", _ => "<< /XObject << /P 8 0 R >> >>" };
-        var catalogResources = resourcesAre == "catalog" ? " /XObject << /P 8 0 R >>" : "";
+        // "catalog, reached first through /Z": the locked field also names its appearance under a custom key that the walk
+        // reaches first, where it stopped at the catalog; the appearance was then not walked again. "parent": the empty
+        // signature widget's appearance uses its parent field as resources, where the walk stopped.
+        bool viaZ = resourcesAre.EndsWith("/Z", StringComparison.Ordinal);
+        bool parent = resourcesAre == "parent";
+        var resources = resourcesAre switch
+        {
+            "page" => "9 0 R",
+            "parent" => "9 0 R",
+            _ when resourcesAre.StartsWith("catalog", StringComparison.Ordinal) => "1 0 R",
+            _ => "<< /XObject << /P 8 0 R >> >>",
+        };
+        var catalogResources = resourcesAre.StartsWith("catalog", StringComparison.Ordinal) ? " /XObject << /P 8 0 R >>" : "";
+        var ninth = parent
+            ? "<< /FT /Sig /T (emptyparent) /Kids [5 0 R] /XObject << /P 8 0 R >> >>"
+            : "<< /Type /Page /XObject << /P 8 0 R >> >>";
+        var fifthField = parent ? "9 0 R" : "5 0 R";
         var first = lockedField
-            ? "<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >> >>"
-            : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
+            ? $"<< /Type /Annot /Subtype /Widget /FT /Tx /T (locked) /V (x) /Rect [300 300 400 350] /P 3 0 R /AP << /N 7 0 R >>{(viaZ ? " /Z 7 0 R" : "")} >>"
+            : parent
+                ? "<< /Type /Annot /Subtype /Widget /Parent 9 0 R /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>"
+                : "<< /Type /Annot /Subtype /Widget /FT /Sig /T (empty) /Rect [0 0 612 792] /P 3 0 R /AP << /N 7 0 R >> >>";
         var lockEntry = lockedField ? " /Lock << /Type /SigFieldLock /Action /Include /Fields [(locked)] >>" : "";
         var unsigned = TestPdf.Create(new[]
         {
-            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R 6 0 R] /DA (/Helv 0 Tf 0 g) >>{catalogResources} >>",
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R {fifthField} 6 0 R] /DA (/Helv 0 Tf 0 g) >>{catalogResources} >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R] >>",
             $"<< /Type /Annot /Subtype /Widget /FT /Sig /T (approval) /Rect [36 36 196 76] /P 3 0 R{lockEntry} >>",
@@ -1638,7 +1688,7 @@ public class SignatureVerifierTests
             "<< /Type /Annot /Subtype /Widget /FT /Tx /T (free) /V (y) /Rect [300 400 400 450] /P 3 0 R /AP << /N 8 0 R >> >>",
             $"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources {resources} /Length 5 >>\nstream\n/P Do\nendstream",
             "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
-            "<< /Type /Page /XObject << /P 8 0 R >> >>",
+            ninth,
         });
         using var certificate = SelfSigned();
         var signed = SignExisting(unsigned, certificate, "approval");

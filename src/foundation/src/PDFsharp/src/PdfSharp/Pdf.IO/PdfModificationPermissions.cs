@@ -229,6 +229,9 @@ namespace PdfSharp.Pdf.IO
         static HashSet<PdfObjectID> ReferencedObjects(Snapshot old, PdfDictionary field)
         {
             var result = new HashSet<PdfObjectID>();
+            // An object reached first through another entry, where the walk stops at boundaries, is walked again when what
+            // the field draws reaches it: then nothing stops it.
+            var walkedAsDrawn = new HashSet<PdfObjectID>();
             var pending = new Stack<(PdfItem Item, bool Drawn)>();
             pending.Push((field, false));
             while (pending.Count > 0)
@@ -236,7 +239,10 @@ namespace PdfSharp.Pdf.IO
                 var (item, drawn) = pending.Pop();
                 if (item is PdfReference reference)
                 {
-                    if (!drawn && old.IsBoundary(reference.ObjectID) || !result.Add(reference.ObjectID) || reference.Value is not { } value)
+                    if (drawn ? !walkedAsDrawn.Add(reference.ObjectID) : old.IsBoundary(reference.ObjectID) || result.Contains(reference.ObjectID))
+                        continue;
+                    result.Add(reference.ObjectID);
+                    if (reference.Value is not { } value)
                         continue;
                     if (result.Count > MaxReferencedObjects)
                     {
@@ -270,25 +276,29 @@ namespace PdfSharp.Pdf.IO
             // Without a certification, only the protected objects are restricted.
             if (!Restricted)
                 return;
+            // What a page draws is page content, whatever else it also is (an appearance, the document information, a
+            // field, the catalog serving as resources): no exemption below applies to it. When the walk over what pages
+            // draw stopped at its limit, the exemptions for what could be drawn (appearances, information, metadata,
+            // fields, annotations) are not given either.
+            if (old.PageObjects.Contains(id))
+                throw Refusal($"changing {Describe(oldObject, id)}, which a page draws");
+            bool maybeDrawn = old.PageObjectsIncomplete;
             // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level.
             if (old.DssObjects.Contains(id))
                 return;
 
-            if (old.Fields.ContainsKey(id))
+            if (old.Fields.ContainsKey(id) && !maybeDrawn)
             {
                 Need(2, $"filling in the form field '{old.Fields[id].Name}'");
                 CheckKeys(old, now, oldObject, newObject, $"the form field '{old.Fields[id].Name}'", FieldKeys);
                 return;
             }
-            // Appearance streams that a page also draws, directly or through what it draws, change the page, which falls
-            // under the last rule.
-            bool drawnByPage = old.PageObjectsIncomplete || old.PageObjects.Contains(id);
-            if (old.Appearances.Contains(id) && !drawnByPage)
+            if (old.Appearances.Contains(id) && !maybeDrawn)
             {
                 Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
                 return;
             }
-            if (old.AnnotationAppearances.TryGetValue(id, out var annotationPage) && !drawnByPage)
+            if (old.AnnotationAppearances.TryGetValue(id, out var annotationPage) && !maybeDrawn)
             {
                 Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
                 return;
@@ -296,12 +306,12 @@ namespace PdfSharp.Pdf.IO
 
             // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
             // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
-            if (id == old.Info)
+            if (id == old.Info && !maybeDrawn)
             {
                 Need(2, "changing the document information");
                 return;
             }
-            if (id == old.Metadata)
+            if (id == old.Metadata && !maybeDrawn)
             {
                 Need(2, "changing the document metadata (XMP)");
                 return;
@@ -342,7 +352,7 @@ namespace PdfSharp.Pdf.IO
                 CheckAnnotations(old, now, oldObject as PdfArray, newObject as PdfArray, $"page {pageIndex + 1}");
                 return;
             }
-            if (old.Annotations.TryGetValue(id, out var annotation))
+            if (old.Annotations.TryGetValue(id, out var annotation) && !maybeDrawn)
             {
                 if (annotation.IsWidget)
                 {
@@ -793,7 +803,7 @@ namespace PdfSharp.Pdf.IO
             // Beyond MaxPageObjects the walk stops, and every appearance counts as drawn by a page.
             internal HashSet<PdfObjectID> PageObjects { get; } = new();
             internal bool PageObjectsIncomplete { get; private set; }
-            const int MaxPageObjects = 100_000;
+            const int MaxPageObjects = 1_000_000;
 
             void CollectPageObjects(PdfPage page)
             {

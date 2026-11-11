@@ -197,9 +197,12 @@
     /P could be changed as another field's appearance. What a page, a field or
     a widget draws (its content, resources and appearances) is now followed to
     the end, whatever it reaches: a dictionary that calls itself a page, the
-    catalog or a page used as resources no longer ends the walk. Beyond 100,000
-    objects a page counts as drawing every appearance, a widget counts as
-    changed, and a protected field's update is refused.
+    catalog or a page used as resources no longer ends the walk. What a page
+    draws gets none of the exemptions for later changes, whatever else it also
+    is (an appearance, the document information, a field). Beyond 1,000,000
+    objects reached from pages, or 100,000 from one field or widget, a page
+    counts as drawing every appearance, a widget counts as changed, and a
+    protected field's update is refused.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

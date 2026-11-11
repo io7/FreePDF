@@ -1204,21 +1204,31 @@ namespace PdfSharp.Pdf.Signatures
         // rest is taken as changed.
         static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed)
         {
-            var seen = new HashSet<PdfObjectID>();
-            var pending = new Stack<PdfItem>();
-            pending.Push(widgetItem);
-            // As many parents as a field tree may have (PdfFormField.MaxAncestors), each once: a /Parent that leads back to
-            // itself ends the chain.
+            // The widget and its parents changed themselves (a parent's entries are inherited values): as many parents as
+            // a field tree may have (PdfFormField.MaxAncestors), each once, a /Parent that leads back ending the chain.
+            // Their other entries (kids, page, actions) are not what the widget draws, so they are only checked here.
             var parents = new HashSet<PdfObjectID>();
             if (widgetItem is PdfReference self)
+            {
+                if (changed.Contains(self.ObjectID))
+                    return true;
                 parents.Add(self.ObjectID);
+            }
             for (var parent = widget.Elements["/Parent"]; parent != null && parents.Count <= PdfSharp.Pdf.Forms.PdfFormField.MaxAncestors;)
             {
-                if (parent is PdfReference r && !parents.Add(r.ObjectID))
-                    break;
-                pending.Push(parent);
+                if (parent is PdfReference r)
+                {
+                    if (!parents.Add(r.ObjectID))
+                        break;
+                    if (changed.Contains(r.ObjectID))
+                        return true;
+                }
                 parent = (Resolve(parent) as PdfDictionary)?.Elements["/Parent"];
             }
+            // What the widget draws (/AP, /MK) is followed to the end, whatever it reaches and whatever its entries are
+            // called: a parent field, a page or the catalog may serve as resources. Beyond the limit it counts as changed.
+            var seen = new HashSet<PdfObjectID>();
+            var pending = new Stack<PdfItem>();
             foreach (var key in new[] { "/AP", "/MK" })
             {
                 if (widget.Elements[key] is { } value)
@@ -1233,20 +1243,10 @@ namespace PdfSharp.Pdf.Signatures
                         return true;
                     if (!seen.Add(reference.ObjectID) || reference.Value is not { } value)
                         continue;
-                    // The widget and its parents are checked by whether they changed (a parent's entries are inherited
-                    // values); their other entries (kids, page, actions) are not what the widget draws. What it draws
-                    // (/AP, /MK, pushed above) is followed to the end, whatever it reaches: a page or the catalog may
-                    // serve as resources. Beyond the limit below it counts as changed.
-                    if (parents.Contains(reference.ObjectID))
-                        continue;
                     item = value;
                 }
                 if (item is PdfDictionary dictionaryItem)
                 {
-                    // In anything the widget draws, every entry is followed, whatever its name (a resource may be called
-                    // /P). The widget itself is not walked: what it draws was pushed above.
-                    if (ReferenceEquals(dictionaryItem, widget))
-                        continue;
                     foreach (var child in dictionaryItem.Elements.Values)
                     {
                         if (child != null)
