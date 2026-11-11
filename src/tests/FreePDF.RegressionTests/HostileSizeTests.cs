@@ -318,9 +318,8 @@ public class HostileSizeTests
     // with a different generation each, or a stream. In a classic table the repair kept each entry's generation, so the
     // entries stayed apart and each read and kept the string: 64 copies from a file that holds one. (A stream's entries
     // were already read once.)
-    static byte[] AliasedObjectsFile(bool xrefStream)
+    static byte[] AliasedObjectsFile(bool xrefStream, int aliases = 64, int padding = 0, int length = 256 * 1024)
     {
-        const int aliases = 64;
         using var file = new MemoryStream();
         void Text(string text)
         {
@@ -332,14 +331,15 @@ public class HostileSizeTests
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-            "(" + new string('a', 256 * 1024) + ")",
+            "(" + new string('a', length) + ")",
         };
         var offsets = new long[5];
         Text("%PDF-1.7\n");
         for (int number = 1; number <= 4; number++)
         {
             offsets[number] = file.Position;
-            Text($"{number} 0 obj\n{bodies[number - 1]}\nendobj\n");
+            // Object 4's number may be padded with zeros, which a number may have.
+            Text($"{(number == 4 ? new string('0', padding) : "")}{number} 0 obj\n{bodies[number - 1]}\nendobj\n");
         }
         long xref = file.Position;
         if (!xrefStream)
@@ -374,6 +374,23 @@ public class HostileSizeTests
         file.Write(rowBytes, 0, rowBytes.Length);
         Text($"\nendstream\nendobj\nstartxref\n{xref}\n%%EOF\n");
         return file.ToArray();
+    }
+
+    // 2,048 cross-reference entries that point at one object whose number is padded with 1 MiB of zeros: each entry read
+    // the number at its position again before duplicates were dropped, 2 GiB of scanning (and, with a compressed
+    // cross-reference stream, terabytes from a small file). The number at a position is now read once.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Entries_that_point_at_one_padded_object_read_its_number_once(bool xrefStream)
+    {
+        var pdf = AliasedObjectsFile(xrefStream, aliases: 2048, padding: 1024 * 1024, length: 16);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
+
+        Assert.Single(document.Internals.GetAllObjects().OfType<PdfStringObject>());
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(5), $"took {started.Elapsed}");
     }
 
     [Theory]

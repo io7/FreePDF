@@ -1209,6 +1209,7 @@ public class SignatureVerifierTests
     [Theory]
     [InlineData("[/FlateDecode]", "[null]")]
     [InlineData("null", null)]
+    [InlineData("/FlateDecode", "<< /Predictor 1 /Columns 1 /Colors 1 /BitsPerComponent 8 >>")]
     public async Task A_good_CRL_with_parameters_that_change_nothing_leaves_the_signature_valid(string filter, string? parameters)
     {
         using var pki = new TestPki();

@@ -1554,8 +1554,10 @@ namespace PdfSharp.Pdf.Signatures
                 parameterItem = Resolve(oneParameter.Elements[0]);
             if (parameterItem is PdfNull or PdfNullObject)
                 parameterItem = null;
+            // Parameters that change nothing: no predictor or predictor 1, with only the row description beside it.
             if (parameterItem is PdfDictionary parameters
-                && parameters.Elements.Keys.Any(k => k != "/Predictor" || Number(Resolve(parameters.Elements[k])) != 1))
+                && (parameters.Elements.Keys.Any(k => k is not ("/Predictor" or "/Colors" or "/BitsPerComponent" or "/Columns"))
+                    || parameters.Elements.ContainsKey("/Predictor") && Number(Resolve(parameters.Elements["/Predictor"])) != 1))
             {
                 return null;
             }
@@ -1685,9 +1687,10 @@ namespace PdfSharp.Pdf.Signatures
         {
             // The answer of a verified response about the certificate, or null if the response is not about it, not
             // successful, says unknown, or is not signed by the issuer or a responder the issuer authorized.
-            // claimed: a revocation the response may hold but that cannot be checked, with its time and reason; no time
-            // when FreePDF cannot read the response at all. Otherwise it says revoked, but the response or its delegated
-            // responder's certificate is signed in an algorithm FreePDF does not verify (RSASSA-PSS).
+            // claimed: a revocation the response may hold but that cannot be used, with its time and reason; no time when
+            // FreePDF cannot read the response at all. Otherwise it says the certificate is revoked, and FreePDF cannot use
+            // it for whatever reason: an algorithm it does not verify, a responder it cannot find or does not use, a
+            // signature that fails.
             internal static (DateTimeOffset? RevocationTime, int? Reason, DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate,
                 DateTimeOffset? ArchiveCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer,
                 List<X509Certificate2> known, out (DateTimeOffset? Time, int? Reason)? claimed)
@@ -1880,11 +1883,12 @@ namespace PdfSharp.Pdf.Signatures
 
             // From a complete CRL of the certificate's issuer, signed by it, whose scope includes the certificate: when it
             // was issued, its next update, and when the certificate was revoked, if it is listed; null if the CRL cannot
-            // be used for it. claimed: a revocation the CRL may hold but that cannot be checked, with its time and reason;
-            // no time when FreePDF cannot read the CRL at all. Otherwise the CRL lists the certificate, but its signature
-            // is in an algorithm FreePDF does not verify (RSASSA-PSS) or it is of a kind FreePDF does not handle (a delta
-            // CRL, a scope or a critical extension it does not read). A CRL of another issuer, one whose signature fails,
-            // or one whose scope leaves the certificate out says nothing about it.
+            // be used for it. claimed: a revocation the CRL may hold but that cannot be used, with its time and reason; no
+            // time when FreePDF cannot read the CRL at all. Otherwise the CRL is the issuer's by name and lists the
+            // certificate, and FreePDF cannot use it for whatever reason: an issuer without CRL signing, an algorithm it
+            // does not verify, a signature that fails, a kind it does not handle (a delta CRL, a scope or a critical
+            // extension it does not read). A CRL of another issuer, or one whose scope leaves the certificate out, says
+            // nothing about it.
             internal static (DateTimeOffset ThisUpdate, DateTimeOffset? NextUpdate, DateTimeOffset? RevocationTime, int? Reason,
                 DateTimeOffset? ExpiredCutoff)? Check(byte[] der, X509Certificate2 certificate, X509Certificate2 issuer,
                 out (DateTimeOffset? Time, int? Reason)? claimed)

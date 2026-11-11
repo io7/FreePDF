@@ -103,9 +103,8 @@ namespace PdfSharp.Pdf.Forms
 
             if (drawing.Length == 0)
                 return;
-            // Keep the page's own graphics state from leaking into the drawn fields.
-            page.Contents.PrependContent().CreateStream(PdfEncoders.RawEncoding.GetBytes("q\n"));
-            page.Contents.AppendContent().CreateStream(PdfEncoders.RawEncoding.GetBytes("Q\n" + drawing));
+            // Keep the page's own graphics state from leaking into the drawn fields. The page's content is not decoded.
+            page.WrapContent(PdfEncoders.RawEncoding.GetBytes("q\n"), PdfEncoders.RawEncoding.GetBytes("Q\n" + drawing));
         }
 
         /// <summary>

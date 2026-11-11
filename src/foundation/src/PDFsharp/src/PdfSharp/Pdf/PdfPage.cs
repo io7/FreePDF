@@ -590,6 +590,43 @@ namespace PdfSharp.Pdf
         }
         PdfContents? _contents;
 
+        /// <summary>
+        /// Adds content before and after the page's own without decoding it: its streams stay as they are, so that a small
+        /// file whose content inflates to gigabytes is not inflated. A page whose content was already opened through
+        /// <see cref="Contents"/> gets the new streams through it.
+        /// </summary>
+        internal void WrapContent(byte[] before, byte[] after)
+        {
+            if (_contents != null)
+            {
+                _contents.PrependContent().CreateStream(before);
+                _contents.AppendContent().CreateStream(after);
+                return;
+            }
+            var streams = new PdfArray(Owner);
+            streams.Elements.Add(NewStream(before));
+            var existing = Elements[Keys.Contents];
+            if ((existing is PdfReference { Value: PdfArray } indirect ? (PdfArray)indirect.Value : existing as PdfArray) is { } array)
+            {
+                foreach (var item in array.Elements)
+                    streams.Elements.Add(item);
+            }
+            else if (existing is PdfReference single)
+            {
+                streams.Elements.Add(single);
+            }
+            streams.Elements.Add(NewStream(after));
+            Elements[Keys.Contents] = streams;
+
+            PdfReference NewStream(byte[] data)
+            {
+                var stream = new PdfDictionary(Owner);
+                stream.CreateStream(data);
+                Owner.Internals.AddObject(stream);
+                return stream.Reference!;
+            }
+        }
+
         #region Annotations
 
         /// <summary>

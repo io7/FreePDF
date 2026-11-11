@@ -77,6 +77,11 @@
   names, or a deep field tree whose every level reuses one long name, built
   gigabytes of text. Other messages that name a field are shortened the same
   way.
+- Flattening adds its streams around the page's content without decoding it:
+  a page whose content was Flate applied twice was inflated whole.
+- The object number at a position is read once, however many cross-reference
+  entries point there: a number padded with a megabyte of zeros was scanned
+  again for every entry.
 - Flattening gives an appearance stream without /Subtype the /Subtype /Form it
   needs to be drawn into the page. The check for a missing entry never matched.
 - Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the
@@ -137,7 +142,8 @@
     no certificate as not revoked. Only a response or CRL too large to read
     did; a revoking CRL written this way was skipped, and a good OCSP response
     made the signature Valid. A null filter and parameters that change nothing,
-    such as `/DecodeParms [null]`, are read as none.
+    such as `/DecodeParms [null]` or predictor 1 with its row description, are
+    read as none.
   - An OCSP response or CRL that FreePDF cannot parse, or that says a
     certificate was revoked before the signature but cannot be used for
     whatever reason, keeps that certificate from being shown as not revoked:

@@ -109,11 +109,18 @@ namespace PdfSharp.Pdf.IO
 
         public PdfObjectID ReadObjectNumber(SizeType position)
         {
+            // Read once per position: many cross-reference entries may point at one place, and its number may be padded
+            // with any number of zeros.
+            if ((_objectNumbersAt ??= new()).TryGetValue(position, out var known))
+                return known;
             _lexer.Position = position;
             int objectNumber = ReadInteger();
             int generationNumber = ReadInteger();
-            return new(objectNumber, generationNumber);
+            return _objectNumbersAt[position] = new(objectNumber, generationNumber);
         }
+
+        Dictionary<SizeType, PdfObjectID>? _objectNumbersAt;
+        Dictionary<SizeType, (int, int)>? _checkedEntries;
 
         /// <summary>
         /// Internal function to read PDF object from input stream.
@@ -2324,6 +2331,13 @@ namespace PdfSharp.Pdf.IO
             //           ^
             // The offsets points behind the numbers.
             // Should we handle this wrong case?
+            // Read once per position: many entries may point at one place, and its number may be padded with any number of
+            // zeros.
+            if ((_checkedEntries ??= new()).TryGetValue(position, out var found))
+            {
+                (idChecked, generationChecked) = found;
+                return id == idChecked && generation == generationChecked;
+            }
             SizeType origin = _lexer.Position;
             idChecked = -1;
             generationChecked = -1;
@@ -2338,6 +2352,7 @@ namespace PdfSharp.Pdf.IO
                 Symbol symbol = _lexer.ScanNextToken(false);
                 if (symbol != Symbol.Obj)
                     ParserDiagnostics.ThrowParserException(Invariant($"Invalid entry in XRef table, ID={id} {generation} at position={position}")); // TODO_OLD L10N using PsMsgs
+                _checkedEntries[position] = (idChecked, generationChecked);
 
                 if (id != idChecked || generation != generationChecked)
                     return false;
