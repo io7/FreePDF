@@ -907,7 +907,10 @@ namespace PdfSharp.Pdf.IO
             // A name also covers the fields below it. An unknown action locks everything, the safe reading.
             internal bool Locks(string fieldName)
             {
-                bool listed = _names.Any(name => fieldName == name || fieldName.StartsWith(name + ".", StringComparison.Ordinal));
+                // Without building name + "." for every field: a lock may name a field with a very long name.
+                bool listed = _names.Any(name => fieldName == name
+                                                 || (fieldName.Length > name.Length && fieldName[name.Length] == '.'
+                                                     && fieldName.StartsWith(name, StringComparison.Ordinal)));
                 return _action switch
                 {
                     "/Include" => listed,

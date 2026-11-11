@@ -35,7 +35,14 @@
     (Import mode writes some objects differently from the file) and the result
     is at best Indeterminate.
   - When the DSS inflation budget runs out, what was already read still
-    counts, and the DSS no longer shows a certificate as not revoked.
+    counts. An OCSP response or CRL left unread (too large for an item or for
+    the budget left) makes the DSS show no certificate as not revoked, also
+    after an online check that found nothing new.
+  - A visible empty signature widget whose appearance has more objects than the
+    check of later changes walks (10,000) counts as changed.
+  - Saving a wide outline no longer searches every item's siblings for its
+    position (quadratic), and field locks no longer build a copy of each locked
+    name for every field they test.
   - A form field whose fully qualified name is longer than 4,096 characters
     makes the permission check (and a FreePDF save under a signature's rules)
     fail instead of building every such name.

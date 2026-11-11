@@ -607,7 +607,11 @@ namespace PdfSharp.Pdf
                     Elements[Keys.Parent] = _parent.RequiredReference;
 
                     int count = _parent!._outlines!.Count;
-                    int index = _parent._outlines.IndexOf(this);
+                    // The position the parent gave while preparing its children; searched for only when called otherwise
+                    // (a search per item is quadratic in a wide outline).
+                    int index = _indexInParent >= 0 && _indexInParent < count && ReferenceEquals(_parent._outlines[_indexInParent], this)
+                        ? _indexInParent
+                        : _parent._outlines.IndexOf(this);
                     Debug.Assert(index != -1);
 
                     // Has destination? /Dest is not permitted next to /A (ISO 32000-1 Table 153). An action the
@@ -657,11 +661,16 @@ namespace PdfSharp.Pdf
                 // Prepare child elements.
                 if (hasKids)
                 {
-                    foreach (var outline in _outlines!)
-                        outline.PrepareForSave();
+                    for (int position = 0; position < _outlines!.Count; position++)
+                    {
+                        _outlines[position]._indexInParent = position;
+                        _outlines[position].PrepareForSave();
+                    }
                 }
             }
         }
+
+        int _indexInParent = -1;
 
         PdfArray CreateDestArray()
         {

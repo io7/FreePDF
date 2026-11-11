@@ -953,11 +953,20 @@ namespace PdfSharp.Pdf.Signatures
                     found = (PdfRevocationStatus.Unknown, "The DSS holds more validation data than is read (64 MiB in all); what was not read could revoke the certificate.");
                 if (found.Status == PdfRevocationStatus.Unknown && context.Fetcher is { } fetcher)
                 {
+                    var fetchedOcsps = new List<byte[]>();
+                    var fetchedCrls = new List<byte[]>();
                     if (await fetcher.OcspAsync(certificate, issuer).ConfigureAwait(false) is { } ocsp)
-                        ocsps.Add(ocsp.Response);
+                        fetchedOcsps.Add(ocsp.Response);
                     else
-                        crls.AddRange(await fetcher.CrlsAsync(certificate).ConfigureAwait(false));
-                    found = Revocation(certificate, issuer, ocsps, crls, bestTime, proven, context.ValidationTime, authority);
+                        fetchedCrls.AddRange(await fetcher.CrlsAsync(certificate).ConfigureAwait(false));
+                    // From an incomplete DSS only a revocation counts (it would have shown above): what it holds cannot
+                    // show the certificate not revoked, so only what was fetched can.
+                    if (!context.Dss.Incomplete)
+                    {
+                        fetchedOcsps.AddRange(ocsps);
+                        fetchedCrls.AddRange(crls);
+                    }
+                    found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, bestTime, proven, context.ValidationTime, authority);
                     result._reasons.AddRange(fetcher.Problems);
                     fetcher.Problems.Clear();
                 }
@@ -1149,7 +1158,8 @@ namespace PdfSharp.Pdf.Signatures
             return null;
         }
 
-        // The widget, its parents and everything its /AP and /MK refer to (at most 10000 objects): one of them changed.
+        // The widget, its parents and everything its /AP and /MK refer to: one of them changed. Beyond 10000 objects the
+        // rest is taken as changed.
         static bool DependsOnChanged(PdfItem widgetItem, PdfDictionary widget, HashSet<PdfObjectID> changed)
         {
             var seen = new HashSet<PdfObjectID>();
@@ -1201,7 +1211,8 @@ namespace PdfSharp.Pdf.Signatures
                         pending.Push(child);
                 }
             }
-            return false;
+            // Stopped at the limit with objects left unvisited: one of them may be the change, so it counts as changed.
+            return pending.Count > 0;
         }
 
         // A widget's /Rect with area; any entry that is not a number counts as area, to be safe.
@@ -1426,25 +1437,32 @@ namespace PdfSharp.Pdf.Signatures
             // the budget, also when the result is not used: otherwise one small stream that inflates to just over the limit,
             // referred to thousands of times, costs gigabytes of work. A stream listed under two kinds is read as both (a CRL
             // that is also listed as a certificate is still a CRL).
+            // An OCSP response or CRL left unread for its size, or because the budget ran out, may be the one that revokes: the
+            // DSS then no longer shows anything not revoked. (An unread certificate cannot revoke; at worst a chain is not
+            // found.)
+            bool revocationData = key is "/OCSPs" or "/CRLs";
             var listed = new HashSet<PdfDictionary>();
             foreach (var item in array.Elements)
             {
                 if (Resolve(item) is not PdfDictionary { Stream: { } } stream || !listed.Add(stream))
                     continue;
-                if (!budget.Decoded.TryGetValue(stream, out var data))
+                if (!budget.Decoded.TryGetValue(stream, out var decoded))
                 {
-                    // Out of budget: what was not read may revoke what was, so the DSS no longer shows anything not revoked.
                     if (budget.Left <= 0)
                     {
-                        budget.Incomplete = true;
+                        if (revocationData)
+                            budget.Incomplete = true;
                         continue;
                     }
-                    data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated);
+                    var data = Decode(stream, Math.Min(MaxDssItem, budget.Left), out var inflated, out var tooLarge);
                     budget.Left -= Math.Max(inflated, data?.Length ?? 0);
-                    budget.Decoded[stream] = data;
+                    decoded = (data, tooLarge);
+                    budget.Decoded[stream] = decoded;
                 }
-                if (data != null)
-                    yield return data;
+                if (decoded.TooLarge && revocationData)
+                    budget.Incomplete = true;
+                if (decoded.Data != null)
+                    yield return decoded.Data;
             }
         }
 
@@ -1453,18 +1471,23 @@ namespace PdfSharp.Pdf.Signatures
             internal int Left = MaxDssTotal;
             internal bool Incomplete;
             // PdfDictionary compares by reference.
-            internal readonly Dictionary<PdfDictionary, byte[]?> Decoded = new();
+            internal readonly Dictionary<PdfDictionary, (byte[]? Data, bool TooLarge)> Decoded = new();
         }
 
         // The stream's data when it is unfiltered or plain Flate (what a DSS uses), inflated with a size limit; any other
-        // filter, or Flate with parameters, is not read. Inflated: how many bytes were produced, also when it was too many.
-        static byte[]? Decode(PdfDictionary stream, int limit, out int inflated)
+        // filter, or Flate with parameters, is not read. Inflated: how many bytes were produced, also when it was too many;
+        // tooLarge: the data was not read because it is larger than the limit.
+        static byte[]? Decode(PdfDictionary stream, int limit, out int inflated, out bool tooLarge)
         {
             inflated = 0;
+            tooLarge = false;
             var raw = stream.Stream!.Value;
             var filter = Resolve(stream.Elements["/Filter"]);
             if (filter == null)
-                return raw.Length <= limit ? raw : null;
+            {
+                tooLarge = raw.Length > limit;
+                return tooLarge ? null : raw;
+            }
             bool flate = filter is PdfName { Value: "/FlateDecode" }
                          || filter is PdfArray { Elements.Count: 1 } single && Resolve(single.Elements[0]) is PdfName { Value: "/FlateDecode" };
             // Parameters that change nothing (none, null, an empty dictionary, predictor 1) are plain Flate; predictors are
@@ -1491,7 +1514,10 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     inflated += read;
                     if (output.Length + read > limit)
+                    {
+                        tooLarge = true;
                         return null;
+                    }
                     output.Write(buffer, 0, read);
                 }
                 return output.ToArray();

@@ -1081,6 +1081,102 @@ public class SignatureVerifierTests
         Assert.Equal(PdfRevocationStatus.Revoked, result.Revocation);
     }
 
+    // A good OCSP answer for the signer, then a CRL entry larger than a DSS item may be (16 MiB), which could be the one
+    // that revokes: it was left unread without anything saying so, and the good answer made the signature Valid. Online, a
+    // responder that answers nothing must not let the same partial DSS show it not revoked either. (What the unread entry
+    // holds does not matter: it is never read.)
+    [Theory]
+    [InlineData(PdfRevocationCheck.Document)]
+    [InlineData(PdfRevocationCheck.Online)]
+    public async Task A_revoking_CRL_too_large_to_read_does_not_leave_the_signature_valid(PdfRevocationCheck check)
+    {
+        using var pki = new TestPki();
+        var bt = SignBT(pki);
+        byte[] withOcsp;
+        using (var client = pki.CreateClient())
+        using (var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append))
+        {
+            await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+                new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
+            using var output = new MemoryStream();
+            await document.SaveAsync(output);
+            withOcsp = output.ToArray();
+        }
+        Assert.Equal(PdfSignatureStatus.Valid,
+            (await PdfSignatureVerifier.VerifyAsync(withOcsp, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0].Status);
+
+        using var oversized = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(oversized, System.IO.Compression.CompressionLevel.SmallestSize, true))
+            zlib.Write(new byte[17 * 1024 * 1024]);
+        var withCrl = Update(withOcsp, document =>
+        {
+            var dss = document.Catalog.Elements.GetDictionary("/DSS")!;
+            var crl = new PdfDictionary(document);
+            crl.CreateStream(oversized.ToArray());
+            crl.Elements["/Filter"] = new PdfName("/FlateDecode");
+            document.Internals.AddObject(crl);
+            var crls = dss.Elements.GetArray("/CRLs") ?? new PdfArray(document);
+            crls.Elements.Add(crl.Reference!);
+            dss.Elements["/CRLs"] = crls;
+        });
+        pki.OcspStatus = System.Net.HttpStatusCode.InternalServerError;
+        pki.CrlBody = [];
+
+        using var fetcher = pki.CreateClient();
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(withCrl, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = check,
+            Online = new PdfValidationDataOptions { HttpClient = fetcher },
+        }));
+
+        Assert.NotEqual(PdfRevocationStatus.Good, result.Revocation);
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A visible empty signature widget whose appearance dictionary has more entries than the walk over it visits (10,000):
+    // stopping there reported it unchanged, so a changed appearance beyond the limit went unseen.
+    [Fact]
+    public async Task A_widget_too_large_to_walk_counts_as_changed()
+    {
+        using var certificate = SelfSigned();
+        byte[] signed;
+        using (var document = new PdfDocument())
+        {
+            var page = document.AddPage();
+            var form = document.Catalog.GetOrCreateAcroForm();
+            form.AddSignatureField("empty", page, new XRect(36, 300, 200, 50));
+            var widget = page.Elements.GetArray("/Annots")!.Elements.Select(e => (e as PdfSharp.Pdf.Advanced.PdfReference)?.Value as PdfDictionary)
+                .First(d => d?.Elements.GetString("/T") == "empty")!;
+            var states = new PdfDictionary(document);
+            for (int index = 0; index < 12_000; index++)
+            {
+                var appearance = new PdfDictionary(document);
+                appearance.Elements["/Type"] = new PdfName("/XObject");
+                appearance.Elements["/Subtype"] = new PdfName("/Form");
+                appearance.Elements["/BBox"] = new PdfLiteral("[0 0 200 50]");
+                appearance.CreateStream(Encoding.ASCII.GetBytes("0 0 200 50 re f"));
+                document.Internals.AddObject(appearance);
+                states.Elements[$"/S{index}"] = appearance.Reference!;
+            }
+            var ap = new PdfDictionary(document);
+            ap.Elements["/N"] = states;
+            widget.Elements["/AP"] = ap;
+            DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256),
+                new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40) });
+            using var output = new MemoryStream();
+            document.Save(output);
+            signed = output.ToArray();
+        }
+        var updated = Update(signed, document => PdfDocumentSecurityStore.Add(document, [certificate.RawData]));
+
+        var result = (await PdfSignatureVerifier.VerifyAsync(updated, new PdfSignatureVerificationOptions { TrustedRoots = [certificate] }))
+            .Single(r => r.Intact);
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+        Assert.Contains("visible signature field without a signature", result.UnexpectedChange);
+    }
+
     // A field with a one-million-character name and 5,000 kids added later: the permission check built every kid's full
     // name (gigabytes) before it judged the update.
     [Fact]
