@@ -1605,6 +1605,33 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // A page whose /CropBox holds an indirect number that a text widget also lists as its rollover appearance (/AP /R):
+    // after the signature an update makes that number 100, cropping away what was signed. The walk over what a page draws
+    // did not take in its boxes, so the change passed as a new field appearance.
+    [Fact]
+    public async Task A_page_box_is_page_content()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /CropBox [0 0 7 0 R 792] /Contents 4 0 R /Annots [5 0 R] >>",
+            "<< /Length 15 >>\nstream\n0 0 612 792 re f\nendstream",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R /R 7 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "612",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed, [(7, "100")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // The page's resources are the document information dictionary (the trailer's /Info): after the signature an update
     // rewrites that dictionary to draw another XObject. The information may change after an approval signature, and
     // that exemption was given although the page draws the dictionary.

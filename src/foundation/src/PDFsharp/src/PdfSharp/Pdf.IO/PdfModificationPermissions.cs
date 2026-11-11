@@ -811,20 +811,28 @@ namespace PdfSharp.Pdf.IO
             void CollectPageObjects(PdfPage page)
             {
                 var pending = new Stack<PdfItem>();
-                foreach (var key in new[] { "/Contents", "/Group" })
+                // Every entry of the page but its place in the structure and what it does rather than shows: its content,
+                // resources and group, and also its boxes, rotation and anything else on it (a box may hold an indirect
+                // number that, changed, crops what was signed).
+                foreach (var key in page.Elements.Keys)
                 {
-                    if (page.Elements[key] is { } value)
+                    if (key is not ("/Parent" or "/Annots" or "/B" or "/AA" or "/PresSteps") && page.Elements[key] is { } value)
                         pending.Push(value);
                 }
-                // The resources the page uses: its own, or the nearest ones above it in the page tree.
-                var seenNodes = new HashSet<PdfDictionary>();
-                for (PdfDictionary? node = page; node != null && seenNodes.Add(node) && seenNodes.Count <= 1000;
-                     node = Resolve(node.Elements["/Parent"]) as PdfDictionary)
+                // The attributes it inherits (ISO 32000-1 7.7.3.4) when it does not set them: from the nearest node above.
+                foreach (var key in new[] { "/Resources", "/MediaBox", "/CropBox", "/Rotate" })
                 {
-                    if (node.Elements["/Resources"] is { } resources)
+                    if (page.Elements.ContainsKey(key))
+                        continue;
+                    var seenNodes = new HashSet<PdfDictionary> { page };
+                    for (var node = Resolve(page.Elements["/Parent"]) as PdfDictionary; node != null && seenNodes.Add(node) && seenNodes.Count <= 1000;
+                         node = Resolve(node.Elements["/Parent"]) as PdfDictionary)
                     {
-                        pending.Push(resources);
-                        break;
+                        if (node.Elements[key] is { } inherited)
+                        {
+                            pending.Push(inherited);
+                            break;
+                        }
                     }
                 }
                 while (pending.Count > 0 && !PageObjectsIncomplete)
