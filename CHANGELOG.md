@@ -221,6 +221,15 @@
     certification that permits only form filling. So did a stamp that the form
     also lists as a field: the reader takes such a field off its page's
     /Annots, but a viewer still draws it, and it now keeps the annotation rule.
+  - The exemptions for later changes (a field's or an annotation's
+    appearance, an annotation, the document information, the metadata, as
+    already the validation data) hold only for an object the document reaches
+    through that role alone. A file could list an object that has another
+    role as an appearance and so exempt its change: the page tree's indirect
+    /Kids, through which a page could be replaced; or a stamp's or an empty
+    signature widget's indirect /F flags, which a change from Hidden to 0
+    revealed. The root of the page tree placed in a page's /Annots as a stamp
+    could be rewritten as an annotation.
   - The type of a signature field is looked for through as many parent fields
     as the reader accepts (100), and a type stored as an indirect object
     counts. The check stopped after 32, so the widget of an empty signature

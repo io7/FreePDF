@@ -1693,6 +1693,105 @@ public class SignatureVerifierTests
         Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
     }
 
+    // The page tree's /Kids is an indirect array that a stamp also lists as its rollover appearance (/AP /R). Under a
+    // certification that permits annotations, an update replaces the second, unsigned page through that array. The array
+    // got the annotation-appearance exemption, although the page tree reaches it. (A text widget listing it cannot be
+    // tested: the reader refuses a widget whose /AP entry is an array.)
+    [Fact]
+    public async Task A_kids_array_listed_as_an_appearance_gets_no_exemption()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids 8 0 R /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Stamp /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R /R 8 0 R >> >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R >>",
+            "[3 0 R 7 0 R]",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: PdfCertificationLevel.FormFillingAndAnnotations);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        int page = Size(signed), content = page + 1;
+        var updated = AppendUpdate(signed,
+        [
+            (8, $"[3 0 R {page} 0 R]"),
+            (page, $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content} 0 R >>"),
+            (content, "<< /Length 16 >>\nstream\n0 0 612 792 re f\nendstream"),
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // A full-page black annotation whose flags (/F) are an indirect number 2 (Hidden), which a text widget also lists as
+    // its rollover appearance. After the signature an update makes the number 0, and the annotation shows: a stamp, or a
+    // visible empty signature field, whose check followed only its appearance. The number got the appearance exemption
+    // although the annotation's flags reach it.
+    [Theory]
+    [InlineData("/Stamp", false)]
+    [InlineData("/Stamp", true)]
+    [InlineData("/Widget /FT /Sig /T (empty)", false)]
+    public async Task A_flag_listed_as_an_appearance_gets_no_exemption(string kind, bool certified)
+    {
+        bool emptySignature = kind.Contains("/Sig");
+        var unsigned = TestPdf.Create(new[]
+        {
+            $"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R{(emptySignature ? " 7 0 R" : "")}] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 7 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [300 300 400 350] /P 3 0 R /AP << /N 6 0 R /R 8 0 R >> >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Length 16 >>\nstream\n0 0 612 792 re f\nendstream",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 0 >>\nstream\n\nendstream",
+            $"<< /Type /Annot /Subtype {kind} /F 8 0 R /Rect [0 0 612 792] /P 3 0 R /AP << /N 5 0 R >> >>",
+            "2",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: certified ? PdfCertificationLevel.FormFilling : null);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var updated = AppendUpdate(signed, [(8, "0")]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The page tree's root also lies in a page's /Annots with a /Subtype other than /Widget. Under a certification that
+    // permits annotations, an update rewrites it to put a page before the signed one. The root got the annotation
+    // exemption, which was checked before the page tree's rule, although the catalog reaches it as /Pages.
+    [Fact]
+    public async Task The_page_tree_listed_as_an_annotation_gets_no_exemption()
+    {
+        var unsigned = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Subtype /Stamp /Rect [0 0 0 0] /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Annots [2 0 R] >>",
+            "<< /Length 0 >>\nstream\n\nendstream",
+        });
+        using var certificate = SelfSigned();
+        var signed = SignExisting(unsigned, certificate, certification: PdfCertificationLevel.FormFillingAndAnnotations);
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [certificate] };
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        Assert.Matches(@"/Annots\s*\[\s*2 0 R", Regex.Matches(Latin1(signed), @"(?s)(?<!\d)3 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value);
+        int page = Size(signed), content = page + 1;
+        var updated = AppendUpdate(signed,
+        [
+            (2, $"<< /Type /Pages /Subtype /Stamp /Rect [0 0 0 0] /Kids [{page} 0 R 3 0 R] /Count 2 >>"),
+            (page, $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content} 0 R >>"),
+            (content, "<< /Length 16 >>\nstream\n0 0 612 792 re f\nendstream"),
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
     // A stamp that the form also lists as a text field: under a certification that permits form filling only, an update
     // gives it another appearance. The reader takes such a field off its page's /Annots, so the check saw only a field
     // (which may change /AP from P=2), although a viewer draws the stamp from /Annots. Signed into an existing signature
