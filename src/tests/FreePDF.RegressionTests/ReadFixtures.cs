@@ -9,7 +9,7 @@ static class ReadFixtures
     public static IEnumerable<object[]> Names => All.Keys.Select(name => new object[] { name });
 
     // The fixtures with one revision and a cross-reference table, which a test can extend by hand with an update.
-    public static readonly string[] Plain = ["simple page", "shared content", "shared content array", "semantic", "kinds"];
+    public static readonly string[] Plain = ["simple page", "shared content", "shared content array", "nested pages", "semantic", "kinds"];
 
     public static byte[] Get(string name) => All[name]();
 
@@ -18,6 +18,7 @@ static class ReadFixtures
         ["simple page"] = () => ReaderFixtureData.Get("valid"),
         ["shared content"] = () => PreservationFixtures.SharedContent(false),
         ["shared content array"] = () => PreservationFixtures.SharedContent(true),
+        ["nested pages"] = NestedPages,
         ["semantic"] = PreservationFixtures.Semantic,
         ["kinds"] = Kinds,
         ["two revisions"] = () => ReaderFixtureData.Get("incremental"),
@@ -27,6 +28,18 @@ static class ReadFixtures
     };
 
     static string Stream(string entries, string data) => $"<< {entries} /Length {data.Length} >>\nstream\n{data}\nendstream";
+
+    // Two pages under a node below the root, which the reader keeps as a tree. The pages inherit their media box from
+    // the root.
+    static byte[] NestedPages() => TestPdf.Create(
+    [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 2 /MediaBox [0 0 240 200] >>",
+        "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 5 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 3 0 R /Contents 6 0 R >>",
+        "<< /Type /Page /Parent 3 0 R /Rotate 90 /Contents 6 0 R >>",
+        Stream("", "0 1 0 rg 10 10 20 20 re f"),
+    ]);
 
     // One of each kind of object that the reader gives a class of its own or prepares when it opens a file: pages that
     // inherit from the page tree, text, stamp, link and free-text annotations, a text field, a check box and a field

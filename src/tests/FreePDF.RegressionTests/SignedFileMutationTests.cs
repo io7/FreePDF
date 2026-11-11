@@ -128,15 +128,6 @@ public class SignedFileMutationTests
     // no other change may join it.
     static readonly HashSet<string> KnownUnseen = new(new (string Fixture, int Object, string[] What)[]
     {
-        // The /Parent of a page. (Its place in the page tree, through /Kids, is compared.)
-        ("simple page", 3, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("shared content", 3, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("shared content", 4, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("shared content array", 3, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("shared content array", 4, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("semantic", 3, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("kinds", 3, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
-        ("kinds", 4, ["/Parent 2 -> 3", "/Parent 0 -> 1"]),
         // The pointers of bookmarks that lead back or to the last one: /Last, /Parent and /Prev. (/First, /Next and
         // /Count are compared.) And a colour component above 1, which is read as 1.
         ("kinds", 10, ["/Last 12 -> 13", "/Last 0 -> 1"]),
@@ -147,6 +138,7 @@ public class SignedFileMutationTests
         ("simple page", 10, ["/SigFlags 3 -> 4"]),
         ("shared content", 12, ["/SigFlags 3 -> 4"]),
         ("shared content array", 12, ["/SigFlags 3 -> 4"]),
+        ("nested pages", 13, ["/SigFlags 3 -> 4"]),
     }.SelectMany(known => known.What.Select(what => $"{known.Fixture} | {known.Object} | {what}")));
 
     [Fact]
@@ -167,11 +159,65 @@ public class SignedFileMutationTests
         Assert.True(seenNow.Count == 0, "These changes are seen now; take them off KnownUnseen:\n" + string.Join("\n", seenNow));
     }
 
-    static byte[] Certify(byte[] pdf)
+    // A page has its place in the page tree through /Kids, but a viewer may take what the page inherits (its boxes, its
+    // rotation, its resources) from the node that the page's /Parent names: PDFium, the engine of Chrome's viewer, shows
+    // this page 60 by 60 points and upside down. An update that points /Parent at a new node is therefore a change to
+    // what the page shows: alone, and also next to a change that the signature permits on the same page (a new empty
+    // signature field that shows nothing), which must not carry it along.
+    [Theory]
+    [InlineData(PdfCertificationLevel.NoChanges, false)]
+    [InlineData(PdfCertificationLevel.FormFilling, true)]
+    [InlineData(null, true)]
+    public async Task A_page_given_another_parent_is_seen(PdfCertificationLevel? level, bool withNewSignatureField)
+    {
+        var options = new PdfSignatureVerificationOptions { TrustedRoots = [Certificate.Value] };
+        var signed = Certify(ReadFixtures.Get("shared content"), level);
+        Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(signed, options)).Status);
+        var text = Latin1(signed);
+        var page = Body(text, 3);
+        Assert.Contains("/Parent 2 0 R", page);
+        int node = Size(text), widget = node + 1;
+        var permitted = new List<(int Number, string Body)>();
+        if (withNewSignatureField)
+        {
+            // The page and the form list a new signature field without a signature, hidden and without area.
+            var withWidget = Regex.Replace(page, @"/Annots\s*\[([^\]]*)\]", match => $"/Annots [{match.Groups[1].Value} {widget} 0 R]");
+            Assert.NotEqual(page, withWidget);
+            page = withWidget;
+            var formReference = Regex.Match(Body(text, 1), @"/AcroForm\s+(\d+) 0 R");
+            Assert.True(formReference.Success, "The form is not an object of its own.");
+            var fieldsReference = Regex.Match(Body(text, int.Parse(formReference.Groups[1].Value, CultureInfo.InvariantCulture)), @"/Fields\s+(\d+) 0 R");
+            Assert.True(fieldsReference.Success, "The form's /Fields is not an object of its own.");
+            int fields = int.Parse(fieldsReference.Groups[1].Value, CultureInfo.InvariantCulture);
+            var withField = Regex.Replace(Body(text, fields), @"\]\s*$", $" {widget} 0 R]");
+            Assert.NotEqual(Body(text, fields), withField);
+            permitted.Add((fields, withField));
+            permitted.Add((widget, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (later) /F 2 /Rect [0 0 0 0] /P 3 0 R >>"));
+            // That change alone is permitted.
+            var control = AppendUpdate(signed, text, [(3, page), .. permitted]);
+            Assert.Equal(PdfSignatureStatus.Valid, Assert.Single(await PdfSignatureVerifier.VerifyAsync(control, options)).Status);
+        }
+        var updated = AppendUpdate(signed, text,
+        [
+            (3, page.Replace("/Parent 2 0 R", $"/Parent {node} 0 R")),
+            (node, "<< /Type /Pages /Kids [3 0 R] /Count 1 /CropBox [0 0 60 60] /Rotate 180 >>"),
+            .. permitted,
+        ]);
+
+        var result = Assert.Single(await PdfSignatureVerifier.VerifyAsync(updated, options));
+
+        Assert.NotEqual(PdfSignatureStatus.Valid, result.Status);
+    }
+
+    // The object as the file has it last: signing rewrites some.
+    static string Body(string text, int number)
+        => Regex.Matches(text, $@"(?s)(?<!\d){number} 0 obj\s*(.*?)\s*endobj").Cast<Match>().Last().Groups[1].Value;
+
+    static byte[] Certify(byte[] pdf, PdfCertificationLevel? level = PdfCertificationLevel.NoChanges)
     {
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Append);
         DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(Certificate.Value, PdfMessageDigestType.SHA256),
-            new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Certification = PdfCertificationLevel.NoChanges });
+            new DigitalSignatureOptions { Rectangle = new XRect(36, 36, 160, 40), Certification = level });
         using var output = new MemoryStream();
         document.Save(output);
         return output.ToArray();

@@ -260,6 +260,15 @@
   indirect object. It took the missing entry for a type, so a signed field
   whose /FT /Sig is on its parent did not count as signed: its lock was not
   applied, and adding validation data made the signature Indeterminate.
+- In Append mode a page keeps the /Parent of the file. The reader set it to
+  the root of a flat page tree, so `PdfSignatureVerifier` could not see an
+  update that pointed a page's /Parent at another node. A viewer may take
+  what the page inherits (its boxes, its rotation, its resources) from that
+  node. PDFium, the engine of Chrome's viewer, does: it showed a page of 240
+  by 200 points as 60 by 60 points and upside down, and the signature stayed
+  Valid, also under a "no changes" certification. Also in 7.10.0. The update
+  is now a change to the page, alone and next to a change that the signature
+  permits.
 - The check of later changes has two known limits. `docs/support-policy.md`
   lists them, and tests hold them: a test fails when a case is added and when
   a case is closed.
@@ -268,8 +277,8 @@
     a page's /MediaBox and also its /Annots, and a bookmark that a form widget
     also lists as an appearance.
   - The check does not compare the values that FreePDF sets when it opens a
-    file: a page's /Parent, a bookmark's /Parent, /Prev and /Last, and the
-    /SigFlags of a form that is an object of its own.
+    file: a bookmark's /Parent, /Prev and /Last, and the /SigFlags of a form
+    that is an object of its own.
 - The refusal that a save throws when it would change a signed or locked field
   no longer has the undocumented `FreePDF.Protected` entry in its `Data`.
   Nothing read it.

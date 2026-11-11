@@ -624,8 +624,11 @@ namespace PdfSharp.Pdf
             array.Elements.Clear();
             foreach (var page in pages)
             {
-                // Fix the parent.
-                page.Elements[PdfPage.Keys.Parent] = this;
+                // Fix the parent. In Append mode the page keeps the /Parent of the file, also when it is wrong: an update
+                // that changes it is a change (a viewer may take what the page inherits from the node it names), and
+                // signature checks compare what the file says.
+                if (Document.OpenMode != PdfDocumentOpenMode.Append)
+                    page.Elements[PdfPage.Keys.Parent] = this;
                 array.Elements.Add(page);
             }
 
