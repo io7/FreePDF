@@ -178,4 +178,73 @@ public class FormFlatteningTests
 
         Assert.Null(document.Catalog.GetAcroForm());
     }
+
+    // A page whose content is Flate applied twice (a few kilobytes for 16 MiB): flattening opened the page's content and
+    // so decoded it whole, which a few kilobytes more could make gigabytes. The new streams go around it; it stays encoded.
+    [Fact]
+    public void Flattening_does_not_decode_the_page_content()
+    {
+        byte[] Zlib(byte[] data)
+        {
+            using var output = new MemoryStream();
+            output.WriteByte(0x78);
+            output.WriteByte(0xDA);
+            using (var deflate = new System.IO.Compression.DeflateStream(output, System.IO.Compression.CompressionLevel.Optimal, true))
+                deflate.Write(data, 0, data.Length);
+            output.Write(new byte[4], 0, 4);
+            return output.ToArray();
+        }
+        var content = Zlib(Zlib(new byte[16 * 1024 * 1024]));
+        var text = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>\nendobj\n"
+                   + "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+                   + "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] /Contents 6 0 R >>\nendobj\n"
+                   + "4 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 10 110 30] /P 3 0 R /AP << /N 5 0 R >> >>\nendobj\n"
+                   + "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 20] /Length 15 >>\nstream\n0 0 100 20 re f\nendstream\nendobj\n"
+                   + $"6 0 obj\n<< /Filter [/FlateDecode /FlateDecode] /Length {content.Length} >>\nstream\n";
+        var objects = new List<int>();
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^\d 0 obj"))
+            objects.Add(match.Index);
+        using var file = new MemoryStream();
+        void Write(byte[] bytes) => file.Write(bytes, 0, bytes.Length);
+        Write(TestPdf.Latin1.GetBytes(text));
+        Write(content);
+        Write(TestPdf.Latin1.GetBytes("\nendstream\nendobj\n"));
+        long xref = file.Position;
+        var table = "xref\n0 7\n0000000000 65535 f \n" + string.Concat(objects.Select(offset => $"{offset:D10} 00000 n \n"))
+                    + $"trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n";
+        Write(TestPdf.Latin1.GetBytes(table));
+        using var document = PdfReader.Open(new MemoryStream(file.ToArray()), PdfDocumentOpenMode.Modify);
+
+        document.Flatten();
+
+        var original = document.Internals.GetObject(new PdfObjectID(6)) as PdfDictionary;
+        Assert.NotNull(original?.Elements["/Filter"]);
+        Assert.Equal(content.Length, original!.Stream!.Value.Length);
+        var contents = document.Pages[0].Elements.GetArray("/Contents")!;
+        Assert.Equal(3, contents.Elements.Count);
+        // The streams are read as one: the Q after the page's content starts on its own line.
+        var last = (contents.Elements[2] as PdfSharp.Pdf.Advanced.PdfReference)!.Value as PdfDictionary;
+        Assert.StartsWith("\nQ\n", TestPdf.Latin1.GetString(last!.Stream!.UnfilteredValue));
+    }
+
+    // An appearance stream without /Subtype becomes a form XObject when it is drawn into the page: the check for a missing
+    // /Subtype compared GetName's result with "", but GetName gives "/" for a missing entry.
+    [Fact]
+    public void An_appearance_without_a_subtype_is_drawn_as_a_form_XObject()
+    {
+        var pdf = TestPdf.Create(new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [10 10 110 30] /P 3 0 R /AP << /N 5 0 R >> >>",
+            "<< /BBox [0 0 100 20] /Length 15 >>\nstream\n0 0 100 20 re f\nendstream",
+        });
+        using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Modify);
+
+        document.Flatten();
+
+        var xObjects = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/XObject")!;
+        Assert.Equal("/Form", xObjects.Elements.GetDictionary("/FreePDFField0")!.Elements.GetName("/Subtype"));
+    }
 }

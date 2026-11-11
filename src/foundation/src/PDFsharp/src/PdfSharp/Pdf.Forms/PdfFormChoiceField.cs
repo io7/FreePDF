@@ -34,7 +34,7 @@ namespace PdfSharp.Pdf.Forms
                 ThrowIfReadOnly();
                 var options = ReadOptions();
                 if (value < -1 || value >= options.Count)
-                    throw new ArgumentOutOfRangeException(nameof(value), $"The choice field '{FullName}' has {options.Count} options.");
+                    throw new ArgumentOutOfRangeException(nameof(value), $"The choice field '{ShortFullName()}' has {options.Count} options.");
                 if (value == -1)
                 {
                     Elements.Remove(Keys.V);
@@ -95,7 +95,7 @@ namespace PdfSharp.Pdf.Forms
                     return;
                 }
                 if (!TestFlag(PdfFormFieldFlags.Edit))
-                    throw new ArgumentException($"The choice field '{FullName}' has no option '{value}'.", nameof(value));
+                    throw new ArgumentException($"The choice field '{ShortFullName()}' has no option '{value}'.", nameof(value));
                 ThrowIfReadOnly();
                 SetValueWithAppearance(Content(ReadOptions(), [], value), () =>
                 {

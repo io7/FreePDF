@@ -167,29 +167,61 @@ namespace PdfSharp.Pdf.Forms
             return inset;
         }
 
+        // Widths add up (no kerning), so each word is measured once and the line's width is kept as it grows: measuring
+        // the whole line again for every word made a long value take time that grew with its square.
         static List<string> Wrap(string text, FontWidths widths, double size, double available)
         {
             var lines = new List<string>();
+            double space = widths.Measure(" ", size);
             foreach (var paragraph in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
-                var line = "";
+                var line = new StringBuilder();
+                double lineWidth = 0;
                 foreach (var word in paragraph.Split(' '))
                 {
-                    var candidate = word;
-                    if (line.Length > 0)
-                        candidate = line + " " + word;
-                    if (line.Length > 0 && widths.Measure(candidate, size) > available)
+                    double wordWidth = widths.Measure(word, size);
+                    if (line.Length > 0 && lineWidth + space + wordWidth > available)
                     {
-                        lines.Add(line);
-                        line = word;
+                        lines.Add(line.ToString());
+                        line.Clear().Append(word);
+                        lineWidth = wordWidth;
+                        continue;
                     }
-                    else
-                        line = candidate;
+                    if (line.Length > 0)
+                    {
+                        line.Append(' ');
+                        lineWidth += space;
+                    }
+                    line.Append(word);
+                    lineWidth += wordWidth;
                 }
-                lines.Add(line);
+                lines.Add(line.ToString());
             }
             return lines;
         }
+
+        /// <summary>
+        /// About how many characters the field's appearance takes for each widget: its text, and the operators written for
+        /// each line or option, which are of bounded size (the default appearance's operands are written again as plain
+        /// numbers, and a font name is at most 128 characters). Counted without joining or wrapping the text.
+        /// </summary>
+        internal static long SizePerWidget(PdfFormTextFieldBase field, FieldContent content)
+        {
+            const long perLine = 256;
+            long lines = 1;
+            if (content.Options != null)
+                lines = Math.Max(1, content.Options.Count);
+            else if (field.TestFlag(PdfFormFieldFlags.Multiline))
+                lines += content.Text.Count(c => c is ' ' or '\n' or '\r');
+            return content.TextLength + lines * perLine + 1024;
+        }
+
+        /// <summary>
+        /// The characters read to build the field's appearances once, apart from its widgets: the default appearance,
+        /// which is parsed when the field is checked and when it is drawn, whoever shares it.
+        /// </summary>
+        internal static long SizePerField(PdfFormTextFieldBase field)
+            => 2L * (Inherited(field, "/DA") ?? field.Owner.Catalog.GetAcroForm()?.Elements.GetString("/DA") ?? "").Length;
 
         /// <summary>
         /// Writes the text as a PDF literal string in the font's single-byte (WinAnsi) encoding.
@@ -246,11 +278,19 @@ namespace PdfSharp.Pdf.Forms
                         operands = 3;
                     else if (token == "k")
                         operands = 4;
+                    // The operands are written again as plain numbers: each appearance (and each option of a list box)
+                    // repeats them, so one long operand, such as a number padded with zeros, would be copied many times.
                     if (index >= operands)
-                        color = String.Join(" ", tokens, index - operands, operands + 1);
+                    {
+                        var values = tokens.Skip(index - operands).Take(operands)
+                            .Select(operand => double.TryParse(operand, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0)
+                            .Select(value => value.ToString("0.#####", CultureInfo.InvariantCulture));
+                        color = String.Join(" ", values) + " " + token;
+                    }
                 }
             }
-            return fontName.Length > 0;
+            // A name is at most 127 bytes (ISO 32000-1 Annex C); a longer one would be repeated as long.
+            return fontName.Length is > 1 and <= 128;
         }
 
         static PdfReference? FindFont(PdfFormField field, PdfForm? form, string fontName)
@@ -262,7 +302,7 @@ namespace PdfSharp.Pdf.Forms
 
         static string? Inherited(PdfFormField field, string key)
         {
-            for (PdfFormField? current = field; current != null; current = current.Parent)
+            foreach (var current in field.SelfAndAncestors())
             {
                 var value = current.Elements.GetString(key);
                 if (!String.IsNullOrEmpty(value))
@@ -273,7 +313,7 @@ namespace PdfSharp.Pdf.Forms
 
         static int InheritedInteger(PdfFormField field, string key, PdfForm? form)
         {
-            for (PdfFormField? current = field; current != null; current = current.Parent)
+            foreach (var current in field.SelfAndAncestors())
             {
                 if (current.Elements.TryGetInteger(key, out var value))
                     return value;
@@ -342,6 +382,9 @@ namespace PdfSharp.Pdf.Forms
                 return String.Join("\n", Options);
             }
         }
+
+        /// <summary>The length of <see cref="AllText"/>, without joining the options.</summary>
+        public long TextLength => Options == null ? Text.Length : Options.Sum(option => (long)option.Length) + Math.Max(0, Options.Count - 1);
     }
 
     /// <summary>

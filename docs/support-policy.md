@@ -228,21 +228,60 @@ reported only for valid signatures. A visible empty signature field added or
 changed after a signature makes that signature Indeterminate until the field
 is signed. The appearance streams that filling in a form field writes (which
 ISO 32000 permits after a signature) are not inspected for what they draw.
+Since 7.10.1 an object that a page draws, or that decides how every page shows
+(the catalog's optional content properties and output intents), gets no
+exemption for later changes, whatever other role it also has, and an exemption
+for a role (an appearance, an annotation, the document information or
+metadata, validation data) holds only for an object the document reaches
+through that role alone. Actions and JavaScript are not judged for what they
+would show or hide when run.
+The check of later changes has two known limits. First, it assumes that an
+ordinary producer made the signed revision. A file that was built before
+signing so that one object has two roles can pass a later change to that
+object. Two cases are known. One is an array that is a page's /MediaBox and
+also its /Annots. The other is a bookmark that a form widget also lists as an
+appearance. Second, the check does not compare the values that FreePDF sets
+when it opens a file. These are the /Parent, /Prev and /Last of a bookmark,
+and the /SigFlags of a form that is an object of its own. Since 7.10.1 a page
+keeps the /Parent of the file in Append mode, so the check compares it. A
+viewer may take what a page inherits from the node that /Parent names. In a
+test, PDFium 159.0.8149.0 did, and poppler 25.03.0 and MuPDF 1.25.1 did not.
+Where no change after the signature is acceptable, require `CoversWholeFile`,
+or compare the revisions yourself.
 Since 7.10.1 a file with more than `MaxRevisions` revisions or `MaxSignatures`
 signatures (64 each by default) throws instead of being checked, earlier
 revisions are read one at a time and only where a revision ends, and DSS
 inflation counts against its budget, which bounds the cost of a hostile file.
 Outline items more than 200 levels deep are not read, so a deeply nested outline
-cannot overflow the stack. Other deep nesting (direct arrays and dictionaries,
-chains of indirect stream lengths, form field /Kids) can still overflow the
-stack when a file is opened; see the hardening item in the roadmap. Streams the
-reader inflates while opening a file (cross-reference and object streams) have
-no size limit yet, so a small file can still make opening it use a lot of
-memory. It
+cannot overflow the stack. Since 7.10.1 the reader also refuses arrays and
+dictionaries nested more than 256 levels and form fields nested more than 100,
+does not follow a chain of indirect stream lengths, and bounds every walk up
+through a field's /Parent; a signature check throws when an earlier revision
+is refused that way. XMP metadata over 16 MiB is not read. Known effects of
+these limits: revisions are counted by the `%%EOF` markers in the file, so a
+file that embeds many other PDFs can exceed `MaxRevisions` with one revision;
+field names in results are cut at 1,000 characters; in a signed file with a
+form field name over 4,096 characters, updates after a signature are not
+compared, so that signature is not reported Valid, and FreePDF does not save
+such a file in Append mode; and bookmarks more than 200 levels deep are left out when
+pages are merged or extracted. Since 7.10.1 the
+cross-reference and object streams the reader decodes while opening a file
+decode to at most 64 MiB each, and to at most 256 MiB or 64 times the file's
+size together, counting every filter stage's output, also output a predictor
+then drops or that damaged data cuts short; a file beyond that throws
+`PdfReaderException`. Other streams
+(page content, images, fonts) are decoded only when they are used, without
+such a limit. It
 is a technical check: EU trusted lists,
 qualified status, signature policies and ETSI validation reports are not
 covered, and RSASSA-PSS signatures on certificates, OCSP responses and CRLs are
-not verified.
+not verified. Since 7.10.1 an OCSP response or CRL that FreePDF cannot read,
+parse or verify, and that could revoke a certificate, keeps that certificate
+from being shown as not revoked, so the signature is at best Indeterminate.
+With `PdfRevocationCheck.Online`, a current answer fetched from the issuer's
+responder or CRL can still show a certificate not revoked next to DSS data
+FreePDF could not read (too large, or in a form it does not decode), but not
+next to data it read and could not use.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the

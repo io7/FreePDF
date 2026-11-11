@@ -51,7 +51,7 @@ namespace PdfSharp.Pdf.Forms
                 ThrowIfReadOnly();
                 var widgets = GetWidgets().ToList();
                 if (value < -1 || value >= widgets.Count)
-                    throw new ArgumentOutOfRangeException(nameof(value), $"The radio button group '{FullName}' has {widgets.Count} buttons.");
+                    throw new ArgumentOutOfRangeException(nameof(value), $"The radio button group '{ShortFullName()}' has {widgets.Count} buttons.");
                 var state = "/Off";
                 for (int index = 0; index < widgets.Count; index++)
                 {
@@ -88,7 +88,7 @@ namespace PdfSharp.Pdf.Forms
                 }
                 var index = Options.ToList().IndexOf(value);
                 if (index < 0)
-                    throw new ArgumentException($"The radio button group '{FullName}' has no option '{value}'.", nameof(value));
+                    throw new ArgumentException($"The radio button group '{ShortFullName()}' has no option '{value}'.", nameof(value));
                 SelectedIndex = index;
             }
         }

@@ -2,6 +2,105 @@
 
 ## Unreleased
 
+- Small hostile files no longer overflow the stack when they are opened, in any
+  mode (and so also in `PdfSignatureVerifier`). A stack overflow ends the
+  process; no exception handler stops it. Three structures recursed once per
+  level:
+  - arrays and dictionaries nested inside each other: deeper than 256 levels
+    they are now a parse error (`PdfReaderException`), which also bounds the
+    code that later walks a direct object (writing, decrypting, copying);
+  - a chain of streams whose /Length is the next stream: a /Length read for
+    another stream's /Length is not followed further, and the stream's length is
+    found from `endstream`;
+  - a form whose field tree is thousands of levels deep: a file whose fields
+    with kids nest more than 100 levels deep throws `PdfReaderException` when
+    it is opened (dropping the deeper fields would hide them from signature
+    checks).
+
+  A file of 50,000 nested arrays and a chain of 20,000 stream lengths crashed
+  7.10.0 even in Import mode.
+- More small hostile files that crashed or hung 7.10.0:
+  - a form field whose /Parent is itself: the field's value, flags and full
+    name, and the appearance of a flattened field, followed /Parent without
+    end. Walks up through /Parent now stop at 100 fields and at a field already
+    visited;
+  - a stream whose /Filter is an array that holds itself: a filter array
+    whose entries are not all names is not applied;
+  - 50,000 nested `[` in a content stream read with `ContentReader`: content
+    arrays nest at most 32 levels;
+  - a cross-reference section with a run of `R` tokens where a number belongs:
+    an old fallback in the integer reader recursed once per token. It is
+    removed;
+  - clearing the value of a field that is its own parent, or asking a field
+    without a type of its own for its type.
+- XMP metadata nested more than 64 levels deep is not read (the XML DOM reads
+  and writes it recursively); it stays in the file as it is.
+- XMP metadata is read (to keep a file that claims PDF/A in agreement with its
+  document information) only when it is at most 16 MiB. Its filters are applied
+  one at a time: Flate is inflated up to that limit, any other filter decodes at
+  most 16 KiB, a chain has at most four filters, and decode parameters that
+  change the data (predictors, LZW's /EarlyChange) are not read. A few kilobytes of Flate could inflate to
+  gigabytes when a file was saved or opened in Append mode. Metadata that is not
+  read stays in the file as it is.
+- The cross-reference and object streams the reader decodes while it opens a
+  file decode to at most 64 MiB each, and to at most 256 MiB or 64 times the
+  file's size together; beyond that the file is refused with
+  `PdfReaderException`. Flate and LZW stop at the limit as they decode, at
+  every filter of a chain, and every stage's output counts as it comes out,
+  also what a predictor then drops and what came before damaged data ended
+  the stream: a few hundred bytes of Flate applied twice could inflate to
+  gigabytes before anything was checked.
+- The objects read from an object stream may together span no more bytes than
+  the stream holds. Its header could point many objects at the same bytes, such
+  as one long string, and each was read and kept on its own: 1 MiB read 4,096
+  times is 4 GiB of text.
+- An object in an object stream is read without the token after it (it can
+  have no stream): thousands of objects pointing at one empty array before a
+  long string each scanned that string again.
+- The objects, trailers and cross-reference streams read from a file may
+  together span at most twice the file: objects or trailers written inside one
+  another's strings, each reached by a right cross-reference entry or /Prev,
+  each kept the same long text.
+- A classic cross-reference entry that is repaired (it names another object
+  than the one at its position) takes the generation found there as well as the
+  number. Thousands of entries pointing at one long string, each with another
+  generation, stayed apart and each read and kept the string.
+- The PNG predictor of a stream (/DecodeParms /Predictor 10 to 15) sizes its
+  rows from the data: a few bytes whose /Columns claimed rows of 256 MiB
+  allocated two such rows before reading anything. An incomplete last row is
+  left out instead of failing.
+- A file whose trailer is nested past the reader's limits is refused instead of
+  rebuilt from its objects: the rebuild skipped that trailer and could pick
+  another revision's catalog. Limit refusals met during a rebuild are no longer
+  skipped either.
+- When a form cannot be flattened, the message names the first 10 fields, each
+  shortened to 200 characters, and counts the rest; the names are built only
+  that far. It named every field in full, so a form with thousands of long
+  names, or a deep field tree whose every level reuses one long name, built
+  gigabytes of text. Other messages that name a field are shortened the same
+  way.
+- Flattening adds its streams around the page's content without decoding it:
+  a page whose content was Flate applied twice was inflated whole.
+- The object number at a position is read once, however many cross-reference
+  entries point there, and what the entries' headers span together is limited
+  to twice the file: a number padded with a megabyte of zeros was scanned again
+  for every entry, also for entries pointing one byte further into the zeros
+  each.
+- Flattening refuses forms whose values would make more than 64 Mi characters
+  of new appearances (one long value with thousands of widgets, a list box whose
+  options repeat one long text, or a long default appearance, which each
+  appearance copies), and leaves the document as it was. It counts them before
+  it joins or draws any text. The default appearance's colour operands are
+  written again as plain numbers, and a font name longer than 127 bytes is not
+  used, so each appearance and each list-box option adds a bounded amount. The
+  default appearance each field parses counts too.
+- A content stream that ends inside a literal string ends the string there.
+  The content lexer appended end-of-file characters to it until memory ran
+  out. Wrapping a multiline value measures each word
+  once: it measured the whole line again for every word. Its closing `Q` starts on a new line, so it cannot join
+  the page's last token or comment.
+- Flattening gives an appearance stream without /Subtype the /Subtype /Form it
+  needs to be drawn into the page. The check for a missing entry never matched.
 - Bookmarks with children get the right /Count (ISO 32000-1 12.3.3): the
   number of descendants visible while the item is open, negative while it is
   closed, and on the outline root the number of visible items. FreePDF counted
@@ -45,7 +144,8 @@
     name for every field they test.
   - A form field whose fully qualified name is longer than 4,096 characters
     makes the permission check (and a FreePDF save under a signature's rules)
-    fail instead of building every such name.
+    fail instead of building every such name. Opening a file in Append mode
+    reads no names, so an unsigned file with such a name still opens and saves.
   - A visible empty signature widget whose /Parent leads back to itself no
     longer makes the check allocate until memory runs out.
   - Every byte inflated from the DSS counts against its 64 MiB budget, also
@@ -54,6 +154,134 @@
     read as a CRL).
   - The DSS of the revision a document time-stamp covers is read once per
     time-stamp, one at a time.
+  - An OCSP response or CRL in a form the DSS reader does not read (a filter
+    other than plain Flate, or Flate with a predictor) also makes the DSS show
+    no certificate as not revoked. Only a response or CRL too large to read
+    did; a revoking CRL written this way was skipped, and a good OCSP response
+    made the signature Valid. A null filter and parameters that change nothing,
+    such as `/DecodeParms [null]` or predictor 1 with its row description, are
+    read as none.
+  - An OCSP response or CRL that FreePDF cannot parse, or that says a
+    certificate was revoked before the signature but cannot be used for
+    whatever reason, keeps that certificate from being shown as not revoked:
+    signed with an algorithm FreePDF does not verify (such as RSASSA-PSS), by
+    a responder it cannot find (its certificate may be only in the DSS, or in
+    the response among others with the same name, as after a key rollover) or
+    does not use (a delegated responder without id-pkix-ocsp-nocheck), with a
+    signature that fails, or of a kind it does not handle (a delta CRL, a CRL
+    scope, partition or critical extension it does not read or cannot match
+    to the certificate). Such data was dropped as if it said nothing, so a good
+    answer of the other kind made the signature Valid. A forged entry can now
+    only make a result worse. A revocation dated after the signature leaves it
+    as it was. A responder is looked for among all the response's certificates
+    and the DSS's.
+  - A CRL's issuer name is compared with the issuer's as RFC 5280 7.1 does,
+    whatever string type or Unicode form encodes the same text, and a CRL that
+    lists the certificate and was signed with the issuer's key is the issuer's
+    whatever name it gives. A revoking CRL whose name used UTF8String where the
+    certificate used PrintableString was taken for another issuer's and
+    dropped. An OCSP response's issuer name hash is matched against the issuer
+    name as the checked certificate writes it (RFC 6960 4.1.1), or the
+    issuer's own. A CRL that lists the certificate keeps it from being shown as
+    not revoked whatever FreePDF makes of the CRL's scope: a partition whose
+    distribution point differed from the certificate's only in the host name's
+    case was taken to leave it out.
+  - An appearance stream that the page also draws, through another form
+    XObject, a font, a pattern or a soft mask, counts as page content: changing
+    it after a signature is not form filling. Only the XObjects the page named
+    itself counted, so a field appearance that a nested XObject also drew could
+    change the signed page and leave the signature Valid. The walks over what a
+    page, a signed or locked field, or an empty signature widget draws follow
+    every entry whatever its name: they skipped /P, /Parent and /Kids
+    everywhere, also where these are resource names, so an XObject drawn as
+    /P could be changed as another field's appearance. What a page, a field or
+    a widget draws (its content, resources and appearances) is now followed to
+    the end, whatever it reaches: a dictionary that calls itself a page, the
+    catalog or a page used as resources no longer ends the walk. A page's
+    boxes, rotation and other entries (and those it inherits) count as what it
+    draws, but not its place in the document (the page tree, separations, the
+    document part), annotations, beads, actions or private application data. So
+    do the catalog's optional content properties, which decide what is visible,
+    and its output intents. What a page
+    draws gets none of the exemptions for later changes, whatever else it also
+    is (an appearance, the document information, a field, validation data).
+    Beyond 1,000,000 objects reached from pages, 100,000 from a protected field
+    or 10,000 from an empty signature widget, a page counts as drawing every
+    appearance and DSS object, the protected field's update is refused, and the
+    widget counts as changed.
+  - The catalog, the form, a page and the page-tree nodes keep their rules
+    whatever other role a file also gives them (a field's or an annotation's
+    appearance, the document information, the metadata): those exemptions were
+    checked first, so a page-tree root also listed as a text field's rollover
+    appearance could be replaced with one that adds a page. What an annotation
+    other than a widget draws, followed to the end, may change only where
+    annotations may, also where it is an editable field's appearance: a stream
+    a stamp shared with such a field, directly or through a nested XObject,
+    passed as form filling after an approval signature and under a
+    certification that permits only form filling. So did a stamp that the form
+    also lists as a field: the reader takes such a field off its page's
+    /Annots, but a viewer still draws it, and it now keeps the annotation rule.
+  - The exemptions for later changes (a field's or an annotation's
+    appearance, an annotation, the document information, the metadata, as
+    already the validation data) hold only for an object the document reaches
+    through that role alone. A file could list an object that has another
+    role as an appearance and so exempt its change: the page tree's indirect
+    /Kids, through which a page could be replaced; or a stamp's or an empty
+    signature widget's indirect /F flags, which a change from Hidden to 0
+    revealed. The root of the page tree placed in a page's /Annots as a stamp
+    could be rewritten as an annotation. The page tree's indirect /Kids arrays
+    count as the page tree, also where a file makes one a page's /Annots.
+  - A page's annotations that stay must keep their order (a later one is drawn
+    over an earlier one); a new order needs the annotation level. The order was
+    not compared, so a stamp moved after a filled-in field could cover it and
+    leave the signature Valid.
+  - The checks that tell the roles apart no longer fail on a resource map with
+    entries named /AP and /Subtype. The structure tree is walked when they look
+    for other ways to an annotation (only its references to annotations are
+    left out): its root, also placed in /Annots as a stamp, could otherwise be
+    rewritten as an annotation.
+- Opening a file no longer resets a text annotation's icon (/Name) to Comment
+  or a stamp's colour (/C) to yellow; saving wrote the reset values, and
+  `PdfSignatureVerifier` could not see an update that changed them. In Append
+  mode the page tree's root keeps the /Count of the file, so a later update
+  that changes it is a change.
+  - The type of a signature field is looked for through as many parent fields
+    as the reader accepts (100), and a type stored as an indirect object
+    counts. The check stopped after 32, so the widget of an empty signature
+    field whose /FT /Sig sat higher up could draw over the signed page
+    unreported.
+  - A limit refusal met while reading an earlier revision's stream /Length is
+    recognised as one, and the check throws. It was wrapped as an ordinary read
+    error, and the revision, which may hold a signature a later update removed,
+    was skipped.
+- The permission check of later changes (in `PdfSignatureVerifier`, and in a
+  FreePDF save under a signature's rules) inherits a field's type from its
+  parent when the field has no /FT of its own, and reads a type stored as an
+  indirect object. It took the missing entry for a type, so a signed field
+  whose /FT /Sig is on its parent did not count as signed: its lock was not
+  applied, and adding validation data made the signature Indeterminate.
+- In Append mode a page keeps the /Parent of the file. The reader set it to
+  the root of a flat page tree, so `PdfSignatureVerifier` could not see an
+  update that pointed a page's /Parent at another node. A viewer may take
+  what the page inherits (its boxes, its rotation, its resources) from that
+  node. PDFium, the engine of Chrome's viewer, does: it showed a page of 240
+  by 200 points as 60 by 60 points and upside down, and the signature stayed
+  Valid, also under a "no changes" certification. Also in 7.10.0. The update
+  is now a change to the page, alone and next to a change that the signature
+  permits.
+- The check of later changes has two known limits. `docs/support-policy.md`
+  lists them, and tests hold them: a test fails when a case is added and when
+  a case is closed.
+  - A file that was built before signing so that one object has two roles can
+    pass a later change to that object. Two cases are known: an array that is
+    a page's /MediaBox and also its /Annots, and a bookmark that a form widget
+    also lists as an appearance.
+  - The check does not compare the values that FreePDF sets when it opens a
+    file: a bookmark's /Parent, /Prev and /Last, and the /SigFlags of a form
+    that is an object of its own.
+- The refusal that a save throws when it would change a signed or locked field
+  no longer has the undocumented `FreePDF.Protected` entry in its `Data`.
+  Nothing read it.
 
 ## 7.10.0
 

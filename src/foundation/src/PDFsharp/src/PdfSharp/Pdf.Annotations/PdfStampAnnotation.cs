@@ -36,7 +36,8 @@ namespace PdfSharp.Pdf.Annotations
         internal PdfStampAnnotation(PdfDictionary dict)
             : base(dict)
         {
-            Initialize();
+            // Read from a file: its colour stays as it is (it was reset to yellow, which changed the file on saving and
+            // hid a later change from signature checks).
         }
 
         void Initialize()

@@ -171,6 +171,18 @@ namespace PdfSharp.Pdf.Metadata
             try
             {
                 var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+                // XMP nests a few levels. A packet nested deeper is not read: the XML DOM walks children recursively
+                // (reading an element's text, writing the packet back), and a hostile packet nested tens of thousands of
+                // levels deep would overflow the stack, which no exception handler stops. The reader used to check is not
+                // recursive.
+                using (var scan = XmlReader.Create(new StringReader(body), settings))
+                {
+                    while (scan.Read())
+                    {
+                        if (scan.Depth > MaxXmlDepth)
+                            return null;
+                    }
+                }
                 using var reader = XmlReader.Create(new StringReader(body), settings);
                 document.Load(reader);
                 return document;
@@ -180,6 +192,8 @@ namespace PdfSharp.Pdf.Metadata
                 return null;
             }
         }
+
+        const int MaxXmlDepth = 64;
 
         static XmlElement? FindRdf(XmlDocument document)
             => document.GetElementsByTagName("RDF", Rdf).Cast<XmlElement>().FirstOrDefault();

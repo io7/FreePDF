@@ -628,9 +628,11 @@ namespace PdfSharp.Pdf.Content
                     }
                     _token.Append(ch);
                     chHi = ScanNextChar();
-                    if (chHi == ')')
+                    if (chHi == ')' || chHi == Chars.EOF)
                     {
-                        ScanNextChar();
+                        // At the end of the content the string ends too.
+                        if (chHi == ')')
+                            ScanNextChar();
                         return Symbol = CSymbol.String;
                     }
                     chLo = ScanNextChar();
@@ -651,6 +653,11 @@ namespace PdfSharp.Pdf.Content
                 SkipChar:
                     switch (ch)
                     {
+                        case Chars.EOF:
+                            // The content ends inside the string: what was read is the string. Reading on appended EOF
+                            // characters without end.
+                            return Symbol = CSymbol.String;
+
                         case '(':
                             parenLevel++;
                             break;

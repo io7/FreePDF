@@ -50,7 +50,7 @@ namespace PdfSharp.Pdf.Forms
             if (!canBuild && PdfSharp.Pdf.PdfA.PdfAManager.ForDocument(Owner).IsPdfADocument)
             {
                 throw new InvalidOperationException(
-                    $"The value of form field '{FullName}' cannot be shown in this PDF/A document: its default appearance " +
+                    $"The value of form field '{ShortFullName()}' cannot be shown in this PDF/A document: its default appearance " +
                     "needs a font in the form's resources that can encode the text, and PDF/A does not allow NeedAppearances.");
             }
             setValue();
@@ -66,7 +66,7 @@ namespace PdfSharp.Pdf.Forms
         internal void ThrowIfReadOnly()
         {
             if (IsReadOnly)
-                throw new InvalidOperationException($"The form field '{FullName}' is read only.");
+                throw new InvalidOperationException($"The form field '{ShortFullName()}' is read only.");
         }
     }
 }

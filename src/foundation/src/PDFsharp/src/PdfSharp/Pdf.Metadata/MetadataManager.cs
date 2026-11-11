@@ -3,7 +3,9 @@
 
 using PdfSharp.Events;
 using PdfSharp.Pdf.Advanced;
+using PdfSharp.Pdf.Filters;
 using PdfSharp.Pdf.Internal;
+using PdfSharp.Pdf.IO;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Logging;
 
@@ -187,6 +189,90 @@ namespace PdfSharp.Pdf.Metadata
 
         bool HasInfoEntry(string key) => Document.Info.Elements.ContainsKey(key);
 
+        // XMP is text of a few kilobytes. A larger packet is not read: a small compressed stream could inflate to gigabytes
+        // while a file is opened or saved.
+        const int MaxPacketBytes = 16 * 1024 * 1024;
+        // A filter other than Flate decodes its input whole, so it gets only a small one: 16 KiB of LZW decodes to some
+        // tens of megabytes at most, the other filters to less.
+        const int MaxOtherFilterInput = 16 * 1024;
+        const int MaxFilters = 4;
+
+        // The packet's bytes, or null when it is not read. The filters are applied one at a time, each bounded: Flate is
+        // inflated up to MaxPacketBytes, another filter decodes at most MaxOtherFilterInput bytes, and no stage may give
+        // more than MaxPacketBytes (two Flate filters in a row would otherwise multiply their ratios). Decode parameters
+        // (predictors) are not read: their row sizes come from the file.
+        static byte[]? PacketBytes(PdfMetadata metadata)
+        {
+            if (metadata.Stream is not { } stream)
+                return null;
+            var data = stream.Value;
+            var filterItem = Resolve(metadata.Elements["/Filter"]);
+            var filters = filterItem switch
+            {
+                null => new List<PdfItem?>(),
+                PdfArray array => array.Elements.Select(Resolve).ToList(),
+                _ => new List<PdfItem?> { filterItem },
+            };
+            if (filters.Count > MaxFilters || !WithoutParameters(Resolve(metadata.Elements["/DecodeParms"])))
+                return null;
+            foreach (var filter in filters)
+            {
+                if (PdfModificationPermissions.NameValue(filter) is not { } name)
+                    return null;
+                if (name == "/FlateDecode")
+                    data = InflateBounded(data, MaxPacketBytes);
+                else if (data.Length <= MaxOtherFilterInput)
+                    data = Filtering.Decode(data, name);
+                else
+                    return null;
+                if (data == null || data.Length > MaxPacketBytes)
+                    return null;
+            }
+            return data.Length <= MaxPacketBytes ? data : null;
+
+            static PdfItem? Resolve(PdfItem? item)
+            {
+                if (item is PdfReference reference)
+                    item = reference.Value;
+                return item is PdfNull or PdfNullObject ? null : item;
+            }
+
+            // No parameters, or only ones that change nothing: null, or a dictionary without a predictor (or with predictor
+            // 1) and no other entry that matters (LZW's /EarlyChange does).
+            static bool WithoutParameters(PdfItem? parameters) => parameters switch
+            {
+                PdfArray array => array.Elements.All(entry => NoEffect(Resolve(entry))),
+                _ => NoEffect(parameters),
+            };
+
+            static bool NoEffect(PdfItem? parameters) => parameters switch
+            {
+                null => true,
+                PdfDictionary dictionary => dictionary.Elements.Keys.All(key => key is "/Predictor" or "/Colors" or "/BitsPerComponent" or "/Columns")
+                                            && dictionary.Elements.GetInteger("/Predictor") <= 1,
+                _ => false,
+            };
+        }
+
+        // zlib data (a two-byte header, then Deflate) inflated up to limit bytes; null when it is larger.
+        static byte[]? InflateBounded(byte[] zlib, int limit)
+        {
+            if (zlib.Length < 2)
+                return null;
+            using var input = new MemoryStream(zlib, 2, zlib.Length - 2, false);
+            using var inflater = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            var buffer = new byte[81920];
+            int read;
+            while ((read = inflater.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (output.Length + read > limit)
+                    return null;
+                output.Write(buffer, 0, read);
+            }
+            return output.ToArray();
+        }
+
         // The packet as text: UTF-8, or UTF-16 with a byte order mark, as XMP in PDF allows; null if it is empty or
         // its stream cannot be decoded (a damaged or unknown filter), so that such a file still saves.
         internal static string? ReadPacket(PdfMetadata metadata)
@@ -194,7 +280,7 @@ namespace PdfSharp.Pdf.Metadata
             byte[]? bytes;
             try
             {
-                bytes = metadata.Stream?.UnfilteredValue;
+                bytes = PacketBytes(metadata);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {

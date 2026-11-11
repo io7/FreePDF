@@ -624,8 +624,11 @@ namespace PdfSharp.Pdf
             array.Elements.Clear();
             foreach (var page in pages)
             {
-                // Fix the parent.
-                page.Elements[PdfPage.Keys.Parent] = this;
+                // Fix the parent. In Append mode the page keeps the /Parent of the file, also when it is wrong: an update
+                // that changes it is a change (a viewer may take what the page inherits from the node it names), and
+                // signature checks compare what the file says.
+                if (Document.OpenMode != PdfDocumentOpenMode.Append)
+                    page.Elements[PdfPage.Keys.Parent] = this;
                 array.Elements.Add(page);
             }
 
@@ -636,9 +639,10 @@ namespace PdfSharp.Pdf
             Debug.Assert(ReferenceEquals(Elements.GetRequiredObject(Keys.Kids).Reference, array.Reference));
             Elements.SetValue(Keys.Kids, array);  // TODO DELETE
 
-            var count = Elements.GetInteger(Keys.Count);
-            Debug.Assert(count == array.Elements.Count);
-            Elements.SetInteger(Keys.Count, array.Elements.Count);
+            // In Append mode the root keeps the /Count of the file, also when it is wrong: an update that changes it is
+            // a change (a viewer may show that many pages), and signature checks compare what the file says.
+            if (Document.OpenMode != PdfDocumentOpenMode.Append)
+                Elements.SetInteger(Keys.Count, array.Elements.Count);
 
             // Every page now has the values it inherits from the root, so the root does not need them, and pages added
             // later would inherit them although they do not have them (a new page came out rotated, for example). Only
@@ -919,9 +923,9 @@ namespace PdfSharp.Pdf
             // Save the pages array.
             _flattenedPages = new PdfPageTreeNodes(pages);
 
-            var count = Elements.GetInteger(Keys.Count);
-            Debug.Assert(count == pages.Count);
-            Elements.SetInteger(Keys.Count, pages.Count);
+            // In Append mode the root keeps the /Count of the file (see FlattenPageTree).
+            if (Document.OpenMode != PdfDocumentOpenMode.Append)
+                Elements.SetInteger(Keys.Count, pages.Count);
 
             return;
 

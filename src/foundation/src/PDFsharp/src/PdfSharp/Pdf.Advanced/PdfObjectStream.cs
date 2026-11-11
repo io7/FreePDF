@@ -47,8 +47,14 @@ namespace PdfSharp.Pdf.Advanced
             byte[]? data;
             try
             {
-                Stream?.TryUncompress();
-                data = Stream?.UnfilteredValue;
+                // Decoded within the reader's limits, and kept decoded, as TryUncompress did for Flate and LZW.
+                data = Stream == null ? null : documentParser.StructuralData(this);
+                if (data != null && Elements.ContainsKey("/Filter"))
+                {
+                    Elements.Remove("/Filter");
+                    Elements.Remove("/DecodeParms");
+                    Stream!.Value = data;
+                }
             }
             catch (Exception ex) when (ex is not PdfSharp.Pdf.IO.PdfReaderException)
             {

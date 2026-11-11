@@ -51,10 +51,17 @@ namespace PdfSharp.Pdf.Filters
             {
                 if (bpc != 1 && bpc != 2 && bpc != 4 && bpc != 8 && bpc != 16)
                     throw new PdfReaderException("Invalid number of bits per component");
-                var stride = (bpc * colors * columns + 7) / 8;
-                var rows = data.Length / (stride + 1);
+                // Rows are only as long as the data holds: /Colors and /Columns come from the file, and buffers sized from
+                // them alone let a few bytes allocate gigabytes. An incomplete last row is left out.
+                // bpc × colors fits a long (at most 16 × int.MaxValue); times columns it may not, and then the row is
+                // larger than any data.
+                long bitsPerPixel = (long)bpc * colors;
+                long stride = bitsPerPixel > (long.MaxValue - 7) / columns ? long.MaxValue : (bitsPerPixel * columns + 7) / 8;
+                if (stride >= data.Length)
+                    return [];
+                var rows = (int)(data.Length / (stride + 1));
                 var unfilteredData = new byte[rows * stride];
-                PngFilter.Unfilter(stride, (bpc * colors + 7) / 8, data, unfilteredData);
+                PngFilter.Unfilter((int)stride, (int)((bitsPerPixel + 7) / 8), rows, data, unfilteredData);
                 return unfilteredData;
             }
 

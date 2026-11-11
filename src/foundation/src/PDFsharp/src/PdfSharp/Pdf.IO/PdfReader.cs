@@ -355,14 +355,15 @@ namespace PdfSharp.Pdf.IO
                 {
                     _document.Trailer = parser.ReadTrailer();
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                // A refusal for FreePDF's limits is not damage to repair: a rebuild could choose another revision's trailer.
+                catch (Exception ex) when (ex is not OutOfMemoryException && !Parser.IsLimitExceeded(ex))
                 {
                     _logger.LogWarning(ex, "The cross-reference information cannot be read; rebuilding it from the objects in the file.");
                     try
                     {
                         _document.Trailer = parser.RebuildCrossReferences();
                     }
-                    catch (Exception rebuildException) when (rebuildException is not OutOfMemoryException)
+                    catch (Exception rebuildException) when (rebuildException is not OutOfMemoryException && !Parser.IsLimitExceeded(rebuildException))
                     {
                         throw new PdfReaderException(
                             $"{ex.Message} Rebuilding the cross-reference information from the objects failed too: {rebuildException.Message}", ex);

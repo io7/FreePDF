@@ -42,7 +42,7 @@ namespace PdfSharp.Pdf.IO
             }
 
             // Signed signature fields: the FieldMDP and DocMDP references of their signatures, and their locks.
-            foreach (var field in Fields(document))
+            foreach (var field in Fields(document, names: false))
             {
                 if (!IsSigned(field, out var signature))
                     continue;
@@ -143,8 +143,8 @@ namespace PdfSharp.Pdf.IO
             // ISO 32000-2 12.8.4.3 and 12.8.5 and ETSI EN 319 142-1 (B-LT, B-LTA) add after the signatures; the rules
             // below allow nothing else at P=1.
             using var before = PdfReader.Open(new MemoryStream(original, false), password, PdfDocumentOpenMode.Import);
-            var old = new Snapshot(before);
-            var now = new Snapshot(document);
+            var old = new Snapshot(before, forExemptions: true);
+            var now = new Snapshot(document, forExemptions: false);
 
             // Signed signature fields and locked fields cannot change at all: the field, the fields above it, its
             // widgets and their appearances. Nor can they be removed from the form or their pages.
@@ -218,37 +218,56 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
-        // The indirect objects a field node refers to, directly or through others. It does not follow /Parent, /P
-        // (the page), /Kids or /Data (a signature reference's document), and stops at pages, the page tree, the
-        // catalog, the form, other field nodes and other annotations, which have rules of their own.
+        const int MaxReferencedObjects = 100_000;
+
+        // The indirect objects a field node refers to, directly or through others. The field node's own /Parent, /P (the
+        // page) and /Kids are not followed. What it draws (/AP, /MK) is followed to the end, whatever it reaches: a page,
+        // the catalog or another field may serve as resources, and stopping there could leave out what is drawn. Its
+        // other entries (its value, lock) stop at pages, the page tree, the catalog, the form, other field nodes and other
+        // annotations, which have rules of their own (a signature reference's /Data is the catalog). A field that
+        // reaches more than MaxReferencedObjects is refused: what it protects cannot all be told.
         static HashSet<PdfObjectID> ReferencedObjects(Snapshot old, PdfDictionary field)
         {
             var result = new HashSet<PdfObjectID>();
-            var pending = new Stack<PdfItem>();
-            pending.Push(field);
+            // An object reached first through another entry, where the walk stops at boundaries, is walked again when what
+            // the field draws reaches it: then nothing stops it.
+            var walkedAsDrawn = new HashSet<PdfObjectID>();
+            var pending = new Stack<(PdfItem Item, bool Drawn)>();
+            pending.Push((field, false));
             while (pending.Count > 0)
             {
-                var item = pending.Pop();
+                var (item, drawn) = pending.Pop();
                 if (item is PdfReference reference)
                 {
-                    if (old.IsBoundary(reference.ObjectID) || !result.Add(reference.ObjectID) || reference.Value is not { } value)
+                    if (drawn ? !walkedAsDrawn.Add(reference.ObjectID) : old.IsBoundary(reference.ObjectID) || result.Contains(reference.ObjectID))
                         continue;
-                    pending.Push(value);
+                    result.Add(reference.ObjectID);
+                    if (reference.Value is not { } value)
+                        continue;
+                    if (result.Count > MaxReferencedObjects)
+                    {
+                        throw Refused($"A protected form field refers to more than {MaxReferencedObjects} objects.",
+                            "a protected form field that refers to more objects than FreePDF follows");
+                    }
+                    pending.Push((value, drawn));
                 }
                 else if (item is PdfDictionary dictionary)
                 {
+                    // The field's own /Parent, /P and /Kids are structure when it is walked as the field; reached again as
+                    // something the field draws (its appearance may use it as resources), every entry is followed.
+                    bool isField = ReferenceEquals(dictionary, field) && !drawn;
                     foreach (var key in dictionary.Elements.Keys)
                     {
-                        if (key is "/Parent" or "/P" or "/Kids" or "/Data")
+                        if (isField && key is "/Parent" or "/P" or "/Kids")
                             continue;
                         if (dictionary.Elements[key] is { } child)
-                            pending.Push(child);
+                            pending.Push((child, drawn || isField && key is "/AP" or "/MK"));
                     }
                 }
                 else if (item is PdfArray array)
                 {
                     foreach (var child in array.Elements)
-                        pending.Push(child);
+                        pending.Push((child, drawn));
                 }
             }
             return result;
@@ -259,58 +278,52 @@ namespace PdfSharp.Pdf.IO
             // Without a certification, only the protected objects are restricted.
             if (!Restricted)
                 return;
-            // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level.
-            if (old.DssObjects.Contains(id))
+            // What a page draws is page content, whatever else it also is (an appearance, the document information, a
+            // field, the catalog serving as resources): no exemption below applies to it. When the walk over what pages
+            // draw stopped at its limit, the exemptions for what could be drawn (appearances, information, metadata,
+            // fields, annotations) are not given either.
+            if (old.PageObjects.Contains(id))
+                throw Refusal($"changing {Describe(oldObject, id)}, which a page draws");
+            bool maybeDrawn = old.PageObjectsIncomplete;
+            // The document security store's own objects (ISO 32000-2 12.8.4.3) may change at every level, unless a page
+            // could draw them (the walk over what pages draw stopped at its limit).
+            if (old.DssObjects.Contains(id) && !maybeDrawn)
                 return;
 
-            if (old.Fields.ContainsKey(id))
+            // An annotation other than a widget, and what it draws, may change only where annotations may (P=3), also where
+            // it is a field, a widget, a field's appearance, the document information or the metadata, which may change from
+            // P=2.
+            bool annotationDrawn = old.AnnotationAppearances.TryGetValue(id, out var annotationPage);
+            string annotationPlace = annotationPage >= 0 ? $" on page {annotationPage + 1}" : "";
+            bool otherAnnotation = old.Annotations.TryGetValue(id, out var annotationNode) && !annotationNode.IsWidget
+                                   || old.AnnotationFields.Contains(id);
+            if ((annotationDrawn || otherAnnotation || old.AnnotationAppearancesIncomplete)
+                && (old.Fields.ContainsKey(id) || old.Annotations.ContainsKey(id) || old.Appearances.Contains(id) || id == old.Info || id == old.Metadata))
+            {
+                string change;
+                if (annotationDrawn)
+                    change = $"changing what an annotation{annotationPlace} draws (object {id.ObjectNumber})";
+                else if (otherAnnotation)
+                    change = $"changing an annotation other than a widget (object {id.ObjectNumber})";
+                else
+                    change = $"changing object {id.ObjectNumber}, which an annotation may draw (the annotations reach more objects than FreePDF follows)";
+                Need(3, change);
+            }
+
+            if (old.Fields.ContainsKey(id) && !maybeDrawn)
             {
                 Need(2, $"filling in the form field '{old.Fields[id].Name}'");
                 CheckKeys(old, now, oldObject, newObject, $"the form field '{old.Fields[id].Name}'", FieldKeys);
                 return;
             }
-            // Appearance streams that a page also draws change the page, which falls under the last rule.
-            bool drawnByPage = old.PageXObjects.Contains(id);
-            if (old.Appearances.Contains(id) && !drawnByPage)
-            {
-                Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
-                return;
-            }
-            if (old.AnnotationAppearances.TryGetValue(id, out var annotationPage) && !drawnByPage)
-            {
-                Need(3, $"changing the appearance of an annotation on page {annotationPage + 1} (object {id.ObjectNumber})");
-                return;
-            }
-
-            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
-            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
-            if (id == old.Info)
-            {
-                Need(2, "changing the document information");
-                return;
-            }
-            if (id == old.Metadata)
-            {
-                Need(2, "changing the document metadata (XMP)");
-                return;
-            }
+            // The rules of the structure come before the exemptions further down: a file may also list the catalog, the
+            // form, a page or the page tree as an appearance, the document information or the metadata, and replacing
+            // one of them must not pass as a new appearance or new information.
             if (id == old.Catalog)
             {
                 CheckKeys(old, now, oldObject, newObject, "the document catalog", _permission == 1 ? CatalogKeysAtP1 : CatalogKeys);
                 if (oldObject is PdfDictionary oldCatalog && newObject is PdfDictionary newCatalog)
                     CheckFormEntry(old, now, oldCatalog, newCatalog);
-                return;
-            }
-            if (id == old.Form)
-            {
-                if (oldObject is not PdfDictionary oldForm || newObject is not PdfDictionary newForm)
-                    throw Refusal($"changing the interactive form (AcroForm, object {id.ObjectNumber})");
-                CheckForm(old, now, oldForm, newForm);
-                return;
-            }
-            if (id == old.FieldArray)
-            {
-                CheckFieldArray(old, now, oldObject as PdfArray, newObject as PdfArray);
                 return;
             }
             if (old.Pages.TryGetValue(id, out var pageIndex))
@@ -325,12 +338,32 @@ namespace PdfSharp.Pdf.IO
                 }
                 return;
             }
-            if (old.AnnotationArrays.TryGetValue(id, out pageIndex))
+            // The page-tree nodes above the pages and their /Kids arrays have no rule that lets them change, whatever
+            // other role a file gives them (a /Kids array may also be a page's /Annots).
+            if (old.Structure.Contains(id))
+                throw Refusal($"changing {Describe(oldObject, id)}, a part of the page tree");
+            if (id == old.Form)
+            {
+                if (oldObject is not PdfDictionary oldForm || newObject is not PdfDictionary newForm)
+                    throw Refusal($"changing the interactive form (AcroForm, object {id.ObjectNumber})");
+                CheckForm(old, now, oldForm, newForm);
+                return;
+            }
+            if (id == old.FieldArray)
+            {
+                CheckFieldArray(old, now, oldObject as PdfArray, newObject as PdfArray);
+                return;
+            }
+            // A page's /Annots array, when the document reaches it as such alone.
+            if (old.AnnotationArrays.TryGetValue(id, out pageIndex) && !old.AnnotationsReachedOtherwise.Contains(id))
             {
                 CheckAnnotations(old, now, oldObject as PdfArray, newObject as PdfArray, $"page {pageIndex + 1}");
                 return;
             }
-            if (old.Annotations.TryGetValue(id, out var annotation))
+            // An annotation other than a widget may change as a whole only when the document reaches it as an annotation
+            // alone (the root of the page tree may call itself a stamp and lie in /Annots).
+            if (old.Annotations.TryGetValue(id, out var annotation) && !maybeDrawn
+                && (annotation.IsWidget || !old.AnnotationsReachedOtherwise.Contains(id)))
             {
                 if (annotation.IsWidget)
                 {
@@ -339,6 +372,29 @@ namespace PdfSharp.Pdf.IO
                 }
                 else
                     Need(3, $"changing a {annotation.Subtype} annotation on page {annotation.Page + 1} (object {id.ObjectNumber})");
+                return;
+            }
+
+            if (old.Appearances.Contains(id) && !maybeDrawn)
+            {
+                Need(2, $"changing the appearance of a form field (object {id.ObjectNumber})");
+                return;
+            }
+            if (old.AnnotationAppearancesOnly.Contains(id) && !maybeDrawn)
+            {
+                Need(3, $"changing the appearance of an annotation{annotationPlace} (object {id.ObjectNumber})");
+                return;
+            }
+            // The document information and metadata may change at P=2 and P=3; at P=1 an update that only adds
+            // validation data leaves them as they are (PdfIncrementalUpdate does not write /ModDate then).
+            if (id == old.Info && old.InfoOnly && !maybeDrawn)
+            {
+                Need(2, "changing the document information");
+                return;
+            }
+            if (id == old.Metadata && old.MetadataOnly && !maybeDrawn)
+            {
+                Need(2, "changing the document metadata (XMP)");
                 return;
             }
             throw Refusal($"changing {Describe(oldObject, id)}: {string.Join(", ", ChangedKeys(old, now, oldObject, newObject))}");
@@ -411,6 +467,12 @@ namespace PdfSharp.Pdf.IO
                     throw Refusal($"removing a form widget from {page}");
                 Need(3, $"removing an annotation from {page}");
             }
+            // The annotations that stay keep their order: a later one is drawn over an earlier one, so a stamp moved
+            // after a field could cover it.
+            var kept = (oldAnnotations?.Elements ?? Enumerable.Empty<PdfItem>()).Select(Key).Where(after.Contains);
+            var keptNow = (newAnnotations?.Elements ?? Enumerable.Empty<PdfItem>()).Select(Key).Where(before.Contains);
+            if (!kept.SequenceEqual(keptNow, StringComparer.Ordinal))
+                Need(3, $"changing the order of the annotations on {page}, which decides what is drawn over what");
             foreach (var item in newAnnotations?.Elements ?? Enumerable.Empty<PdfItem>())
             {
                 if (before.Contains(Key(item)))
@@ -465,7 +527,16 @@ namespace PdfSharp.Pdf.IO
                 && Widgets(field.Dictionary).All(IsInvisible);
         }
 
-        static string NameOf(PdfDictionary dictionary, string key) => Resolve(dictionary.Elements[key]) is PdfName name ? name.Value : "";
+        static string NameOf(PdfDictionary dictionary, string key) => NameValue(dictionary.Elements[key]) ?? "";
+
+        // A name, also one stored as an indirect object (read as PdfNameObject); null for anything else. Unlike GetName,
+        // which gives "/" for a missing entry, a missing name is null.
+        internal static string? NameValue(PdfItem? item) => Resolve(item) switch
+        {
+            PdfName name => name.Value,
+            PdfNameObject name => name.Value,
+            _ => null,
+        };
 
         // The field itself when it is its own widget, and its kids.
         static IEnumerable<PdfDictionary> Widgets(PdfDictionary field)
@@ -571,18 +642,8 @@ namespace PdfSharp.Pdf.IO
         }
 
         static InvalidOperationException ProtectionRefusal(string change)
-        {
-            var exception = Refused($"A signature of this document protects what this save changes, so saving would make validators " +
+            => Refused($"A signature of this document protects what this save changes, so saving would make validators " +
                    $"report that signature as broken: {change}. Nothing was written.", $"{change} (protected by a signature)");
-            exception.Data[ProtectedKey] = true;
-            return exception;
-        }
-
-        /// <summary>
-        /// The key under which a refusal's <see cref="Exception.Data"/> holds true when the change touches a signed or
-        /// locked field itself, which no signature permits.
-        /// </summary>
-        internal const string ProtectedKey = "FreePDF.Protected";
 
         /// <summary>
         /// The key under which a refusal's <see cref="Exception.Data"/> holds the description of the change alone, for the
@@ -599,8 +660,8 @@ namespace PdfSharp.Pdf.IO
 
         static string Describe(PdfObject value, PdfObjectID id)
         {
-            var type = (value as PdfDictionary)?.Elements.GetName("/Type");
-            if (String.IsNullOrEmpty(type))
+            var type = value is PdfDictionary dictionary ? NameValue(dictionary.Elements["/Type"]) : null;
+            if (type is null or { Length: <= 1 })
                 return $"object {id.ObjectNumber}";
             return $"object {id.ObjectNumber} ({type})";
         }
@@ -639,8 +700,10 @@ namespace PdfSharp.Pdf.IO
 
         const int MaxQualifiedName = 4096;
 
-        // Every node of the form's field tree with its fully qualified name and its field type, which kids inherit.
-        static IEnumerable<FieldNode> Fields(PdfDocument document)
+        // Every node of the form's field tree with its fully qualified name and its field type, which kids inherit. Without
+        // names, every name is "" and none is refused for its length: reading the rules needs no names, and every file opened
+        // in Append mode reads them, signed or not.
+        static IEnumerable<FieldNode> Fields(PdfDocument document, bool names = true)
         {
             var form = Resolve(document.Catalog.Elements[PdfCatalog.Keys.AcroForm]) as PdfDictionary;
             if (Resolve(form?.Elements[PdfAcroFormKeys.Fields]) is not PdfArray fields)
@@ -657,7 +720,7 @@ namespace PdfSharp.Pdf.IO
                 if (item is PdfReference reference && !visited.Add(reference.ObjectID))
                     continue;
                 // A node without /T is a widget of its parent field; /FT is inherited (ISO 32000-1 12.7.3.1).
-                var partial = dictionary.Elements.GetString("/T");
+                var partial = names ? dictionary.Elements.GetString("/T") : "";
                 var name = parent;
                 if (!String.IsNullOrEmpty(partial))
                     name = parent.Length == 0 ? partial : parent + "." + partial;
@@ -665,10 +728,9 @@ namespace PdfSharp.Pdf.IO
                 // is not cut but refused (thousands of kids under one huge name would otherwise cost gigabytes).
                 if (name.Length > MaxQualifiedName)
                     throw new InvalidOperationException($"A form field's fully qualified name is longer than {MaxQualifiedName} characters.");
-                var type = inheritedType;
-                var ownType = dictionary.Elements.GetName("/FT");
-                if (!String.IsNullOrEmpty(ownType))
-                    type = ownType;
+                // GetName gives "/" for a missing entry, which would hide the inherited type: a signed field whose /FT is
+                // on its parent would not count as signed, and its lock would be lost.
+                var type = NameValue(dictionary.Elements["/FT"]) is { Length: > 1 } ownType ? ownType : inheritedType;
                 var node = new FieldNode(dictionary, item as PdfReference, name, type, parentID);
                 yield return node;
                 if (Resolve(dictionary.Elements["/Kids"]) is PdfArray kids)
@@ -679,20 +741,51 @@ namespace PdfSharp.Pdf.IO
             }
         }
 
+        const int MaxStructureNodes = 1_000_000;
+
+        /// <summary>
+        /// The catalog, the pages as the reader found them, and the page-tree nodes above them: what they are follows from
+        /// where they are, not from a /Type a dictionary gives itself, nor from /Kids on a page.
+        /// </summary>
+        internal static HashSet<PdfObjectID> StructureIDs(PdfDocument document)
+        {
+            var result = new HashSet<PdfObjectID>();
+            if (document.Catalog.Reference != null)
+                result.Add(document.Catalog.ObjectID);
+            for (int index = 0; index < document.PageCount && result.Count < MaxStructureNodes; index++)
+            {
+                var page = document.Pages[index];
+                if (page.Reference != null)
+                    result.Add(page.ObjectID);
+                // The nodes above it, each once, with their /Kids when that is an array object of its own.
+                for (var parent = page.Elements["/Parent"] as PdfReference; parent != null && result.Add(parent.ObjectID);)
+                {
+                    var node = parent.Value as PdfDictionary;
+                    if (node?.Elements["/Kids"] is PdfReference kids)
+                        result.Add(kids.ObjectID);
+                    parent = node?.Elements["/Parent"] as PdfReference;
+                }
+            }
+            return result;
+        }
+
         // The objects of a document the rules tell apart, by object identifier.
         sealed class Snapshot
         {
-            internal Snapshot(PdfDocument document)
+            // forExemptions: the snapshot before the update, whose objects the exemptions are given to.
+            internal Snapshot(PdfDocument document, bool forExemptions)
             {
                 Document = document;
                 Catalog = document.Catalog.ObjectID;
+                Structure = StructureIDs(document);
                 Info = (document.Trailer.Elements[PdfTrailer.Keys.Info] as PdfReference)?.ObjectID;
                 Metadata = (document.Catalog.Elements[PdfCatalog.Keys.Metadata] as PdfReference)?.ObjectID;
                 CollectDss(document.Catalog.Elements["/DSS"]);
                 // An object the document also reaches without the DSS (a page's content, a field) is not validation
                 // data, whatever the DSS refers to.
+                var catalog = Catalog;
                 if (DssObjects.Count > 0)
-                    DssObjects.ExceptWith(ReachableWithoutDss(document));
+                    DssObjects.ExceptWith(ReachableWithout(document, (dictionary, key) => key == "/DSS" && dictionary.Reference?.ObjectID == catalog));
                 var formItem = document.Catalog.Elements[PdfCatalog.Keys.AcroForm];
                 Form = (formItem as PdfReference)?.ObjectID;
                 FieldArray = ((Resolve(formItem) as PdfDictionary)?.Elements[PdfAcroFormKeys.Fields] as PdfReference)?.ObjectID;
@@ -701,8 +794,18 @@ namespace PdfSharp.Pdf.IO
                 {
                     if (field.Reference != null)
                         Fields[field.Reference.ObjectID] = field;
-                    if (field.Dictionary.Elements.GetName("/Subtype") == "/Widget")
+                    var subtype = NameValue(field.Dictionary.Elements["/Subtype"]);
+                    if (subtype == "/Widget")
                         Appearances.UnionWith(AppearanceObjects(field.Dictionary));
+                    // A field that is another kind of annotation: the reader takes it off its page's /Annots, but a viewer
+                    // still draws it from there, so it and what it draws keep the annotation rule.
+                    else if (subtype is { Length: > 1 })
+                    {
+                        if (field.Reference != null)
+                            AnnotationFields.Add(field.Reference.ObjectID);
+                        if (field.Dictionary.Elements["/AP"] is { } fieldAppearance)
+                            CollectAnnotationDrawn(fieldAppearance, -1);
+                    }
                 }
 
                 for (int index = 0; index < document.PageCount; index++)
@@ -710,15 +813,7 @@ namespace PdfSharp.Pdf.IO
                     var page = document.Pages[index];
                     if (page.Reference != null)
                         Pages[page.ObjectID] = index;
-                    if (Resolve(page.Elements["/Resources"]) is PdfDictionary resources
-                        && Resolve(resources.Elements["/XObject"]) is PdfDictionary xObjects)
-                    {
-                        foreach (var value in xObjects.Elements.Values)
-                        {
-                            if (value is PdfReference xObject)
-                                PageXObjects.Add(xObject.ObjectID);
-                        }
-                    }
+                    CollectPageObjects(page);
                     var annotationsItem = page.Elements["/Annots"];
                     if (annotationsItem is PdfReference annotationsReference)
                         AnnotationArrays[annotationsReference.ObjectID] = index;
@@ -730,41 +825,75 @@ namespace PdfSharp.Pdf.IO
                             continue;
                         var subtype = annotation.Elements.GetName("/Subtype");
                         Annotations[annotationReference.ObjectID] = new AnnotationNode(index, page.Reference?.ObjectID, subtype.TrimStart('/'), subtype == "/Widget");
-                        if (subtype != "/Widget")
-                        {
-                            foreach (var appearance in AppearanceObjects(annotation))
-                                AnnotationAppearances[appearance] = index;
-                        }
+                        if (subtype != "/Widget" && annotation.Elements["/AP"] is { } appearance)
+                            CollectAnnotationDrawn(appearance, index);
                     }
                 }
+
+                // What decides how every page shows, outside the pages: which optional content is visible (ISO 32000-1
+                // 8.11.4) and the output intents colours are rendered for (14.11.5).
+                var shown = new Stack<PdfItem>();
+                foreach (var key in new[] { "/OCProperties", "/OutputIntents" })
+                {
+                    if (document.Catalog.Elements[key] is { } value)
+                        shown.Push(value);
+                }
+                CollectDrawn(shown);
+                if (!forExemptions)
+                    return;
+
+                // An exemption for a role (a field's or an annotation's appearance, an annotation, the document
+                // information or metadata) holds only for an object that the document reaches through that role alone.
+                // Reached any other way, it may also be a page tree's /Kids, an annotation's flags or anything else the
+                // exemption must not cover, and its change falls under the other rules.
+                if (Appearances.Count > 0)
+                {
+                    Appearances.ExceptWith(ReachableWithout(document,
+                        (dictionary, key) => key == "/AP" && AnnotationSubtype(dictionary) == "/Widget"));
+                }
+                if (AnnotationAppearances.Count > 0)
+                {
+                    AnnotationAppearancesOnly.UnionWith(AnnotationAppearances.Keys);
+                    AnnotationAppearancesOnly.ExceptWith(ReachableWithout(document,
+                        (dictionary, key) => key == "/AP" && AnnotationSubtype(dictionary) is { } subtype && subtype != "/Widget"));
+                }
+                if (AnnotationArrays.Count > 0 || Annotations.Values.Any(annotation => !annotation.IsWidget))
+                {
+                    // Left out: the pages' /Annots, and the structure tree's references to annotations (an object
+                    // reference's /Obj), which show nothing. The structure tree itself is walked: its root may also lie
+                    // in /Annots.
+                    var otherwise = ReachableWithout(document, (dictionary, key) =>
+                        key == "/Annots" && dictionary.Reference is { } reference && Pages.ContainsKey(reference.ObjectID)
+                        || key == "/Obj" && NameValue(dictionary.Elements["/Type"]) is null or "/OBJR");
+                    AnnotationsReachedOtherwise.UnionWith(Annotations.Keys.Where(otherwise.Contains));
+                    AnnotationsReachedOtherwise.UnionWith(AnnotationArrays.Keys.Where(otherwise.Contains));
+                }
+                var trailer = document.Trailer;
+                InfoOnly = Info is { } info && !ReachableWithout(document, (dictionary, key) => key == "/Info" && ReferenceEquals(dictionary, trailer)).Contains(info);
+                MetadataOnly = Metadata is { } metadata
+                               && !ReachableWithout(document, (dictionary, key) => key == "/Metadata" && dictionary.Reference?.ObjectID == catalog).Contains(metadata);
             }
 
-            internal PdfDocument Document { get; }
-            internal PdfObjectID Catalog { get; }
-            internal PdfObjectID? Info { get; }
-            internal PdfObjectID? Metadata { get; }
-            internal PdfObjectID? Form { get; }
-            internal PdfObjectID? FieldArray { get; }
-            internal Dictionary<PdfObjectID, FieldNode> Fields { get; } = new();
-            internal HashSet<PdfObjectID> Appearances { get; } = new();
-            internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
-            internal HashSet<PdfObjectID> PageXObjects { get; } = new();
-            internal Dictionary<PdfObjectID, int> Pages { get; } = new();
-            internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
-            internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();
-            internal HashSet<PdfObjectID> DssObjects { get; } = new();
+            // What AnnotationAppearances holds that the document reaches only through annotations' appearances.
+            internal HashSet<PdfObjectID> AnnotationAppearancesOnly { get; } = new();
+            // Annotations other than widgets, and /Annots arrays, that the document also reaches other than through a
+            // page's /Annots.
+            internal HashSet<PdfObjectID> AnnotationsReachedOtherwise { get; } = new();
+            // Whether the document reaches the information dictionary, or the metadata, only as such.
+            internal bool InfoOnly { get; }
+            internal bool MetadataOnly { get; }
 
-            // The indirect objects reachable from the trailer when the catalog's /DSS is left out.
-            static HashSet<PdfObjectID> ReachableWithoutDss(PdfDocument document)
+            // The subtype of an annotation, known by its /Rect and a /Subtype name; null for anything else (a resource map
+            // may have entries named /AP and /Subtype).
+            static string? AnnotationSubtype(PdfDictionary dictionary)
+                => dictionary.Elements.ContainsKey("/Rect") ? NameValue(dictionary.Elements["/Subtype"]) : null;
+
+            // The indirect objects reachable from the trailer when the walk leaves out the entries `skip` names.
+            static HashSet<PdfObjectID> ReachableWithout(PdfDocument document, Func<PdfDictionary, string, bool> skip)
             {
                 var result = new HashSet<PdfObjectID>();
-                var catalog = document.Catalog.ObjectID;
                 var pending = new Stack<PdfItem>();
-                foreach (var item in document.Trailer.Elements.Values)
-                {
-                    if (item != null)
-                        pending.Push(item);
-                }
+                pending.Push(document.Trailer);
                 while (pending.Count > 0)
                 {
                     var current = pending.Pop();
@@ -776,12 +905,9 @@ namespace PdfSharp.Pdf.IO
                     }
                     if (current is PdfDictionary dictionary)
                     {
-                        bool isCatalog = dictionary.Reference?.ObjectID == catalog;
                         foreach (var key in dictionary.Elements.Keys)
                         {
-                            if (isCatalog && key == "/DSS")
-                                continue;
-                            if (dictionary.Elements[key] is { } child)
+                            if (!skip(dictionary, key) && dictionary.Elements[key] is { } child)
                                 pending.Push(child);
                         }
                     }
@@ -793,6 +919,138 @@ namespace PdfSharp.Pdf.IO
                 }
                 return result;
             }
+
+            internal PdfDocument Document { get; }
+            internal PdfObjectID Catalog { get; }
+            internal PdfObjectID? Info { get; }
+            internal PdfObjectID? Metadata { get; }
+            internal PdfObjectID? Form { get; }
+            internal PdfObjectID? FieldArray { get; }
+            internal Dictionary<PdfObjectID, FieldNode> Fields { get; } = new();
+            internal HashSet<PdfObjectID> Appearances { get; } = new();
+            // Everything an annotation other than a widget draws, with its page: its appearance dictionary and streams and
+            // whatever they reach, followed to the end. Such an object may change only where annotations may (P=3),
+            // whatever else it also is: a stream a stamp shares with an editable field's appearance changes the stamp too.
+            // Beyond MaxAnnotationObjects the walk stops, and every exemption that P=2 grants needs P=3.
+            internal Dictionary<PdfObjectID, int> AnnotationAppearances { get; } = new();
+            internal bool AnnotationAppearancesIncomplete { get; private set; }
+            // Fields whose /Subtype names an annotation other than a widget.
+            internal HashSet<PdfObjectID> AnnotationFields { get; } = new();
+            const int MaxAnnotationObjects = 1_000_000;
+
+            void CollectAnnotationDrawn(PdfItem appearance, int page)
+            {
+                var pending = new Stack<PdfItem>();
+                pending.Push(appearance);
+                while (pending.Count > 0 && !AnnotationAppearancesIncomplete)
+                {
+                    var item = pending.Pop();
+                    if (item is PdfReference reference)
+                    {
+                        if (AnnotationAppearances.ContainsKey(reference.ObjectID))
+                            continue;
+                        AnnotationAppearances[reference.ObjectID] = page;
+                        if (AnnotationAppearances.Count > MaxAnnotationObjects)
+                        {
+                            AnnotationAppearancesIncomplete = true;
+                            break;
+                        }
+                        item = reference.Value;
+                    }
+                    if (item is PdfDictionary dictionary)
+                    {
+                        foreach (var value in dictionary.Elements.Values)
+                        {
+                            if (value != null)
+                                pending.Push(value);
+                        }
+                    }
+                    else if (item is PdfArray array)
+                    {
+                        foreach (var element in array.Elements)
+                            pending.Push(element);
+                    }
+                }
+            }
+            // Everything a page draws: its content, its resources (its own or inherited) and transparency group, and
+            // whatever they reach, through form XObjects, fonts, patterns and soft masks, followed to the end whatever it
+            // is: a resource may be called /P, and a page, the page tree or the catalog may serve as resources, so no
+            // name and no kind of object stops the walk. An appearance stream among them is also drawn by the page. The
+            // catalog's optional content properties and output intents count too: they decide how every page shows.
+            // Beyond MaxPageObjects the walk stops, and every appearance counts as drawn by a page.
+            internal HashSet<PdfObjectID> PageObjects { get; } = new();
+            internal bool PageObjectsIncomplete { get; private set; }
+            const int MaxPageObjects = 1_000_000;
+
+            void CollectPageObjects(PdfPage page)
+            {
+                var pending = new Stack<PdfItem>();
+                // Every entry of the page but its place in the document and what it does rather than shows: its content,
+                // resources and group, and also its boxes, rotation and anything else on it (a box may hold an indirect
+                // number that, changed, crops what was signed). Left out: the page tree, annotations, beads, actions and
+                // presentation steps, separations of the same page and the document part (both point at pages), and
+                // private application data; followed, they reach pages and from there the fields on them.
+                foreach (var key in page.Elements.Keys)
+                {
+                    if (key is not ("/Parent" or "/Annots" or "/B" or "/AA" or "/PresSteps" or "/SeparationInfo" or "/DPart" or "/PieceInfo")
+                        && page.Elements[key] is { } value)
+                        pending.Push(value);
+                }
+                // The attributes it inherits (ISO 32000-1 7.7.3.4) when it does not set them: from the nearest node above.
+                foreach (var key in new[] { "/Resources", "/MediaBox", "/CropBox", "/Rotate" })
+                {
+                    if (page.Elements.ContainsKey(key))
+                        continue;
+                    var seenNodes = new HashSet<PdfDictionary> { page };
+                    for (var node = Resolve(page.Elements["/Parent"]) as PdfDictionary; node != null && seenNodes.Add(node) && seenNodes.Count <= 1000;
+                         node = Resolve(node.Elements["/Parent"]) as PdfDictionary)
+                    {
+                        if (node.Elements[key] is { } inherited)
+                        {
+                            pending.Push(inherited);
+                            break;
+                        }
+                    }
+                }
+                CollectDrawn(pending);
+            }
+
+            // Follows every reference from the given items to the end, adding each object to PageObjects.
+            void CollectDrawn(Stack<PdfItem> pending)
+            {
+                while (pending.Count > 0 && !PageObjectsIncomplete)
+                {
+                    var item = pending.Pop();
+                    if (item is PdfReference reference)
+                    {
+                        if (!PageObjects.Add(reference.ObjectID))
+                            continue;
+                        if (PageObjects.Count > MaxPageObjects)
+                        {
+                            PageObjectsIncomplete = true;
+                            break;
+                        }
+                        item = reference.Value;
+                    }
+                    if (item is PdfDictionary dictionary)
+                    {
+                        foreach (var value in dictionary.Elements.Values)
+                        {
+                            if (value != null)
+                                pending.Push(value);
+                        }
+                    }
+                    else if (item is PdfArray array)
+                    {
+                        foreach (var element in array.Elements)
+                            pending.Push(element);
+                    }
+                }
+            }
+            internal Dictionary<PdfObjectID, int> Pages { get; } = new();
+            internal Dictionary<PdfObjectID, int> AnnotationArrays { get; } = new();
+            internal Dictionary<PdfObjectID, AnnotationNode> Annotations { get; } = new();
+            internal HashSet<PdfObjectID> DssObjects { get; } = new();
 
             // The indirect objects of the document security store: the DSS, its arrays and VRI dictionaries, and the
             // streams of certificates, OCSP responses and CRLs.
@@ -831,9 +1089,11 @@ namespace PdfSharp.Pdf.IO
                 {
                     return true;
                 }
-                var type = (Document.Internals.GetObject(id) as PdfDictionary)?.Elements.GetName("/Type");
-                return type is "/Page" or "/Pages" or "/Catalog";
+                return Structure.Contains(id);
             }
+
+            // The catalog, the nodes of the page tree and the pages.
+            internal HashSet<PdfObjectID> Structure { get; }
         }
 
         // The indirect objects of an annotation's appearance (ISO 32000-1 12.5.5): the /AP dictionary, its /N, /R and

@@ -109,11 +109,29 @@ namespace PdfSharp.Pdf.IO
 
         public PdfObjectID ReadObjectNumber(SizeType position)
         {
+            // Read once per position: many cross-reference entries may point at one place, and its number may be padded
+            // with any number of zeros.
+            if ((_objectNumbersAt ??= new()).TryGetValue(position, out var known))
+                return known;
             _lexer.Position = position;
             int objectNumber = ReadInteger();
             int generationNumber = ReadInteger();
-            return new(objectNumber, generationNumber);
+            ChargeHeaderScan(_lexer.Position - position);
+            return _objectNumbersAt[position] = new(objectNumber, generationNumber);
         }
+
+        Dictionary<SizeType, PdfObjectID>? _objectNumbersAt;
+
+        // The headers read for cross-reference entries may together span at most twice the file, and 1 MiB: entries that
+        // point at successive places in one long run of zeros would each scan the rest of it.
+        void ChargeHeaderScan(SizeType bytes)
+        {
+            _headerScanBytes += Math.Max(0, bytes);
+            if (_headerScanBytes > 2L * _lexer.PdfLength + (1L << 20))
+                throw LimitExceeded("The cross-reference entries point into one another's object headers.");
+        }
+        long _headerScanBytes;
+        Dictionary<SizeType, (int, int)>? _checkedEntries;
 
         /// <summary>
         /// Internal function to read PDF object from input stream.
@@ -317,6 +335,10 @@ namespace PdfSharp.Pdf.IO
                     ParserDiagnostics.HandleUnexpectedToken(_lexer.Token, _lexer.DumpNeighborhoodOfPosition());
                     break;
             }
+            // An object in an object stream has no stream and no 'endobj' (ISO 32000-1 7.5.7), so nothing after it is read:
+            // a long token there would otherwise be scanned once for every object that points just before it.
+            if (fromObjectStream)
+                return pdfObject ?? NRT.ThrowOnNull<PdfObject>();
             symbol = ScanNextToken();
             if (symbol == Symbol.BeginStream)
             {
@@ -483,22 +505,35 @@ namespace PdfSharp.Pdf.IO
 
                     lengthObject = pdfIntegerObject;
                 }
+                else if (_documentParser._readingStreamLength)
+                {
+                    // The length object read for another stream's /Length is a stream whose /Length is indirect again: a
+                    // chain of such objects would recurse once per object until the stack overflows. A length is a number;
+                    // recover this one from 'endstream' below.
+                    lengthObject = null!;
+                }
                 else
                 {
                     // OMG: The length of a stream is an indirect object in another dictionary that is not yet read.
                     // And this other dictionary can be wrapped in an object stream.
                     // Makes no sense at all, but some producer apps do it this way.
                     var state = SaveState();
+                    _documentParser._readingStreamLength = true;
                     try
                     {
                         lengthObject = ReadIndirectObject(reference, suppressObjectOrderExceptions);
                         if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                             return -1;
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (!IsLimitExceeded(ex))
                     {
                         // If somebody came here, please send us your PDF file so that we can fix it (issues (at) pdfsharp.net).
+                        // (A limit refusal passes through as it is, so that its marker is seen.)
                         throw TH.ObjectNotAvailableException_CannotRetrieveStreamLength(_lexer.Position, ex);
+                    }
+                    finally
+                    {
+                        _documentParser._readingStreamLength = false;
                     }
                     RestoreState(state);
                 }
@@ -804,13 +839,29 @@ namespace PdfSharp.Pdf.IO
 
                     case Symbol.BeginArray:
                         var array = new PdfArray(_document);
-                        ReadArray(array, false);
+                        Nest();
+                        try
+                        {
+                            ReadArray(array, false);
+                        }
+                        finally
+                        {
+                            _nesting--;
+                        }
                         items.Add(array);
                         break;
 
                     case Symbol.BeginDictionary:
                         var dict = new PdfDictionary(_document);
-                        ReadDictionary(dict, false);
+                        Nest();
+                        try
+                        {
+                            ReadDictionary(dict, false);
+                        }
+                        finally
+                        {
+                            _nesting--;
+                        }
                         items.Add(dict);
                         break;
 
@@ -839,6 +890,102 @@ namespace PdfSharp.Pdf.IO
 
         Symbol ScanNextToken(bool testForObjectReference = false)
             => _lexer.ScanNextToken(testForObjectReference);
+
+        /// <summary>
+        /// The deepest nesting of direct arrays and dictionaries read. Reading, and much of what later walks a direct
+        /// object (writing, decrypting, copying, hashing), recurses once per level, and a hostile file nested tens of
+        /// thousands of levels deep would overflow the stack, which no exception handler stops. Real files nest a few
+        /// levels.
+        /// </summary>
+        internal const int MaxNesting = 256;
+        int _nesting;
+
+        // Set on the document's parser while it reads an indirect /Length.
+        bool _readingStreamLength;
+
+        // On an object stream's parser: the objects read from it, and the bytes they spanned. On the document's parser:
+        // the same for the objects, trailers and cross-reference streams read from the file.
+        HashSet<PdfObjectID>? _spannedObjects;
+        HashSet<SizeType>? _spannedTrailers;
+        long _spannedBytes;
+
+        // What is read from the file may together span at most twice the file, and 1 MiB: several cross-reference entries
+        // may point at one object (some producers do that), but objects or trailers nested in one another's strings would
+        // each keep the same long text.
+        void ChargeFileSpan(SizeType bytes)
+        {
+            _spannedBytes += Math.Max(0, bytes);
+            if (_spannedBytes > 2L * _lexer.PdfLength + (1L << 20))
+                throw LimitExceeded("The file's objects overlap: together they span more than twice the file.");
+        }
+
+        // Cross-reference and object streams are decoded while a file is opened, before anything else can be checked: each
+        // to at most MaxStructuralStream bytes, and all of a file's together to at most StructuralBudget, so that a few
+        // kilobytes of Flate (or several Flate filters in a row) cannot inflate to gigabytes.
+        internal const long MaxStructuralStream = 64L * 1024 * 1024;
+        long StructuralBudget => Math.Max(256L * 1024 * 1024, 64L * Math.Max(0L, _document.FileSize));
+        long _structuralDecoded;   // on the document's parser
+
+        /// <summary>
+        /// The decoded data of a cross-reference or object stream, within <see cref="MaxStructuralStream"/> and what is left
+        /// of the file's budget; beyond them <see cref="LimitExceeded"/> is thrown.
+        /// </summary>
+        internal byte[] StructuralData(PdfDictionary stream)
+        {
+            var raw = stream.Stream?.Value ?? [];
+            var filter = stream.Elements.GetValue("/Filter");
+            if (filter == null)
+                return raw;
+            var owner = _documentParser;
+            long left = owner.StructuralBudget - owner._structuralDecoded;
+            if (left <= 0)
+                throw LimitExceeded($"The file's cross-reference and object streams decode to more than {owner.StructuralBudget} bytes.");
+            // Every filter stage counts, also bytes a predictor then drops: otherwise a stream could inflate a lot and
+            // charge nothing.
+            var limit = new Filters.DecodeLimit(MaxStructuralStream, left);
+            try
+            {
+                return Filters.Filtering.Decode(raw, filter, stream.Elements.GetValue("/DecodeParms"), limit);
+            }
+            finally
+            {
+                owner._structuralDecoded += limit.Spent;
+            }
+        }
+
+        void Nest()
+        {
+            if (++_nesting > MaxNesting)
+            {
+                _nesting--;
+                throw LimitExceeded($"Arrays and dictionaries are nested more than {MaxNesting} levels deep.");
+            }
+        }
+
+        /// <summary>
+        /// Marks a <see cref="PdfReaderException"/> as a refusal of a file that exceeds one of FreePDF's limits (nesting,
+        /// field depth), not as damage: a signature check that reads earlier revisions must not take such a revision for a
+        /// %%EOF that is no revision and skip the signatures in it.
+        /// </summary>
+        internal const string LimitExceededKey = "FreePDF.LimitExceeded";
+
+        internal static PdfReaderException LimitExceeded(string message)
+        {
+            var exception = new PdfReaderException(message);
+            exception.Data[LimitExceededKey] = true;
+            return exception;
+        }
+
+        /// <summary>The exception, or one it wraps, is a refusal from <see cref="LimitExceeded"/>.</summary>
+        internal static bool IsLimitExceeded(Exception? exception)
+        {
+            for (int depth = 0; exception != null && depth < 32; depth++, exception = exception.InnerException)
+            {
+                if (exception.Data.Contains(LimitExceededKey))
+                    return true;
+            }
+            return false;
+        }
 
         Symbol SkipCharsUntil(Symbol stop)
         {
@@ -933,18 +1080,9 @@ namespace PdfSharp.Pdf.IO
                 Debug.Assert(false, "ReadInteger found a long integer.");
             }
 
-            if (symbol == Symbol.R)
-            {
-                Debug.Assert(false, "Should not come here.");
-
-                SizeType position = _lexer.Position;
-                //        MoveToObject(lexer.Token);
-                ReadObjectID(null);
-                int n = ReadInteger();
-                ReadSymbol(Symbol.EndObj);
-                _lexer.Position = position;
-                return n;
-            }
+            // An 'R' here is an unexpected token like any other. An old fallback read an object ID after it, which read an
+            // integer again: a run of 'R' tokens (in a damaged cross-reference section, say) recursed once per token until
+            // the stack overflowed.
             ParserDiagnostics.HandleUnexpectedToken(_lexer.Token, _lexer.DumpNeighborhoodOfPosition());
             return 0;
         }
@@ -1003,6 +1141,12 @@ namespace PdfSharp.Pdf.IO
                     if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                         return null!;
 
+                    // The objects read from the file count the bytes they span, from their header to the token after
+                    // them ('endobj'), as those in an object stream do: objects nested in one another's strings, each with
+                    // a right cross-reference entry, would each keep the same long text.
+                    if ((_spannedObjects ??= new()).Add(objectID))
+                        ChargeFileSpan(_lexer.TokenStart - pdfReference.Position);
+
                     // Decrypt file level object.
                     if (!withoutDecrypting)
                         _document.EffectiveSecurityHandler?.DecryptObject(pdfObject);
@@ -1044,6 +1188,15 @@ namespace PdfSharp.Pdf.IO
             var pdfObject = objectStreamParser.ReadObjectInternal(null, objectID, false, true, suppressObjectOrderExceptions);
             if (SuppressExceptions.HasError(suppressObjectOrderExceptions))
                 return null!;
+            // The objects of a stream count the bytes they span against what it holds (with a little room for each, as the
+            // lexer reads a character or two ahead): a header may point many objects at the same bytes, such as one long
+            // string, and they would build far more than the stream holds.
+            if ((objectStreamParser._spannedObjects ??= new()).Add(objectID))
+            {
+                objectStreamParser._spannedBytes += Math.Max(0, objectStreamParser._lexer.Position - offset);
+                if (objectStreamParser._spannedBytes > objectStreamParser._lexer.PdfLength + 16L * objectStreamParser._spannedObjects.Count)
+                    throw LimitExceeded("The objects of an object stream overlap: together they span more bytes than the stream holds.");
+            }
             return pdfObject;
 #else
             // Old code: Scan each ObjectStream for the offset of the ObjectID and load it, if found.
@@ -1184,7 +1337,7 @@ namespace PdfSharp.Pdf.IO
                     }
 
                     // Create the parser for the object stream.
-                    var objectStreamParser = new Parser(_document, new MemoryStream(objectStream.Stream!.UnfilteredValue), _documentParser);
+                    var objectStreamParser = new Parser(_document, new MemoryStream(StructuralData(objectStream)), _documentParser);
 
                     // Select individual members using the current cross-reference
                     // revision, rather than collecting stale copies in the stream.
@@ -1258,7 +1411,7 @@ namespace PdfSharp.Pdf.IO
                             continue;
                         }
 
-                        var objectStreamParser = new Parser(_document, new MemoryStream(objectStream.Stream.UnfilteredValue), _documentParser);
+                        var objectStreamParser = new Parser(_document, new MemoryStream(StructuralData(objectStream)), _documentParser);
                         _objectStreamsWithParsers.Add(objectStreamID, (objectStream, objectStreamParser));
 
                         // Read and add all References to objects residing in the object stream.
@@ -1759,9 +1912,10 @@ namespace PdfSharp.Pdf.IO
                         }
                     }
                 }
-                catch (PdfReaderException)
+                catch (PdfReaderException ex) when (!IsLimitExceeded(ex))
                 {
-                    // An unreadable one is skipped; an older one may do.
+                    // An unreadable one is skipped; an older one may do. One FreePDF refuses for its limits is not skipped:
+                    // the trailer chosen instead, or the last catalog, could belong to another revision or to none.
                     dictionary = null;
                 }
                 if (dictionary == null)
@@ -1925,7 +2079,7 @@ namespace PdfSharp.Pdf.IO
                 if (ReadIndirectObject(reference, null, true) is not PdfDictionary objectStream || objectStream.Stream == null)
                     return;
                 int count = objectStream.Elements.GetInteger("/N");
-                var lexer = new Lexer(new MemoryStream(objectStream.Stream.UnfilteredValue), _logger);
+                var lexer = new Lexer(new MemoryStream(StructuralData(objectStream)), _logger);
                 for (int index = 0; index < count; index++)
                 {
                     if (lexer.ScanNextToken(false) != Symbol.Integer)
@@ -1954,7 +2108,7 @@ namespace PdfSharp.Pdf.IO
                     rebuilt.MemberOf[number] = streamID;
                 }
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
+            catch (Exception ex) when (ex is not OutOfMemoryException && !IsLimitExceeded(ex))
             {
                 PdfSharpLogHost.PdfReadingLogger.LogWarning("Object stream {ObjectID} could not be read while rebuilding: {Message}", streamID, ex.Message);
             }
@@ -2108,6 +2262,7 @@ namespace PdfSharp.Pdf.IO
                                 continue;
 
                             int idToUse = id;
+                            int generationToUse = generation;
 #if true
                             // The following issue in PDF files is rare, but must be fixed here to prevent PdfReference with wrong IDs.
                             // We found PDF files where the ID of the referenced object was misaligned by one relative to
@@ -2119,6 +2274,8 @@ namespace PdfSharp.Pdf.IO
                                 // Found the keyword "obj", but ID or generation did not match.
                                 // There is a producer app where ID is off by one.
                                 // In this case we use the ID from the object, not the ID from the XRef table.
+                                // The generation found there too: entries that differ only in generation and point at the same
+                                // object then collapse into one, rather than each reading and keeping that object again.
                                 if (generation == generationChecked && id == idChecked + 1)
                                 {
                                     idToUse = idChecked;
@@ -2127,6 +2284,7 @@ namespace PdfSharp.Pdf.IO
                                 {
                                     // File is corrupt, but try to recover it by using the ID we found at the location.
                                     idToUse = idChecked;
+                                    generationToUse = generationChecked;
                                     //ParserDiagnostics.ThrowParserException("Invalid entry in XRef table, ID=" + id + ", Generation=" + generation + ", Position=" + position + ", ID of referenced object=" + idChecked + ", Generation of referenced object=" + generationChecked);  // TODO_OLD L10N using PsMsgs
                                 }
                                 var message = id == idChecked ?
@@ -2137,7 +2295,7 @@ namespace PdfSharp.Pdf.IO
 #endif
                             // Even if it is restricted, an object can exist in more than one subsection.
                             // (PDF Reference Implementation Notes 15).
-                            var objectID = new PdfObjectID(idToUse, generation);
+                            var objectID = new PdfObjectID(idToUse, generationToUse);
                             // Ignore the latter one.
                             if (xrefTable.Contains(objectID))
                                 continue;
@@ -2148,9 +2306,14 @@ namespace PdfSharp.Pdf.IO
                     }
                     else if (symbol == Symbol.Trailer)
                     {
+                        var start = _lexer.TokenStart;
                         ReadSymbol(Symbol.BeginDictionary);
                         var trailer = new PdfTrailer(_document);
                         ReadDictionary(trailer, false);
+                        // Trailers count against the file's span budget too: nested in one another's strings, each
+                        // reached through /Prev, they would each keep the same text.
+                        if ((_spannedTrailers ??= new()).Add(start))
+                            ChargeFileSpan(_lexer.Position - start);
                         return trailer;
                     }
                     else
@@ -2187,6 +2350,13 @@ namespace PdfSharp.Pdf.IO
             //           ^
             // The offsets points behind the numbers.
             // Should we handle this wrong case?
+            // Read once per position: many entries may point at one place, and its number may be padded with any number of
+            // zeros.
+            if ((_checkedEntries ??= new()).TryGetValue(position, out var found))
+            {
+                (idChecked, generationChecked) = found;
+                return id == idChecked && generation == generationChecked;
+            }
             SizeType origin = _lexer.Position;
             idChecked = -1;
             generationChecked = -1;
@@ -2201,6 +2371,8 @@ namespace PdfSharp.Pdf.IO
                 Symbol symbol = _lexer.ScanNextToken(false);
                 if (symbol != Symbol.Obj)
                     ParserDiagnostics.ThrowParserException(Invariant($"Invalid entry in XRef table, ID={id} {generation} at position={position}")); // TODO_OLD L10N using PsMsgs
+                _checkedEntries[position] = (idChecked, generationChecked);
+                ChargeHeaderScan(_lexer.Position - position);
 
                 if (id != idChecked || generation != generationChecked)
                     return false;
@@ -2257,6 +2429,8 @@ namespace PdfSharp.Pdf.IO
             ReadSymbol(Symbol.BeginStream);
 #if true
             ReadDictionaryStream(xrefStream, null);
+            if ((_spannedTrailers ??= new()).Add(xrefStart))
+                ChargeFileSpan(_lexer.Position - xrefStart);
 #else
             ReadStreamFromXRefTable(xrefStream);
 #endif
@@ -2296,7 +2470,7 @@ namespace PdfSharp.Pdf.IO
             byte[] bytes;
             try
             {
-                bytes = xrefStream.Stream.UnfilteredValue;
+                bytes = StructuralData(xrefStream);
             }
             catch (Exception ex) when (ex is not PdfReaderException)
             {

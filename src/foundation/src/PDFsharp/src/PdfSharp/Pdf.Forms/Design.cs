@@ -3,6 +3,7 @@
 
 using PdfSharp.Drawing;
 using PdfSharp.Pdf.Annotations;
+using System.Text;
 using PdfSharp.Pdf.IO;
 
 #pragma warning disable CS1591 // TODO_DOC: Missing XML comment for publicly visible type or member
@@ -43,25 +44,62 @@ namespace PdfSharp.Pdf.Forms
         {
             get
             {
-                var fullName = Parent?.FullName;
-                var name = Name;
-
-                // The /T entry is required. Only a pure widget at a leaf doesn’t have one. It is recognized as a
-                // PdfFormFieldWidget, as the widget may also contain field keys. If it doesn’t have a name, simply
-                // return its parent’s FullName.
-                if (String.IsNullOrEmpty(name))
-                    return fullName ?? throw new NotImplementedException("Should not occur: fullName is null.");
-
-                fullName = String.IsNullOrEmpty(fullName)
-                    ? name
-                    : fullName + "." + name;
-
-                return fullName;
+                // The partial names of the field and its ancestors, from the top. The /T entry is required; only a pure
+                // widget at a leaf doesn’t have one, and then the name is its parent’s.
+                var names = SelfAndAncestors().Select(ancestor => ancestor.Name).Where(name => !String.IsNullOrEmpty(name)).Reverse().ToList();
+                if (names.Count == 0 && String.IsNullOrEmpty(Name) && Parent == null)
+                    throw new NotImplementedException("Should not occur: fullName is null.");
+                return String.Join(".", names);
             }
         }
 
-        public PdfFormField? Parent 
+        public PdfFormField? Parent
             => Elements.GetDictionary<PdfFormField>(Keys.Parent);
+
+        /// <summary>
+        /// The most fields a walk up through /Parent visits: the deepest field tree a file may have
+        /// (<see cref="PdfFormFields.AcroFieldPreparer.MaxDepth"/>), and the bound on a /Parent chain that loops.
+        /// </summary>
+        internal const int MaxAncestors = 100;
+
+        /// <summary>
+        /// The fully qualified name for a message: at most <paramref name="maxLength"/> characters, then "…". It is built
+        /// only that far, because the file chooses the names: 100 levels of one long /T would make the full name
+        /// gigabytes.
+        /// </summary>
+        internal string ShortFullName(int maxLength = 200)
+        {
+            var names = SelfAndAncestors().Select(ancestor => ancestor.Name).Where(name => !String.IsNullOrEmpty(name)).Reverse();
+            var result = new StringBuilder();
+            foreach (var name in names)
+            {
+                if (result.Length > 0)
+                    result.Append('.');
+                int room = maxLength + 1 - result.Length;
+                if (room <= 0)
+                    break;
+                result.Append(name, 0, Math.Min(name.Length, room));
+            }
+            return result.Length > maxLength ? result.ToString(0, maxLength) + "…" : result.ToString();
+        }
+
+        /// <summary>
+        /// The type of the nearest ancestor that defines one (not a node or a widget, which take their parent's), or null
+        /// when none does within <see cref="MaxAncestors"/>.
+        /// </summary>
+        internal Type? InheritedFieldType()
+            => SelfAndAncestors().Skip(1).FirstOrDefault(ancestor => ancestor is not PdfFormFieldNode and not PdfFormFieldWidget)?.FieldType;
+
+        /// <summary>
+        /// This field and its ancestors through /Parent, nearest first: at most <see cref="MaxAncestors"/> + 1, each once.
+        /// A /Parent that leads back to a field already visited (a damaged or hostile file) ends the walk.
+        /// </summary>
+        internal IEnumerable<PdfFormField> SelfAndAncestors()
+        {
+            var seen = new HashSet<PdfFormField>();
+            for (PdfFormField? current = this; current != null && seen.Count <= MaxAncestors && seen.Add(current); current = current.Parent)
+                yield return current;
+        }
 
         /// <summary>
         /// Gets the actual type of the field with inheritance considered.
@@ -78,11 +116,12 @@ namespace PdfSharp.Pdf.Forms
         {
             get
             {
-                if (Elements.TryGetEnum<PdfFormFieldFlags>(Keys.Ff, out var result))
-                    return result;
-
-                var parent = Parent;
-                return parent?.Flags ?? 0;
+                foreach (var ancestor in SelfAndAncestors())
+                {
+                    if (ancestor.Elements.TryGetEnum<PdfFormFieldFlags>(Keys.Ff, out var result))
+                        return result;
+                }
+                return 0;
             }
             set => Elements.SetIntegerFlag(Keys.Ff, (int)value);
         }
@@ -100,8 +139,14 @@ namespace PdfSharp.Pdf.Forms
 
                 if (value == null)
                 {
+                    // Cleared here and on every ancestor (bounded, against /Parent loops), each read-only one refusing.
                     Elements.Remove(Keys.V);
-                    Parent?.Value = null;
+                    foreach (var ancestor in SelfAndAncestors().Skip(1))
+                    {
+                        if (ancestor.IsReadOnly)
+                            throw new InvalidOperationException("The field is read only.");
+                        ancestor.Elements.Remove(Keys.V);
+                    }
                     return;
                 }
 
@@ -306,18 +351,18 @@ namespace PdfSharp.Pdf.Forms
             // Due to inheritance, the value of an entry can be set at a field, that is not of the type that defines the key.
             // In some cases it is also important to know, at which field in the hierarchy the value is set.
 
-            var value = Elements.GetValue<T>(key);
-            // Option 1: Value is set at this field.
-            if (value != null)
-                fieldHoldingValue = this;
-            // Option 2: Value may be set at parent field: Recursion.
-            else if (Parent != null)
-                value = Parent.GetElementsValue<T>(key, out fieldHoldingValue);
-            // Option 3: Value is not set.
-            else
-                fieldHoldingValue = null;
-
-            return value;
+            // The field itself, else its nearest ancestor that has the entry (bounded, against /Parent loops).
+            foreach (var field in SelfAndAncestors())
+            {
+                var value = field.Elements.GetValue<T>(key);
+                if (value != null)
+                {
+                    fieldHoldingValue = field;
+                    return value;
+                }
+            }
+            fieldHoldingValue = null;
+            return null;
         }
 
         /// <summary>
@@ -625,10 +670,7 @@ namespace PdfSharp.Pdf.Forms
             get
             {
                 // PdfFormFieldWidget doesn’t define the field type, so we ask the parent.
-                var parent = Parent;
-                if (parent == null)
-                    throw new Exception("PdfFormFieldWidget must have a parent, which defines the type of the field.");
-                return parent.FieldType;
+                return InheritedFieldType() ?? throw new Exception("PdfFormFieldWidget must have a parent, which defines the type of the field.");
             }
         }
     }

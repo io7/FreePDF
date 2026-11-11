@@ -27,6 +27,9 @@ namespace PdfSharp.Pdf.Forms
             document.Catalog.Elements.Remove(PdfCatalog.Keys.AcroForm);
         }
 
+        // The text that flattening may write into new appearances in all.
+        const long MaxAppearanceText = 64L * 1024 * 1024;
+
         /// <summary>
         /// Draws the appearance of every text and choice field that needs one: all of them when the form asks viewers
         /// to build appearances (NeedAppearances), otherwise those with a widget that has none. Nothing is changed if
@@ -35,23 +38,43 @@ namespace PdfSharp.Pdf.Forms
         static void PrepareAppearances(PdfForm form)
         {
             var pending = new List<(PdfFormTextFieldBase Field, FieldContent Content)>();
+            // The message names the first few fields, shortened: a form's names are the file's to choose and could be very long.
+            const int namesShown = 10;
             var failures = new List<string>();
+            int failed = 0;
+            long planned = 0;
             foreach (var field in form.Fields.GetAllFields())
             {
                 var content = field.CurrentContent();
-                if (content == null || content.AllText.Length == 0 || field is not PdfFormTextFieldBase textField)
+                if (content == null || content.TextLength == 0 || field is not PdfFormTextFieldBase textField)
                     continue;
                 if (!form.NeedAppearances && field.GetWidgets().All(widget => NormalAppearance(widget) != null))
                     continue;
+                // Each widget gets its own appearance with the whole value and default appearance: one long value, or a
+                // list box whose options repeat one long text, and thousands of widgets would build gigabytes. Counted
+                // before any text is joined or drawn.
+                planned += FieldAppearance.SizePerField(textField)
+                           + FieldAppearance.SizePerWidget(textField, content) * Math.Max(1, field.GetWidgets().Count());
+                if (planned > MaxAppearanceText)
+                {
+                    throw new InvalidOperationException(
+                        $"The form cannot be flattened, because its field values would make more than {MaxAppearanceText} characters " +
+                        "of appearances. The document was not changed.");
+                }
                 if (FieldAppearance.CanBuild(textField, content))
+                {
                     pending.Add((textField, content));
-                else
-                    failures.Add($"'{field.FullName}'");
+                }
+                else if (failed++ < namesShown)
+                {
+                    failures.Add($"'{field.ShortFullName()}'");
+                }
             }
-            if (failures.Count > 0)
+            if (failed > 0)
             {
+                var more = failed > namesShown ? $" and {failed - namesShown} more" : "";
                 throw new InvalidOperationException(
-                    $"The form cannot be flattened, because FreePDF cannot draw the value of {String.Join(", ", failures)}: its default " +
+                    $"The form cannot be flattened, because FreePDF cannot draw the value of {String.Join(", ", failures)}{more}: its default " +
                     "appearance needs a font in the form's resources that can encode the text. The document was not changed.");
             }
             foreach (var (field, content) in pending)
@@ -95,9 +118,9 @@ namespace PdfSharp.Pdf.Forms
 
             if (drawing.Length == 0)
                 return;
-            // Keep the page's own graphics state from leaking into the drawn fields.
-            page.Contents.PrependContent().CreateStream(PdfEncoders.RawEncoding.GetBytes("q\n"));
-            page.Contents.AppendContent().CreateStream(PdfEncoders.RawEncoding.GetBytes("Q\n" + drawing));
+            // Keep the page's own graphics state from leaking into the drawn fields. The page's content is not decoded.
+            // The streams are read as one: a newline first keeps the Q from joining the page's last token or comment.
+            page.WrapContent(PdfEncoders.RawEncoding.GetBytes("q\n"), PdfEncoders.RawEncoding.GetBytes("\nQ\n" + drawing));
         }
 
         /// <summary>
@@ -115,9 +138,10 @@ namespace PdfSharp.Pdf.Forms
                 return null;
             if (appearances.Stream != null)
                 return appearances;
-            var state = widget.Elements.GetName("/AS");
-            if (state.Length == 0)
+            // (GetName gives "/" for a missing /AS, which would pick a state named by the empty name.)
+            if (!widget.Elements.ContainsKey("/AS"))
                 return null;
+            var state = widget.Elements.GetName("/AS");
             var stateAppearance = appearances.Elements.GetDictionary(state);
             if (stateAppearance?.Stream == null)
                 return null;
@@ -174,7 +198,8 @@ namespace PdfSharp.Pdf.Forms
         /// </summary>
         static string AddXObject(PdfPage page, PdfDictionary appearance)
         {
-            if (appearance.Elements.GetName("/Subtype").Length == 0)
+            // (GetName gives "/", not "", for a missing entry.)
+            if (!appearance.Elements.ContainsKey("/Subtype"))
                 appearance.Elements.SetName("/Subtype", "/Form");
             if (appearance.Reference == null)
                 page.Owner.Internals.AddObject(appearance);

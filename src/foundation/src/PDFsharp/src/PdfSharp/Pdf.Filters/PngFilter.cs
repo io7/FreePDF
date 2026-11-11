@@ -14,15 +14,16 @@ namespace PdfSharp.Pdf.Filters
         /// </summary>
         /// <param name="stride">The width of a scanline in bytes</param>
         /// <param name="bpp">Bytes per pixel</param>
+        /// <param name="rows">The number of complete scanlines in the input data</param>
         /// <param name="inData">The input data</param>
         /// <param name="outData">The target array where the unfiltered data is stored</param>
-        internal static void Unfilter(int stride, int bpp, byte[] inData, byte[] outData)
+        internal static void Unfilter(int stride, int bpp, int rows, byte[] inData, byte[] outData)
         {
             var prevRow = new byte[stride];
             var row = new byte[stride];
             var pos = 0;
             var outIndex = 0;
-            while (pos < inData.Length)
+            for (int index = 0; index < rows; index++)
             {
                 Array.Copy(inData, pos + 1, row, 0, stride);
                 var filterType = inData[pos];

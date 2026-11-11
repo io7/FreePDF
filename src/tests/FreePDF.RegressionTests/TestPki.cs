@@ -54,6 +54,33 @@ public sealed class TestPki : IDisposable
     /// <summary>When set, the CRL addresses return these bytes instead of a CRL.</summary>
     public byte[]? CrlBody { get; set; }
 
+    /// <summary>Signs CRLs and OCSP responses with RSASSA-PSS (SHA-256), which FreePDF does not verify.</summary>
+    public bool Pss { get; set; }
+
+    /// <summary>
+    /// Another responder certificate listed before the one that signs, as after a key rollover: the same name and
+    /// authorization, another key.
+    /// </summary>
+    public X509Certificate2? DecoyResponder { get; set; }
+
+    /// <summary>Leaves the responder certificate out of OCSP responses (RFC 6960 makes the list optional).</summary>
+    public bool OmitResponderCertificate { get; set; }
+
+    /// <summary>The delegated responder certificate the issuer's responses are signed with.</summary>
+    public X509Certificate2 DelegatedResponderFor(X509Certificate2 issuer) => ResponderFor(issuer, false);
+
+    /// <summary>A new delegated responder certificate for the issuer, with the usual name and a new key.</summary>
+    public X509Certificate2 CreateDelegatedResponder(X509Certificate2 issuer)
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest("CN=FreePDF test OCSP responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
+        request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));
+        using var issued = request.Create(issuer, CaFrom, CaUntil, Serial());
+        return issued.CopyWithPrivateKey(key);
+    }
+
     public enum OcspAnswer
     {
         /// <summary>Good, or revoked when the serial number is in <see cref="Revoked"/>.</summary>
@@ -85,7 +112,19 @@ public sealed class TestPki : IDisposable
         return issued.CopyWithPrivateKey(key);
     }
 
-    X509Certificate2 CreateEndEntity(string name, DateTimeOffset from, DateTimeOffset until, X509KeyUsageFlags usage, X509Extension? extra)
+    /// <summary>
+    /// Another signer the intermediate CA issues, with the given CRL distribution points extension in place of the usual
+    /// one, or none.
+    /// </summary>
+    public X509Certificate2 CreateSigner(X509Extension? distributionPoints)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return CreateEndEntity("CN=FreePDF test signer 2, O=FreePDF tests", now.AddHours(-1), now.AddDays(30),
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.NonRepudiation, distributionPoints, usualDistributionPoint: false);
+    }
+
+    X509Certificate2 CreateEndEntity(string name, DateTimeOffset from, DateTimeOffset until, X509KeyUsageFlags usage, X509Extension? extra,
+        bool usualDistributionPoint = true)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest(name, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -93,7 +132,8 @@ public sealed class TestPki : IDisposable
         request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
         request.CertificateExtensions.Add(X509AuthorityKeyIdentifierExtension.CreateFromCertificate(Intermediate, true, false));
         request.CertificateExtensions.Add(new X509AuthorityInformationAccessExtension([OcspUrl], null));
-        request.CertificateExtensions.Add(CertificateRevocationListBuilder.BuildCrlDistributionPointExtension([IntermediateCrlUrl]));
+        if (usualDistributionPoint)
+            request.CertificateExtensions.Add(CertificateRevocationListBuilder.BuildCrlDistributionPointExtension([IntermediateCrlUrl]));
         if (extra != null)
             request.CertificateExtensions.Add(extra);
         using var issued = request.Create(Intermediate, from, until, Serial());
@@ -108,12 +148,168 @@ public sealed class TestPki : IDisposable
         return serial;
     }
 
+    // id-RSASSA-PSS with SHA-256, MGF1 with SHA-256 and a 32-byte salt (RFC 4055 3.1), inside an AlgorithmIdentifier.
+    static void WritePssParameters(AsnWriter writer)
+    {
+        writer.WriteObjectIdentifier("1.2.840.113549.1.1.10");
+        using (writer.PushSequence())
+        {
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))
+            using (writer.PushSequence())
+            {
+                writer.WriteObjectIdentifier("2.16.840.1.101.3.4.2.1");
+                writer.WriteNull();
+            }
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))
+            using (writer.PushSequence())
+            {
+                writer.WriteObjectIdentifier("1.2.840.113549.1.1.8");
+                using (writer.PushSequence())
+                {
+                    writer.WriteObjectIdentifier("2.16.840.1.101.3.4.2.1");
+                    writer.WriteNull();
+                }
+            }
+            using (writer.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 2, true)))
+                writer.WriteInteger(32);
+        }
+    }
+
+    /// <summary>
+    /// A CRL of the issuer for one partition: its issuing distribution point extension (RFC 5280 5.2.5, critical) names
+    /// the URI as the distribution point's full name. It lists the serial numbers in <see cref="Revoked"/>.
+    /// </summary>
+    public byte[] PartitionCrl(X509Certificate2 issuer, string uri) => HandBuiltCrl(issuer, uri, false);
+
+    /// <summary>
+    /// A complete CRL of the issuer whose issuer name is the issuer's with each value in the other string type
+    /// (PrintableString and UTF8String swapped), which RFC 5280 7.1 still takes as the same name.
+    /// </summary>
+    public byte[] CrlWithReencodedIssuerName(X509Certificate2 issuer) => HandBuiltCrl(issuer, null, true);
+
+    /// <summary>A complete CRL signed with the issuer's key but naming another issuer.</summary>
+    public byte[] CrlNamedOtherwise(X509Certificate2 issuer, string name) => HandBuiltCrl(issuer, null, false, new X500DistinguishedName(name).RawData);
+
+    // The issuer's name with each attribute value in the other string type.
+    static byte[] Reencoded(byte[] name)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        var rdns = new AsnReader(name, AsnEncodingRules.DER).ReadSequence();
+        using (writer.PushSequence())
+        {
+            while (rdns.HasData)
+            {
+                var set = rdns.ReadSetOf();
+                using (writer.PushSetOf())
+                {
+                    while (set.HasData)
+                    {
+                        var attribute = set.ReadSequence();
+                        using (writer.PushSequence())
+                        {
+                            writer.WriteObjectIdentifier(attribute.ReadObjectIdentifier());
+                            var tag = attribute.PeekTag();
+                            var value = attribute.ReadCharacterString(tag.TagValue == (int)UniversalTagNumber.PrintableString
+                                ? UniversalTagNumber.PrintableString : UniversalTagNumber.UTF8String);
+                            writer.WriteCharacterString(tag.TagValue == (int)UniversalTagNumber.PrintableString
+                                ? UniversalTagNumber.UTF8String : UniversalTagNumber.PrintableString, value);
+                        }
+                    }
+                }
+            }
+        }
+        return writer.Encode();
+    }
+
+    byte[] HandBuiltCrl(X509Certificate2 issuer, string? uri, bool reencodeIssuerName, byte[]? issuerName = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tbs = new AsnWriter(AsnEncodingRules.DER);
+        using (tbs.PushSequence())
+        {
+            tbs.WriteInteger(1);                                                              // v2
+            using (tbs.PushSequence())
+            {
+                tbs.WriteObjectIdentifier("1.2.840.113549.1.1.11");
+                tbs.WriteNull();
+            }
+            tbs.WriteEncodedValue(issuerName ?? (reencodeIssuerName ? Reencoded(issuer.SubjectName.RawData) : issuer.SubjectName.RawData));
+            tbs.WriteUtcTime(now.AddMinutes(-1));
+            tbs.WriteUtcTime(now.AddDays(7));
+            if (Revoked.Count > 0)
+            {
+                using (tbs.PushSequence())
+                {
+                    foreach (var serial in Revoked)
+                    {
+                        using (tbs.PushSequence())
+                        {
+                            tbs.WriteIntegerUnsigned(serial);
+                            tbs.WriteUtcTime(RevocationTime ?? now.AddMinutes(-10));
+                        }
+                    }
+                }
+            }
+            if (uri != null)
+            using (tbs.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))         // crlExtensions
+            using (tbs.PushSequence())
+            using (tbs.PushSequence())
+            {
+                tbs.WriteObjectIdentifier("2.5.29.28");                                        // issuingDistributionPoint
+                tbs.WriteBoolean(true);
+                var point = new AsnWriter(AsnEncodingRules.DER);
+                using (point.PushSequence())
+                using (point.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))    // distributionPoint
+                using (point.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))    // fullName
+                    point.WriteCharacterString(UniversalTagNumber.IA5String, uri, new Asn1Tag(TagClass.ContextSpecific, 6));
+                tbs.WriteOctetString(point.Encode());
+            }
+        }
+        var tbsDer = tbs.Encode();
+        var signature = issuer.GetRSAPrivateKey()!.SignData(tbsDer, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var crl = new AsnWriter(AsnEncodingRules.DER);
+        using (crl.PushSequence())
+        {
+            crl.WriteEncodedValue(tbsDer);
+            using (crl.PushSequence())
+            {
+                crl.WriteObjectIdentifier("1.2.840.113549.1.1.11");
+                crl.WriteNull();
+            }
+            crl.WriteBitString(signature);
+        }
+        return crl.Encode();
+    }
+
     public byte[] Crl(X509Certificate2 issuer)
     {
         var builder = new CertificateRevocationListBuilder();
         foreach (var serial in Revoked)
             builder.AddEntry(serial, RevocationTime ?? DateTimeOffset.UtcNow.AddMinutes(-10), RevocationReason ?? X509RevocationReason.KeyCompromise);
-        return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256,
+            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
+    }
+
+    /// <summary>The responder's answer about the certificate, without HTTP: an OCSPRequest with one SHA-1 CertID.</summary>
+    public byte[] OcspResponseFor(X509Certificate2 certificate, X509Certificate2 issuer)
+    {
+        var request = new AsnWriter(AsnEncodingRules.DER);
+        using (request.PushSequence())                       // OCSPRequest
+        using (request.PushSequence())                       // TBSRequest
+        using (request.PushSequence())                       // requestList
+        using (request.PushSequence())                       // Request
+        using (request.PushSequence())                       // CertID
+        {
+            using (request.PushSequence())
+            {
+                request.WriteObjectIdentifier("1.3.14.3.2.26");
+                request.WriteNull();
+            }
+            request.WriteOctetString(SHA1.HashData(issuer.SubjectName.RawData));
+            request.WriteOctetString(SHA1.HashData(issuer.PublicKey.EncodedKeyValue.RawData));
+            request.WriteIntegerUnsigned(certificate.SerialNumberBytes.Span);
+        }
+        return OcspResponse(request.Encode());
     }
 
     // An OCSPResponse for the request's single certificate, signed by the CA that issued it (RFC 6960 4.2.2.2).
@@ -149,7 +345,10 @@ public sealed class TestPki : IDisposable
         var now = DateTimeOffset.UtcNow;
         // The issuing CA signs, or a responder certificate (RFC 6960 4.2.2.2): one the CA issued, or a forgery that
         // only carries the CA's name.
-        var responder = Responder == OcspResponder.Issuer ? issuer : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated);
+        var responder = Responder == OcspResponder.Issuer
+            ? issuer
+            : ResponderFor(issuer, Responder == OcspResponder.ForgedDelegated, Responder == OcspResponder.DelegatedPss,
+                noCheck: Responder != OcspResponder.DelegatedWithoutNoCheck);
 
         var data = new AsnWriter(AsnEncodingRules.DER);
         using (data.PushSequence())                                                          // ResponseData
@@ -187,7 +386,7 @@ public sealed class TestPki : IDisposable
             }
         }
         var tbs = data.Encode();
-        var signature = responder.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var signature = responder.GetRSAPrivateKey()!.SignData(tbs, HashAlgorithmName.SHA256, Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
 
         var basic = new AsnWriter(AsnEncodingRules.DER);
         using (basic.PushSequence())
@@ -195,15 +394,24 @@ public sealed class TestPki : IDisposable
             basic.WriteEncodedValue(tbs);
             using (basic.PushSequence())
             {
-                basic.WriteObjectIdentifier("1.2.840.113549.1.1.11");                         // sha256WithRSAEncryption
-                basic.WriteNull();
+                if (Pss)
+                    WritePssParameters(basic);
+                else
+                {
+                    basic.WriteObjectIdentifier("1.2.840.113549.1.1.11");                     // sha256WithRSAEncryption
+                    basic.WriteNull();
+                }
             }
             basic.WriteBitString(signature);
-            if (!ReferenceEquals(responder, issuer))
+            if (!ReferenceEquals(responder, issuer) && !OmitResponderCertificate)
             {
                 using (basic.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 0, true)))   // certs
                 using (basic.PushSequence())
+                {
+                    if (DecoyResponder != null)
+                        basic.WriteEncodedValue(DecoyResponder.RawData);
                     basic.WriteEncodedValue(responder.RawData);
+                }
             }
         }
 
@@ -227,9 +435,10 @@ public sealed class TestPki : IDisposable
 
     // A responder certificate with id-kp-OCSPSigning and id-pkix-ocsp-nocheck. The forgery is signed by a key of its
     // own under a CA certificate that only copies the real CA's name.
-    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged)
+    X509Certificate2 ResponderFor(X509Certificate2 issuer, bool forged, bool pss = false, bool noCheck = true)
     {
-        if (_responders.TryGetValue((issuer.Thumbprint, forged), out var cached))
+        var cacheKey = issuer.Thumbprint + (pss ? "/pss" : "") + (noCheck ? "" : "/check");
+        if (_responders.TryGetValue((cacheKey, forged), out var cached))
             return cached;
         var signingCa = issuer;
         if (forged)
@@ -243,11 +452,13 @@ public sealed class TestPki : IDisposable
         var request = new CertificateRequest("CN=FreePDF test OCSP responder", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new("1.3.6.1.5.5.7.3.9") }, true));
-        request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
-        using var issued = request.Create(signingCa.SubjectName, X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, RSASignaturePadding.Pkcs1),
+        if (noCheck)
+            request.CertificateExtensions.Add(new X509Extension("1.3.6.1.5.5.7.48.1.5", [0x05, 0x00], false));   // id-pkix-ocsp-nocheck
+        using var issued = request.Create(signingCa.SubjectName,
+            X509SignatureGenerator.CreateForRSA(signingCa.GetRSAPrivateKey()!, pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1),
             CaFrom, CaUntil, Serial());
         var responder = issued.CopyWithPrivateKey(key);
-        _responders[(issuer.Thumbprint, forged)] = responder;
+        _responders[(cacheKey, forged)] = responder;
         return responder;
     }
 
@@ -260,6 +471,10 @@ public sealed class TestPki : IDisposable
         Issuer,
         /// <summary>A responder certificate that the CA issued.</summary>
         Delegated,
+        /// <summary>A responder certificate that the CA issued, signed with RSASSA-PSS.</summary>
+        DelegatedPss,
+        /// <summary>A responder certificate that the CA issued, without id-pkix-ocsp-nocheck.</summary>
+        DelegatedWithoutNoCheck,
         /// <summary>A responder certificate with the CA's name as issuer, signed by another key.</summary>
         ForgedDelegated,
     }
