@@ -70,6 +70,8 @@ jobs:
         if: runner.os == 'Linux'
         shell: pwsh
         run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-stable-rehearsal" -OutputDirectory "$env:RUNNER_TEMP/freepdf-stable-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
+      # Artifact storage is shared by every io7 repository. Branch and PR results are kept 3 days, main's 14;
+      # publish.yml only downloads candidate packages from push runs on main.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -80,7 +82,7 @@ jobs:
             ${{ runner.temp }}/freepdf-packages/library-advisories*.json
             ${{ runner.temp }}/freepdf-packages/library-dependencies/**
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
-          retention-days: 14
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -91,7 +93,7 @@ jobs:
             ${{ runner.temp }}/freepdf-stable-rehearsal/*.json
             ${{ runner.temp }}/freepdf-stable-rehearsal/library-dependencies/**
             ${{ runner.temp }}/freepdf-stable-rehearsal/consumer-*/**
-          retention-days: 14
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always() && runner.os == 'Linux'
@@ -102,7 +104,7 @@ jobs:
             ${{ runner.temp }}/freepdf-api/*.log
             ${{ runner.temp }}/freepdf-independent/**
             ${{ runner.temp }}/freepdf-stable-independent/**
-          retention-days: 14
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: warn
 
   # The packages have no net11.0 assets; .NET 11 apps use the net10.0 ones. This job installs the exact candidate
