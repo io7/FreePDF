@@ -281,7 +281,14 @@ from being shown as not revoked, so the signature is at best Indeterminate.
 With `PdfRevocationCheck.Online`, a current answer fetched from the issuer's
 responder or CRL can still show a certificate not revoked next to DSS data
 FreePDF could not read (too large, or in a form it does not decode), but not
-next to data it read and could not use.
+next to data it read and could not use. Since 7.10.2, for a signature with a
+time-stamp, a CA certificate's revocation data counts while its validity window
+covers the validation time and reaches the signing time; the signer's own
+certificate needs data issued after the time-stamp. So a revocation of a CA
+certificate that its issuer records after its latest CRL is not seen until the
+next CRL. With `PdfRevocationCheck.Online`, the CRL is asked when an OCSP
+answer does not settle the status, and a time-stamp authority's chain is asked
+about when the DSS's data for it has run out.
 
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
