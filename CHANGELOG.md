@@ -8,7 +8,7 @@
   revocation data issued at or after that time. A root publishes the CRL for
   its CAs a few times a year, so every new signature stayed Unknown until the
   next CRL (seen with real files: a CRL of 1 October, valid until 1 May, and a
-  signature of 19 October). For a CA certificate, revocation data whose
+  signature made later in October). For a CA certificate, revocation data whose
   validity window covers the validation time now counts, as it already did for
   a signature without a time-stamp. The signer's own certificate still needs
   data from after the time-stamp.

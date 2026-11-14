@@ -2344,7 +2344,7 @@ public class SignatureVerifierTests
 
     // A root publishes the CRL for its CAs a few times a year, so the latest one is older than any recent signature. Seen
     // with real files: a CA's status came from a CRL of 1 October that was valid until 1 May, and a signature time-stamped
-    // on 19 October stayed Unknown, as every new signature would have until the next CRL.
+    // later in October stayed Unknown, as every new signature would have until the next CRL.
     [Fact]
     public async Task A_current_crl_from_before_the_time_stamp_counts_for_a_ca_certificate()
     {
