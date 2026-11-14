@@ -963,16 +963,20 @@ namespace PdfSharp.Pdf.Signatures
                 {
                     var fetchedOcsps = new List<byte[]>();
                     var fetchedCrls = new List<byte[]>();
-                    bool crlsAsked = false;
+                    bool askCrls = true;
                     if (await fetcher.OcspAsync(certificate, issuer).ConfigureAwait(false) is { } ocsp)
                     {
                         fetchedOcsps.Add(ocsp.Response);
+                        // An OCSP answer that cannot be checked (a signature algorithm FreePDF does not verify, a
+                        // responder certificate it does not accept) says nothing, and one that is not from after the
+                        // signature's time does not settle it: the CRL may, as when the responder gives no answer.
+                        // This is judged on the fetched answer alone, before the DSS's data is weighed in: old data
+                        // there must not make an answer that says nothing look like enough.
+                        askCrls = Revocation(certificate, issuer, fetchedOcsps, [], context.Dss.Certificates, bestTime, proven, context.ValidationTime,
+                            authority, ca).Status == PdfRevocationStatus.Unknown;
                     }
-                    else
-                    {
+                    if (askCrls)
                         fetchedCrls.AddRange(await fetcher.CrlsAsync(certificate).ConfigureAwait(false));
-                        crlsAsked = true;
-                    }
                     // From an incomplete DSS only a revocation counts (it would have shown above): what it holds cannot
                     // show the certificate not revoked, so only what was fetched can.
                     if (!context.Dss.Incomplete)
@@ -981,13 +985,6 @@ namespace PdfSharp.Pdf.Signatures
                         fetchedCrls.AddRange(crls);
                     }
                     found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, context.Dss.Certificates, bestTime, proven, context.ValidationTime, authority, ca);
-                    // An OCSP answer that cannot be checked (a signature algorithm FreePDF does not verify, a responder
-                    // certificate it does not accept) says nothing: the CRL may, as when the responder gives no answer.
-                    if (found.Status == PdfRevocationStatus.Unknown && !crlsAsked)
-                    {
-                        fetchedCrls.AddRange(await fetcher.CrlsAsync(certificate).ConfigureAwait(false));
-                        found = Revocation(certificate, issuer, fetchedOcsps, fetchedCrls, context.Dss.Certificates, bestTime, proven, context.ValidationTime, authority, ca);
-                    }
                     // What the DSS holds that could revoke the certificate but cannot be used still counts when the DSS's own
                     // data is left out above: a fetched answer must not lift it.
                     if (found.Status == PdfRevocationStatus.Good && dssUnusable != null)
@@ -1090,8 +1087,10 @@ namespace PdfSharp.Pdf.Signatures
             current = answers.Any(a => Current(a.ThisUpdate, a.NextUpdate) && Covers(a.ThisUpdate, a.ExpiredCutoff));
             if (answers.FirstOrDefault(a => a.RevocationTime != null) is { RevocationTime: { } later } after)
                 return (PdfRevocationStatus.Good, $"'{certificate.Subject}' was revoked at {later:u}, after the signature ({after.Source}).");
+            // The window must also reach the signature's time: a caller may set a validation time before the time-stamp,
+            // and a CRL that was current then may have run out before the signature was made.
             bool Fresh(DateTimeOffset thisUpdate, DateTimeOffset? nextUpdate)
-                => thisUpdate >= bestTime.AddSeconds(-1) || ((!proven || ca) && Current(thisUpdate, nextUpdate));
+                => thisUpdate >= bestTime.AddSeconds(-1) || ((!proven || ca) && Current(thisUpdate, nextUpdate) && bestTime <= nextUpdate);
             if (answers.Any(a => Fresh(a.ThisUpdate, a.NextUpdate) && Covers(a.ThisUpdate, a.ExpiredCutoff)))
                 return (PdfRevocationStatus.Good, null);
             current = false;

@@ -2413,27 +2413,29 @@ public class SignatureVerifierTests
     // Revocation data in the DSS that was issued after the time-stamp shows the authority good then, and it goes on doing
     // so after it has run out. A key compromise that the authority's CA records later voids its tokens (RFC 3161 4), and
     // only the CA's current answer shows that. So a check that may ask, asks. Sixty days on, the DSS data has run out and
-    // the signer's 30-day certificate has expired: without the time-stamp the signature is not valid.
+    // the signer's 30-day certificate has expired: without the time-stamp the signature is not valid. The file has no
+    // document time-stamp, so the authority of the signature time-stamp is the only one to ask about.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Online_asks_about_a_time_stamp_authority_when_the_dss_data_has_run_out(bool compromised)
     {
         using var pki = new TestPki();
-        var lta = await SignLta(pki);
+        var lt = await SignLt(pki);
         using var client = pki.CreateClient();
         if (compromised)
             pki.Revoked.Add(pki.TimeStampAuthority.SerialNumberBytes.ToArray());
+        int before = pki.OcspRequests + pki.CrlRequests;
 
-        var signature = (await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(lt, new PdfSignatureVerificationOptions
         {
             TrustedRoots = [pki.Root],
             Revocation = PdfRevocationCheck.Online,
             Online = new PdfValidationDataOptions { HttpClient = client },
             ValidationTime = DateTimeOffset.UtcNow.AddDays(60),
-        }))[0];
+        }));
 
-        Assert.True(pki.OcspRequests + pki.CrlRequests > 0, "the authority's CA was asked");
+        Assert.True(pki.OcspRequests + pki.CrlRequests > before, "the authority's CA was asked");
         if (compromised)
         {
             Assert.Null(signature.TimeStampTime);
@@ -2445,6 +2447,54 @@ public class SignatureVerifierTests
             Assert.NotNull(signature.TimeStampTime);
             Assert.Equal(PdfSignatureStatus.Valid, signature.Status);
         }
+    }
+
+    // The same, when the responder's answer cannot be checked and says good (it has not heard of the compromise): the DSS's
+    // old data must not make that enough. The CRL is asked, and it lists the compromise.
+    [Fact]
+    public async Task The_crl_shows_a_compromised_authority_when_the_ocsp_answer_cannot_be_checked()
+    {
+        using var pki = new TestPki();
+        var lt = await SignLt(pki);
+        using var client = pki.CreateClient();
+        pki.Responder = TestPki.OcspResponder.DelegatedPss;
+        pki.Answer = TestPki.OcspAnswer.Good;
+        pki.Revoked.Add(pki.TimeStampAuthority.SerialNumberBytes.ToArray());
+
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(lt, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Online,
+            Online = new PdfValidationDataOptions { HttpClient = client },
+            ValidationTime = DateTimeOffset.UtcNow.AddDays(60),
+        }));
+
+        Assert.Null(signature.TimeStampTime);
+        Assert.NotEqual(PdfSignatureStatus.Valid, signature.Status);
+        Assert.Contains(signature.Reasons, reason => reason.Contains("authority's certificate was revoked"));
+    }
+
+    // A caller can set a validation time before the time-stamp. A CRL that was current then but ran out before the
+    // signature was made says nothing about the CA at the signature's time: it must not count for the time-stamp
+    // authority's CA (so the time-stamp is not used) or for the signer's.
+    [Fact]
+    public async Task A_crl_that_ran_out_before_the_time_stamp_does_not_count_for_a_ca_certificate()
+    {
+        var now = DateTimeOffset.UtcNow;
+        using var pki = new TestPki { CrlIssued = now.AddDays(-30), CrlValidUntil = now.AddDays(-1) };
+        using var client = pki.CreateClient();
+        var bt = SignBT(pki);
+
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(bt, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Online,
+            Online = new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Intermediate] },
+            ValidationTime = now.AddDays(-2),
+        }));
+
+        Assert.Null(signature.TimeStampTime);
+        Assert.NotEqual(PdfSignatureStatus.Valid, signature.Status);
     }
 
     // While the DSS data is current it tells as much as the CA would: nothing is asked.
@@ -2476,19 +2526,22 @@ public class SignatureVerifierTests
 
     // ===== Helpers =====
 
-    static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
+    // B-T with the DSS from AddValidationDataAsync: B-LT.
+    static async Task<byte[]> SignLt(TestPki pki)
     {
         var bt = SignBT(pki);
         using var client = pki.CreateClient();
-        byte[] lt;
-        using (var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append))
-        {
-            await PdfDocumentSecurityStore.AddValidationDataAsync(document,
-                new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
-            using var output = new MemoryStream();
-            await document.SaveAsync(output);
-            lt = output.ToArray();
-        }
+        using var document = PdfReader.Open(new MemoryStream(bt), PdfDocumentOpenMode.Append);
+        await PdfDocumentSecurityStore.AddValidationDataAsync(document,
+            new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Root, pki.Intermediate] });
+        using var output = new MemoryStream();
+        await document.SaveAsync(output);
+        return output.ToArray();
+    }
+
+    static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)
+    {
+        var lt = await SignLt(pki);
         using var authority = new TestTimeStampAuthority(null, pki.TimeStampAuthority);
         using (var document = PdfReader.Open(new MemoryStream(lt), PdfDocumentOpenMode.Append))
         {
