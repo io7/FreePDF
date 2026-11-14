@@ -2340,6 +2340,140 @@ public class SignatureVerifierTests
         return output.ToArray();
     }
 
+    // ===== Which revocation data counts (7.10.2) =====
+
+    // A root publishes the CRL for its CAs a few times a year, so the latest one is older than any recent signature. Seen
+    // with real files: a CA's status came from a CRL of 1 October that was valid until 1 May, and a signature time-stamped
+    // on 19 October stayed Unknown, as every new signature would have until the next CRL.
+    [Fact]
+    public async Task A_current_crl_from_before_the_time_stamp_counts_for_a_ca_certificate()
+    {
+        using var pki = new TestPki { CrlIssued = DateTimeOffset.UtcNow.AddDays(-30) };
+        using var client = pki.CreateClient();
+        var bt = SignBT(pki);
+
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(bt, OnlineOptions(pki, client)));
+
+        Assert.NotNull(signature.TimeStampTime);
+        Assert.Equal(PdfRevocationStatus.Good, signature.Revocation);
+        Assert.Equal(PdfSignatureStatus.Valid, signature.Status);
+    }
+
+    // The same from the DSS alone.
+    [Fact]
+    public async Task A_current_crl_from_before_the_time_stamp_counts_for_a_ca_certificate_in_the_dss()
+    {
+        using var pki = new TestPki { CrlIssued = DateTimeOffset.UtcNow.AddDays(-30) };
+        var lta = await SignLta(pki);
+
+        var signature = (await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions { TrustedRoots = [pki.Root] }))[0];
+
+        Assert.Equal(PdfRevocationStatus.Good, signature.Revocation);
+        Assert.Equal(PdfSignatureStatus.Valid, signature.Status);
+        Assert.Equal(PdfPadesLevel.BaselineLTA, signature.PadesLevel);
+    }
+
+    // The signer's own certificate keeps the stricter rule: a CRL from before the time-stamp cannot show that the
+    // certificate was good when it signed. Its responder is down here, so only the CRL answers.
+    [Fact]
+    public async Task A_crl_from_before_the_time_stamp_does_not_count_for_the_signer()
+    {
+        using var pki = new TestPki { CrlIssued = DateTimeOffset.UtcNow.AddDays(-30), OcspStatus = System.Net.HttpStatusCode.ServiceUnavailable };
+        using var client = pki.CreateClient();
+        var bt = SignBT(pki);
+
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(bt, OnlineOptions(pki, client)));
+
+        Assert.NotNull(signature.TimeStampTime);
+        Assert.Equal(PdfRevocationStatus.Unknown, signature.Revocation);
+        Assert.Equal(PdfSignatureStatus.Indeterminate, signature.Status);
+    }
+
+    // An OCSP answer that FreePDF cannot check says nothing (here its responder's certificate is signed with RSASSA-PSS,
+    // or lacks id-pkix-ocsp-nocheck). The CRL was asked only when the responder gave no answer at all, so such a
+    // certificate stayed Unknown although its CRL was there to read.
+    [Theory]
+    [InlineData(TestPki.OcspResponder.DelegatedPss, false)]
+    [InlineData(TestPki.OcspResponder.DelegatedWithoutNoCheck, false)]
+    [InlineData(TestPki.OcspResponder.DelegatedPss, true)]
+    public async Task The_crl_is_asked_when_the_ocsp_answer_cannot_be_checked(TestPki.OcspResponder responder, bool revoked)
+    {
+        using var pki = new TestPki { Responder = responder };
+        using var client = pki.CreateClient();
+        var bt = SignBT(pki);
+        if (revoked)
+            pki.Revoked.Add(pki.Signer.SerialNumberBytes.ToArray());
+
+        var signature = Assert.Single(await PdfSignatureVerifier.VerifyAsync(bt, OnlineOptions(pki, client)));
+
+        Assert.Equal(revoked ? PdfRevocationStatus.Revoked : PdfRevocationStatus.Good, signature.Revocation);
+        Assert.Equal(revoked ? PdfSignatureStatus.Invalid : PdfSignatureStatus.Valid, signature.Status);
+    }
+
+    // Revocation data in the DSS that was issued after the time-stamp shows the authority good then, and it goes on doing
+    // so after it has run out. A key compromise that the authority's CA records later voids its tokens (RFC 3161 4), and
+    // only the CA's current answer shows that. So a check that may ask, asks. Sixty days on, the DSS data has run out and
+    // the signer's 30-day certificate has expired: without the time-stamp the signature is not valid.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Online_asks_about_a_time_stamp_authority_when_the_dss_data_has_run_out(bool compromised)
+    {
+        using var pki = new TestPki();
+        var lta = await SignLta(pki);
+        using var client = pki.CreateClient();
+        if (compromised)
+            pki.Revoked.Add(pki.TimeStampAuthority.SerialNumberBytes.ToArray());
+
+        var signature = (await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Online,
+            Online = new PdfValidationDataOptions { HttpClient = client },
+            ValidationTime = DateTimeOffset.UtcNow.AddDays(60),
+        }))[0];
+
+        Assert.True(pki.OcspRequests + pki.CrlRequests > 0, "the authority's CA was asked");
+        if (compromised)
+        {
+            Assert.Null(signature.TimeStampTime);
+            Assert.NotEqual(PdfSignatureStatus.Valid, signature.Status);
+            Assert.Contains(signature.Reasons, reason => reason.Contains("authority's certificate was revoked"));
+        }
+        else
+        {
+            Assert.NotNull(signature.TimeStampTime);
+            Assert.Equal(PdfSignatureStatus.Valid, signature.Status);
+        }
+    }
+
+    // While the DSS data is current it tells as much as the CA would: nothing is asked.
+    [Fact]
+    public async Task Online_does_not_ask_while_the_dss_data_is_current()
+    {
+        using var pki = new TestPki();
+        var lta = await SignLta(pki);
+        using var client = pki.CreateClient();
+        int before = pki.OcspRequests + pki.CrlRequests;
+
+        var signature = (await PdfSignatureVerifier.VerifyAsync(lta, new PdfSignatureVerificationOptions
+        {
+            TrustedRoots = [pki.Root],
+            Revocation = PdfRevocationCheck.Online,
+            Online = new PdfValidationDataOptions { HttpClient = client },
+        }))[0];
+
+        Assert.Equal(PdfSignatureStatus.Valid, signature.Status);
+        Assert.Equal(before, pki.OcspRequests + pki.CrlRequests);
+    }
+
+    static PdfSignatureVerificationOptions OnlineOptions(TestPki pki, HttpClient client) => new()
+    {
+        TrustedRoots = [pki.Root],
+        Revocation = PdfRevocationCheck.Online,
+        Online = new PdfValidationDataOptions { HttpClient = client, ExtraCertificates = [pki.Intermediate] },
+    };
+
     // ===== Helpers =====
 
     static async Task<byte[]> SignLta(TestPki pki, TestTimeStampAuthority? documentTimeStampAuthority = null)

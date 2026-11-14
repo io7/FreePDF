@@ -1,5 +1,27 @@
 # FreePDF changelog
 
+## Unreleased
+
+- `PdfSignatureVerifier`: a signature with a time-stamp no longer stays
+  Indeterminate (revocation Unknown) because the CRL for its issuing CA is
+  older than the signature. For a time that a time-stamp proves, 7.10 took only
+  revocation data issued at or after that time. A root publishes the CRL for
+  its CAs a few times a year, so every new signature stayed Unknown until the
+  next CRL (seen with real files: a CRL of 1 October, valid until 1 May, and a
+  signature of 19 October). For a CA certificate, revocation data whose
+  validity window covers the validation time now counts, as it already did for
+  a signature without a time-stamp. The signer's own certificate still needs
+  data from after the time-stamp.
+- `PdfRevocationCheck.Online`: when an OCSP answer cannot be checked (a
+  signature algorithm FreePDF does not verify, a responder certificate it does
+  not accept), the certificate's CRL is asked. Before, the CRL was asked only
+  when the responder gave no answer at all, and the certificate stayed Unknown.
+- `PdfRevocationCheck.Online`: a time-stamp authority's chain is asked about
+  also when the DSS vouches for it with data that has run out. A key compromise
+  recorded after that data was issued voids the authority's time-stamps, and
+  only the CA's current answer shows it. With data that is still current,
+  nothing is asked, as before.
+
 ## 7.10.1
 
 - Small hostile files no longer overflow the stack when they are opened, in any

@@ -54,6 +54,12 @@ public sealed class TestPki : IDisposable
     /// <summary>When set, the CRL addresses return these bytes instead of a CRL.</summary>
     public byte[]? CrlBody { get; set; }
 
+    /// <summary>
+    /// When the CRLs were issued (thisUpdate); now when null. They are valid for seven days from now either way, so an
+    /// earlier time gives a CRL that is older than a new signature and still current, as a CA's CRL usually is.
+    /// </summary>
+    public DateTimeOffset? CrlIssued { get; set; }
+
     /// <summary>Signs CRLs and OCSP responses with RSASSA-PSS (SHA-256), which FreePDF does not verify.</summary>
     public bool Pss { get; set; }
 
@@ -287,7 +293,7 @@ public sealed class TestPki : IDisposable
         foreach (var serial in Revoked)
             builder.AddEntry(serial, RevocationTime ?? DateTimeOffset.UtcNow.AddMinutes(-10), RevocationReason ?? X509RevocationReason.KeyCompromise);
         return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256,
-            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
+            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1, CrlIssued);
     }
 
     /// <summary>The responder's answer about the certificate, without HTTP: an OCSPRequest with one SHA-1 CertID.</summary>
