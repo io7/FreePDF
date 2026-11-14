@@ -54,6 +54,15 @@ public sealed class TestPki : IDisposable
     /// <summary>When set, the CRL addresses return these bytes instead of a CRL.</summary>
     public byte[]? CrlBody { get; set; }
 
+    /// <summary>
+    /// When the CRLs were issued (thisUpdate); now when null. They are valid for seven days from now either way, so an
+    /// earlier time gives a CRL that is older than a new signature and still current, as a CA's CRL usually is.
+    /// </summary>
+    public DateTimeOffset? CrlIssued { get; set; }
+
+    /// <summary>Until when the CRLs are valid (nextUpdate); seven days from now when null.</summary>
+    public DateTimeOffset? CrlValidUntil { get; set; }
+
     /// <summary>Signs CRLs and OCSP responses with RSASSA-PSS (SHA-256), which FreePDF does not verify.</summary>
     public bool Pss { get; set; }
 
@@ -89,6 +98,8 @@ public sealed class TestPki : IDisposable
         Unknown,
         /// <summary>An answer about another serial number only.</summary>
         OtherCertificate,
+        /// <summary>Good whatever <see cref="Revoked"/> holds: a responder that has not heard of a revocation the CRLs list.</summary>
+        Good,
     }
 
     public int OcspRequests { get; private set; }
@@ -286,8 +297,8 @@ public sealed class TestPki : IDisposable
         var builder = new CertificateRevocationListBuilder();
         foreach (var serial in Revoked)
             builder.AddEntry(serial, RevocationTime ?? DateTimeOffset.UtcNow.AddMinutes(-10), RevocationReason ?? X509RevocationReason.KeyCompromise);
-        return builder.Build(issuer, BigInteger.One, DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256,
-            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1);
+        return builder.Build(issuer, BigInteger.One, CrlValidUntil ?? DateTimeOffset.UtcNow.AddDays(7), HashAlgorithmName.SHA256,
+            Pss ? RSASignaturePadding.Pss : RSASignaturePadding.Pkcs1, CrlIssued);
     }
 
     /// <summary>The responder's answer about the certificate, without HTTP: an OCSPRequest with one SHA-1 CertID.</summary>
@@ -364,7 +375,7 @@ public sealed class TestPki : IDisposable
                 {
                     data.WriteNull(new Asn1Tag(TagClass.ContextSpecific, 2));                 // unknown
                 }
-                else if (Revoked.Any(r => r.AsSpan().SequenceEqual(serial)))
+                else if (Answer != OcspAnswer.Good && Revoked.Any(r => r.AsSpan().SequenceEqual(serial)))
                 {
                     using (data.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))  // revoked
                     {

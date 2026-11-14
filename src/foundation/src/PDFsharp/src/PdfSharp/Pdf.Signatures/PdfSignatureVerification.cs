@@ -76,7 +76,11 @@ namespace PdfSharp.Pdf.Signatures
         /// <summary>OCSP responses and CRLs in the document's DSS only.</summary>
         Document,
 
-        /// <summary>The DSS first; for certificates it does not cover, the responders and CRLs the certificates name.</summary>
+        /// <summary>
+        /// The DSS first; for certificates it does not cover, the responders and CRLs the certificates name. A
+        /// time-stamp authority's chain is asked about also when the DSS's data for it has run out: a key compromise
+        /// recorded since then voids the authority's time-stamps.
+        /// </summary>
         Online,
     }
 
