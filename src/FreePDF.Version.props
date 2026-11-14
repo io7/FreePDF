@@ -2,7 +2,7 @@
   <PropertyGroup>
     <FreePDFVersionMajor>7</FreePDFVersionMajor>
     <FreePDFVersionMinor>10</FreePDFVersionMinor>
-    <FreePDFVersionPatch>1</FreePDFVersionPatch>
+    <FreePDFVersionPatch>2</FreePDFVersionPatch>
     <FreePDFVersionLabel></FreePDFVersionLabel>
     <SemVer>$(FreePDFVersionMajor).$(FreePDFVersionMinor).$(FreePDFVersionPatch)</SemVer>
     <SemVer Condition="'$(FreePDFVersionLabel)' != ''">$(SemVer)-$(FreePDFVersionLabel)</SemVer>

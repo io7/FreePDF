@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.10.2
 
 - `PdfSignatureVerifier`: a signature with a time-stamp no longer stays
   Indeterminate (revocation Unknown) because the CRL for its issuing CA is
@@ -10,8 +10,9 @@
   next CRL (seen with real files: a CRL of 1 October, valid until 1 May, and a
   signature made later in October). For a CA certificate, revocation data whose
   validity window covers the validation time now counts, as it already did for
-  a signature without a time-stamp. The signer's own certificate still needs
-  data from after the time-stamp.
+  a signature without a time-stamp. The window must also reach the signing
+  time. The signer's own certificate still needs data from after the
+  time-stamp.
 - `PdfRevocationCheck.Online`: when an OCSP answer cannot be checked (a
   signature algorithm FreePDF does not verify, a responder certificate it does
   not accept), the certificate's CRL is asked. Before, the CRL was asked only
