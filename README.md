@@ -128,6 +128,15 @@ image has neither alternative text nor `Decorative`, rather than writing a file
 that does not conform. CI validates a tagged multi-page invoice with veraPDF.
 See the [support policy](docs/support-policy.md) for what is covered.
 
+The native `PdfAccessibilityScanner.Scan("document.pdf")` API inspects existing
+PDFs without changing them. It reports structural failures, incomplete checks and
+required human review, with explicit partial PDF/UA-1 coverage. The companion CLI
+exports JSON, SARIF and offline HTML reports. This is an accessibility preflight,
+not ADA certification; see [the scanner guide](docs/accessibility-preflight.md).
+The [producer corpus](eng/corpus/README.md) defines 42,000 synthetic PDFs from
+FreePDF, ReportLab and Chromium, with tiered CI checks for text, rendering and
+accessibility regressions.
+
 ## Merge and split with forms, bookmarks and links
 
 ```csharp

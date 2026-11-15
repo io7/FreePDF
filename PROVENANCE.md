@@ -400,3 +400,26 @@ existence; FreePDF does not implement its full process), RFC 5652, RFC 5035, RFC
 the documentation of .NET's System.Security.Cryptography.Pkcs, X509Certificates and System.Formats.Asn1 types. No
 source of iText, PDFBox, pyHanko, EU DSS or other signing or validation libraries was read; pyHanko 0.38.1 was used
 only as an external validator to compare verdicts, called through its documented API.
+
+## Accessibility preflight and producer corpus (2026-11-16)
+
+`PdfAccessibilityScanner.cs`, `PdfAccessibilityContent.cs`, their public result
+types, the accessibility CLI/report writers and their regression tests are original
+FreePDF code. Inputs were the public PDF structure concepts, the PDF Association's
+Matterhorn Protocol, W3C PDF accessibility techniques and the existing reviewed
+FreePDF reader and tagged-PDF writer. This is explicitly partial PDF/UA-1 preflight
+coverage; no implementation from another accessibility checker was imported.
+
+`eng/corpus` contains original deterministic scenario recipes and test contracts.
+ReportLab 4.4.3 and Playwright 1.58.0/Chromium are separate test-only producers, used
+through their public APIs. Their implementation source was not consulted or copied.
+The corpus uses the existing lab DejaVu font (with its existing separate license)
+and bitmap asset. It contains no customer documents or copied commercial corpus.
+qpdf, Poppler and SHA-256-pinned veraPDF 1.30.3 are external validation tools only.
+No later AGPL PDFsharp source was fetched or consulted.
+
+The PDF real/rectangle serialization precision fix was derived from an original
+Chromium-generated scenario. Independent qpdf inspection showed the page box was
+rounded while its content matrix remained unchanged; restoring the original page
+coordinates removed the Poppler rendering difference. The regression is expressed
+as a small original programmatic fixture, not an imported producer implementation.

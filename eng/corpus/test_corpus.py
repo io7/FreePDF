@@ -1,0 +1,135 @@
+"""Contract tests for corpus diversity, strict failures and the public CLI."""
+from collections import Counter
+from html.parser import HTMLParser
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from manifest import AXES, scenario, write_manifest
+from run import ROOT, GENERATOR, assert_semantics, check_one
+
+CLI = ROOT / "src/tools/FreePDF.Accessibility/bin/Release/net10.0/FreePDF.Accessibility.dll"
+
+
+class ManifestTests(unittest.TestCase):
+    def test_full_suite_has_14000_distinct_parameter_sets_and_42000_producer_inputs(self):
+        cases = [scenario(i) for i in range(14000)]
+        parameters = {json.dumps({key: case[key] for key in AXES}, sort_keys=True) for case in cases}
+        self.assertEqual(14000, len(parameters))
+        self.assertEqual(42000, len({(case["id"], producer) for case in cases for producer in ("freepdf", "reportlab", "chromium")}))
+        for axis, values in AXES.items():
+            self.assertEqual({json.dumps(v) for v in values}, {json.dumps(c[axis]) for c in cases})
+
+    def test_sharding_is_disjoint_complete_and_preserves_the_same_scenarios(self):
+        with tempfile.TemporaryDirectory() as folder:
+            gathered = []
+            for shard in range(12):
+                path = Path(folder) / str(shard)
+                write_manifest(path, 14000, 20261116, shard, 12)
+                gathered.extend(json.loads(line) for line in path.read_text().splitlines())
+            self.assertEqual(14000, len(gathered))
+            self.assertEqual(14000, len({c["id"] for c in gathered}))
+            for c in gathered:
+                self.assertEqual(scenario(c["index"]), c)
+
+    def test_seed_changes_parameters_and_does_not_depend_on_producer(self):
+        self.assertNotEqual(scenario(0, 1), scenario(0, 2))
+        self.assertEqual(scenario(42, 17), scenario(42, 17))
+
+    def test_semantics_reject_lost_text_and_lost_pages(self):
+        case = scenario(0)
+        text = "\f".join("\n".join(page) for page in case["lines"]) + "\f"
+        assert_semantics(case, text)
+        with self.assertRaises(ValueError):
+            assert_semantics(case, text.replace(case["lines"][0][0], ""))
+        with self.assertRaises(ValueError):
+            assert_semantics(case, "")
+
+    def test_parser_rejection_is_a_failure_and_keeps_a_reproducer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            case = scenario(0)
+            source = root / "sources/freepdf" / (case["id"] + ".pdf")
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"not a pdf")
+            with patch("run.command", side_effect=RuntimeError("qpdf rejected input")):
+                result = check_one(case, "freepdf", root, 5, 1, False)
+            self.assertEqual("failed", result["outcome"])
+            self.assertTrue((root / "failures/freepdf" / case["id"] / "original.pdf").exists())
+
+
+class CliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.folder.name)
+        subprocess.run(["dotnet", str(GENERATOR), "--fixtures", str(cls.root)], check=True, capture_output=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.folder.cleanup()
+
+    def scan(self, name="valid.pdf", *args):
+        return subprocess.run(["dotnet", str(CLI), str(self.root / name), *args], capture_output=True, text=True, timeout=20)
+
+    def test_default_requires_review_and_automated_policy_is_explicit(self):
+        result = self.scan()
+        self.assertEqual(2, result.returncode, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual("NeedsReview", report["status"])
+        self.assertEqual("Partial", report["coverage"])
+        self.assertEqual(hashlib.sha256((self.root / "valid.pdf").read_bytes()).hexdigest(), report["documentSha256"])
+        self.assertEqual(0, self.scan("valid.pdf", "--policy", "automated").returncode)
+
+    def test_negative_fixtures_fail_with_the_expected_rules(self):
+        for name, rule in (("missing-alt", "ALT"), ("missing-language", "LANG"), ("untagged", "TREE")):
+            with self.subTest(name=name):
+                result = self.scan(name + ".pdf", "--policy", "automated")
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("FPDF-A11Y-" + rule, {f["ruleId"] for f in json.loads(result.stdout)["findings"]})
+
+    def test_unreadable_files_are_incomplete_and_cannot_satisfy_automated_policy(self):
+        (self.root / "malformed.pdf").write_bytes(b"not a PDF")
+        result = self.scan("malformed.pdf", "--policy", "automated")
+        self.assertEqual(3, result.returncode)
+        self.assertFalse(json.loads(result.stdout)["scanCompleted"])
+
+    def test_html_escapes_document_text_and_contains_manual_review(self):
+        result = self.scan("valid.pdf", "--format", "html")
+        self.assertEqual(2, result.returncode)
+        tags = []
+        class Parser(HTMLParser):
+            def handle_starttag(self, tag, attributes):
+                tags.append(tag)
+        Parser().feed(result.stdout)
+        self.assertNotIn("script", tags)
+        self.assertIn("&lt;script&gt;", result.stdout)
+        self.assertIn("Human accessibility review", result.stdout)
+        self.assertIn('lang="en"', result.stdout)
+
+    def test_sarif_has_rule_metadata_hash_and_explicit_coverage(self):
+        result = self.scan("missing-alt.pdf", "--format", "sarif")
+        self.assertEqual(1, result.returncode)
+        sarif = json.loads(result.stdout)
+        self.assertEqual("2.1.0", sarif["version"])
+        run = sarif["runs"][0]
+        self.assertEqual("Partial", run["properties"]["coverage"])
+        self.assertTrue(any(r["ruleId"] == "FPDF-A11Y-ALT" and r["level"] == "error" for r in run["results"]))
+        self.assertEqual(64, len(run["artifacts"][0]["hashes"]["sha-256"]))
+
+    def test_output_never_overwrites_input_or_existing_reports(self):
+        original = (self.root / "valid.pdf").read_bytes()
+        self.assertEqual(64, self.scan("valid.pdf", "--output", str(self.root / "valid.pdf")).returncode)
+        self.assertEqual(original, (self.root / "valid.pdf").read_bytes())
+        path = self.root / "existing.json"
+        path.write_text("keep")
+        self.assertEqual(64, self.scan("valid.pdf", "--output", str(path)).returncode)
+        self.assertEqual("keep", path.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

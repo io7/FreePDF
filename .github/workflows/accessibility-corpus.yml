@@ -1,0 +1,128 @@
+name: Accessibility and producer corpus
+on:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+  schedule:
+    - cron: '23 1 * * 1-6'
+    - cron: '23 1 * * 0'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Corpus size
+        type: choice
+        options: [smoke, nightly, full]
+        default: smoke
+permissions:
+  contents: read
+concurrency:
+  group: accessibility-corpus-${{ github.ref }}-${{ github.event_name }}-${{ github.event.schedule }}
+  cancel-in-progress: true
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.plan.outputs.shards }}
+      render: ${{ steps.plan.outputs.render }}
+    steps:
+      - id: plan
+        env:
+          REQUESTED_SUITE: ${{ inputs.suite }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          suite = os.environ['REQUESTED_SUITE'] or ('full' if os.environ['SCHEDULE'] == '23 1 * * 0' else 'nightly' if os.environ['SCHEDULE'] else 'smoke')
+          count, shards, render = {'smoke': (60, 1, 1), 'nightly': (600, 4, 10), 'full': (14000, 12, 100)}[suite]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'matrix={json.dumps({"shard": list(range(shards))})}\ncount={count}\nshards={shards}\nrender={render}\n')
+          PY
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Native accessibility regression tests
+        run: dotnet test src/tests/FreePDF.RegressionTests/FreePDF.RegressionTests.csproj -c Release -f net10.0 --filter FullyQualifiedName~Accessibility --logger 'trx;LogFileName=accessibility.trx' --results-directory '${{ runner.temp }}/a11y-tests'
+      - name: Build CLI and fixture generator
+        run: |
+          dotnet build src/tools/FreePDF.Accessibility/FreePDF.Accessibility.csproj -c Release
+          dotnet build eng/corpus/CorpusGenerator/CorpusGenerator.csproj -c Release
+      - name: CLI, failure-policy and full-manifest contracts
+        run: python3 -m unittest discover -s eng/corpus -p 'test_*.py' -v
+      - name: Install pinned independent validator
+        shell: pwsh
+        run: ./eng/Install-VeraPdf.ps1 -OutputDirectory '${{ runner.temp }}/verapdf'
+      - name: Positive and negative PDF/UA-1 oracle controls
+        run: python3 eng/corpus/check_oracle.py '${{ runner.temp }}/verapdf/cli/verapdf' '${{ runner.temp }}/a11y-oracle'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: accessibility-contracts
+          path: |
+            ${{ runner.temp }}/a11y-tests
+            ${{ runner.temp }}/a11y-oracle
+          retention-days: 3
+  corpus:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install independent producers and validators
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qpdf poppler-utils python3-venv
+          python3 -m venv '${{ runner.temp }}/corpus-venv'
+          '${{ runner.temp }}/corpus-venv/bin/pip' install -r eng/corpus/requirements.txt
+          '${{ runner.temp }}/corpus-venv/bin/playwright' install --with-deps chromium
+      - name: Build FreePDF producer and isolated round-trip worker
+        run: |
+          dotnet build eng/corpus/CorpusGenerator/CorpusGenerator.csproj -c Release
+          dotnet build eng/research/CorpusCheck/CorpusCheck.csproj -c Release
+      - name: Generate and validate exact manifest inventory
+        run: >-
+          '${{ runner.temp }}/corpus-venv/bin/python' eng/corpus/run.py '${{ runner.temp }}/corpus'
+          --count '${{ needs.plan.outputs.count }}' --shards '${{ needs.plan.outputs.shards }}'
+          --shard '${{ matrix.shard }}' --render-every '${{ needs.plan.outputs.render }}' --workers 4
+      - name: Job summary
+        if: always()
+        env:
+          CORPUS_RESULT: ${{ runner.temp }}/corpus/summary.json
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['CORPUS_RESULT'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('```json\n' + (path.read_text() if path.exists() else '{"status":"failed before report"}') + '\n```\n')
+          PY
+      # Upload manifests, counts, hashes and failures only; no successful PDF collection.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: producer-corpus-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/corpus/manifest.jsonl
+            ${{ runner.temp }}/corpus/tools.json
+            ${{ runner.temp }}/corpus/results.jsonl
+            ${{ runner.temp }}/corpus/summary.json
+            ${{ runner.temp }}/corpus/failures
+          retention-days: 3
