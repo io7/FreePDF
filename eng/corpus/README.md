@@ -98,3 +98,8 @@ The DejaVu font and bitmap come from existing lab assets; the font's license is
 in `lab/Assets/DejaVuSans.LICENSE.txt`. External producers and validators are
 test tools only and are not linked into FreePDF packages. The earlier mutation
 campaign remains documented in `docs/research/corpus-roundtrip-2026-11.md`.
+
+The [2026-11-16 verification record](verification-2026-11-16.json) records the
+42,000-file local run, report hashes, sampled-render counts, final 180-file recheck,
+other completed checks and verification limits. It is historical evidence, not a
+claim that hosted CI or a published package has been verified.
