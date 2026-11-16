@@ -10,7 +10,7 @@ It does not establish ADA compliance.
 | Release | Scope | State |
 | --- | --- | --- |
 | 7.11.0 | Native preflight API, offline CLI, coordinate precision fix and 84,000-file corpus configuration. Package and test the CLI with the six library packages. | Prepared as a release candidate. Publication and hosted release gates remain separate. |
-| Next minor release, proposed 7.12.0 | Complete the requirements inventory and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles, versions and unsupported checks. | Next implementation priority. |
+| 7.12.0-alpha.1 | Account for all Matterhorn 1.1 conditions and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles and versions. | Implemented for review on the 7.12 branch. Publication and hosted validation remain pending. |
 | Following releases | Extend native inspection to nested content, Unicode, forms and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
 
 The 7.12.0 acceptance gate is a traceable requirement list plus positive and
@@ -67,7 +67,12 @@ that require human judgment. Measure false negatives and false positives against
 those labels. More files improve regression coverage; independently established
 expected results establish whether the accessibility checks are right.
 
-The immediate next milestone is the complete requirement inventory and an
-independent-validator adapter, followed by native coverage of the currently
-unsupported PDF content. The offline CLI and versioned report model are already
-in place for that work.
+The [requirements inventory](accessibility/requirements.json) accounts for every
+Matterhorn 1.1 table entry. The [inventory guide](accessibility/README.md) explains
+the source's count discrepancy, partial native coverage and informative WCAG
+mappings. The optional [veraPDF adapter](accessibility-verapdf.md) reports a
+separate machine verdict. Its result does not mark individual inventory rows as
+passed or complete human review.
+
+The next native work remains Form XObjects and named marked-content properties,
+followed by Unicode/glyph validation and the remaining forms and annotation rules.

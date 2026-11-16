@@ -1,5 +1,18 @@
 # FreePDF changelog
 
+## 7.12.0-alpha.1 (unreleased)
+
+- `freepdf-a11y --requirements` lists all 137 Matterhorn 1.1 conditions. The
+  inventory records source references, native coverage, human tasks and
+  informative mappings to WCAG 2.1 and 2.2. It does not assign document verdicts.
+- `--verapdf PATH` adds optional independent PDF/UA-1 machine validation. Reports
+  keep native findings and veraPDF results separate and retain human review.
+  Missing tools, timeouts, unsupported profiles and inconsistent reports produce
+  an incomplete outcome. Both validators inspect the same private snapshot.
+- Native-only JSON retains its existing shape. Opting into independent validation
+  produces a version 2.0 JSON envelope with both reports and a combined status.
+  SARIF uses separate runs. The optional validator is not bundled or downloaded.
+
 ## 7.11.0
 
 - `PdfAccessibilityScanner` checks existing PDFs without changing their bytes.

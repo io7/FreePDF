@@ -16,6 +16,9 @@
     <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="FreePDF.Accessibility.Tests" />
+    <EmbeddedResource Include="../../../docs/accessibility/requirements.json" LogicalName="FreePDF.Accessibility.requirements.json" />
+    <None Include="../../../docs/accessibility/Matterhorn-NOTICE.txt" Pack="true" PackagePath="THIRD-PARTY/" />
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
     <!-- Tools bundle these assemblies; retain their notices as well as the FreePDF notices. -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" GeneratePathProperty="true" />

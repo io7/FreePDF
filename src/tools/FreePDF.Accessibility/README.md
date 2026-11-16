@@ -12,6 +12,8 @@ freepdf-a11y document.pdf
 freepdf-a11y document.pdf --format html --output audit.html
 freepdf-a11y document.pdf --format sarif --output audit.sarif
 freepdf-a11y document.pdf --format json --policy automated
+freepdf-a11y --requirements --format json
+freepdf-a11y document.pdf --verapdf /opt/verapdf/verapdf --format html --output combined.html
 ```
 
 The first command prints a plain-English summary: problems found, human review
@@ -21,7 +23,7 @@ structure order and limitations. JSON and SARIF are for automation.
 
 For a published version, install the package with
 `dotnet tool install --global io7.FreePDF.Accessibility.Tool`. Candidate packages
-can be installed with `--source /path/to/candidate-packages --version 7.11.0`.
+can be installed with `--source /path/to/candidate-packages --version 7.12.0-alpha.1`.
 With the .NET 10 SDK, you can also run it from a source checkout:
 
 ```sh
@@ -35,6 +37,16 @@ Exit codes: `0` explicit automated policy satisfied (review still required), `1`
 failed checks, `2` human review required, `3` incomplete scan, `64` usage or I/O
 error. The default policy returns `2` even when all implemented checks pass.
 That means a person still needs to check the document; it is not a tool crash.
+
+The optional veraPDF adapter uses a separately installed validator. It supports
+explicit PDF/UA-1 machine validation and retains native findings and human tasks.
+Use `--verapdf-timeout SECONDS` to change its 60-second timeout. Missing tools,
+unsupported profiles and incomplete reports return 3. Native-only JSON keeps its
+existing shape; combined JSON uses a version 2.0 envelope with separate results.
+
+`--requirements` lists all 137 Matterhorn 1.1 conditions with coverage and source
+references. This inventory does not assign document verdicts. Its source data is
+attributed to the PDF Association under CC-BY-4.0 in `THIRD-PARTY/Matterhorn-NOTICE.txt`.
 
 See [the full scanner guide](https://github.com/io7/FreePDF/blob/main/docs/accessibility-preflight.md)
 for the rule list, limitations and native .NET API.

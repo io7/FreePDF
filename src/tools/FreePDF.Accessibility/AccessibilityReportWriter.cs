@@ -10,7 +10,7 @@ namespace FreePDF.Accessibility;
 
 internal static class AccessibilityReportWriter
 {
-    static readonly JsonSerializerOptions Json = new()
+    internal static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

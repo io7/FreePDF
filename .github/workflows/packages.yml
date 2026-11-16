@@ -32,6 +32,8 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
+      - name: Adapter, inventory and subprocess regression tests
+        run: dotnet test src/tests/FreePDF.Accessibility.Tests/FreePDF.Accessibility.Tests.csproj -c Release --logger 'trx;LogFileName=adapter.trx' --results-directory '${{ runner.temp }}/adapter-tests'
       - name: Build, inspect and install candidate packages
         shell: pwsh
         run: |
@@ -60,6 +62,9 @@ jobs:
         if: runner.os == 'Linux'
         shell: pwsh
         run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -OutputDirectory "$env:RUNNER_TEMP/freepdf-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
+      - name: Validate the installed accessibility adapter
+        if: runner.os == 'Linux'
+        run: python3 eng/corpus/check_adapter.py '${{ runner.temp }}/verapdf/cli/verapdf' '${{ runner.temp }}/installed-adapter' --tool '${{ runner.temp }}/freepdf-packages/accessibility-tool/tool/freepdf-a11y'
       - name: Rehearse plain stable packages in a separate cache
         shell: pwsh
         run: |
@@ -86,6 +91,8 @@ jobs:
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.json
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.txt
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/report.*
+            ${{ runner.temp }}/adapter-tests/*.trx
+            ${{ runner.temp }}/installed-adapter/**
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: error

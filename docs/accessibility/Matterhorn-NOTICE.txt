@@ -1,0 +1,12 @@
+Matterhorn Protocol 1.1
+Copyright 2021 PDF Association
+https://pdfa.org/download-area/publications/Matterhorn-Protocol-1-1.pdf
+Licensed under Creative Commons Attribution 4.0 International (CC-BY-4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+The embedded requirements inventory adapts this publication's condition text,
+identifiers and references. Notes and qualifications remain in the linked source.
+FreePDF added coverage metadata, review procedures and informative WCAG mappings.
+These adaptations are identified in the inventory. No endorsement by the PDF
+Association is implied. The inventory is available under CC-BY-4.0; this notice
+does not change the MIT license of FreePDF's software.

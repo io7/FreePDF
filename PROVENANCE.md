@@ -446,3 +446,30 @@ files share git blob `984713a49622a96da110443c15477613bc12656b`. The copied file
 has that same blob hash. Only these licence texts were read; no runtime source
 was used as implementation input. FreePDF's existing source and embedded-asset
 notices are also included in the tool package.
+
+## Requirements inventory and optional validator adapter (7.12.0)
+
+The adapter, bounded subprocess runner, snapshot handling, report composition,
+CLI options and synthetic regression controls are original FreePDF code. Inputs
+were the existing reviewed FreePDF code, the published veraPDF CLI contract at
+https://docs.verapdf.org/cli/validation/ and https://docs.verapdf.org/cli/help/,
+and observations of the pinned veraPDF 1.30.3 executable on original fixtures.
+No veraPDF implementation source or later AGPL PDFsharp material was consulted.
+veraPDF remains a separately installed external tool, not a bundled dependency.
+
+`docs/accessibility/requirements.json` adapts condition text, identifiers and
+references from the PDF Association's Matterhorn Protocol 1.1 (April 2021):
+https://pdfa.org/download-area/publications/Matterhorn-Protocol-1-1.pdf
+The publication's copyright page grants CC-BY-4.0. Its attribution, license link
+and the changes made by FreePDF are retained in the data and in
+`docs/accessibility/Matterhorn-NOTICE.txt`. That notice is included in the tool
+package. The data is available under CC-BY-4.0; FreePDF's software remains MIT.
+The original PDF is not bundled. Notes and qualifications remain at the source.
+
+The inventory includes all 137 entries in the source tables, including 13-008
+added in 1.1. It does not repeat the introduction's stale count of 136 as the
+table count. Coverage annotations and procedures are original FreePDF work.
+Informative WCAG mappings use the dated W3C recommendations
+https://www.w3.org/TR/2025/REC-WCAG21-20250506/ and
+https://www.w3.org/TR/2024/REC-WCAG22-20241212/.
+Those mappings are not equivalence assertions or legal-conformance conclusions.

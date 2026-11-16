@@ -13,7 +13,7 @@ $output = (Resolve-Path $OutputDirectory).Path
 $id = 'io7.FreePDF.Accessibility.Tool'
 $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $packages "$id.$Version.nupkg"))
 try {
-    foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','icon.png','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
+    foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','icon.png','THIRD-PARTY/Matterhorn-NOTICE.txt','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
         'THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/Microsoft.Extensions.Logging.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/System.Security.Cryptography.Pkcs/THIRD-PARTY-NOTICES.TXT')) {
         if (!$archive.GetEntry($notice)) { throw "Missing tool notice: $notice" }
     }
@@ -26,6 +26,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Accessibility fixture generator build failed.'
 if ($LASTEXITCODE -ne 0) { throw 'Accessibility fixture generation failed.' }
 [IO.File]::WriteAllText("$output/fixtures/malformed.pdf", 'not a PDF')
 $command = Join-Path "$output/tool" $(if ($IsWindows) { 'freepdf-a11y.exe' } else { 'freepdf-a11y' })
+$inventory = & $command --requirements --format json | Out-String
+if ($LASTEXITCODE -ne 0 -or ($inventory | ConvertFrom-Json).requirements.Count -ne 137) { throw 'Packaged requirements inventory is incomplete.' }
+$inventory | Set-Content "$output/requirements.json" -Encoding utf8
 $cases = @(
     @{name='valid'; exit=2; status='NeedsReview'; rule='FPDF-A11Y-REVIEW'},
     @{name='missing-alt'; exit=1; status='Failed'; rule='FPDF-A11Y-ALT'},
