@@ -71,6 +71,19 @@ synthetic, and a GC heap limit is not a total process-memory limit.
 
 ## Command line and reports
 
+Start with a PDF and the .NET 10 SDK. From the repository root:
+
+```sh
+dotnet run --project src/tools/FreePDF.Accessibility -c Release -- document.pdf
+```
+
+The default text summary says whether it found problems, needs human review or
+could not finish. Findings explain the problem and the next step. A result of
+"Human review required" means the implemented checks found no failures; it does
+not mean the document has passed all accessibility requirements. For example,
+software can find a missing image description, but a person must decide whether
+an existing description explains the image correctly.
+
 Build the .NET 10 CLI from source:
 
 ```sh
@@ -79,7 +92,10 @@ dotnet src/tools/FreePDF.Accessibility/bin/Release/net10.0/FreePDF.Accessibility
   document.pdf --format html --output audit.html
 ```
 
-Formats: `json`, `sarif` (2.1.0) and accessible, script-free `html`. HTML escapes
+Formats: `text` (default), `json`, `sarif` (2.1.0) and script-free `html`. The text
+summary shows up to 20 findings, prioritizing failures and incomplete checks.
+It escapes terminal control characters from filenames and document text. Use
+HTML or JSON for all findings. HTML escapes
 document strings and loads no external resources. SARIF includes rule IDs,
 guidance, document hashes, page/path locations, review tasks and coverage metadata.
 Output paths must be new files: the CLI refuses to overwrite an existing report or
@@ -102,6 +118,20 @@ The CLI is configured as a packable .NET tool (`FreePDF.Accessibility.Tool`, com
 separate release step. The scanner itself ships in the existing library assemblies,
 including the Core, GDI and WPF variants.
 
+To use the shorter command without publishing, pack and install it into a new
+local directory (run from the repository root):
+
+```sh
+dotnet pack src/tools/FreePDF.Accessibility -c Release -o artifacts/a11y-package
+dotnet tool install FreePDF.Accessibility.Tool --tool-path artifacts/a11y-tool \
+  --source artifacts/a11y-package
+artifacts/a11y-tool/freepdf-a11y document.pdf
+artifacts/a11y-tool/freepdf-a11y document.pdf --format html --output audit.html
+```
+
+Open `audit.html` in a browser. The PDF stays on your machine and is not modified.
+The report can include document content, so handle it with the same care as the PDF.
+
 ## Validation and next coverage
 
 The regression suite includes positive, negative, cyclic, encrypted, malformed,
@@ -115,6 +145,9 @@ Form XObject and named-property inspection, complete annotation/form/table rules
 then generation preflight and reviewed remediation. Automatic repair, AI-written
 alternative text, PDF/UA-2 and organizational review sign-off are not part of this
 first implementation.
+
+See the [accessibility roadmap](accessibility-roadmap.md) for the proposed path
+to complete automated coverage and a documented human review process.
 
 References: [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/),
 [W3C PDF techniques](https://www.w3.org/WAI/WCAG22/Techniques/pdf/),

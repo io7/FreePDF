@@ -1,7 +1,7 @@
 # Reproducible producer corpus
 
-The full suite is **14,000 distinct scenario parameter sets × three producers =
-42,000 PDFs**. FreePDF, ReportLab and Chromium generate the same expected content.
+The full suite is **28,000 distinct scenario parameter sets × three producers =
+84,000 PDFs**. FreePDF, ReportLab and Chromium generate the same expected content.
 No customer documents, scraped PDFs or proprietary test corpus are used.
 The repository contains recipes and contracts, not thousands of PDF binaries.
 
@@ -9,8 +9,10 @@ Scenarios vary paper size/orientation, page count, margins, font size/style,
 Unicode text, rows, paragraphs/lists/tables, raster images/vector illustrations,
 colors and compression. The affine permutation over a mixed-radix parameter space
 is deterministic and collision-free within one seed. Tests prove uniqueness and
-that twelve shards partition the full 14,000 scenarios without omissions or overlap.
-These combinations exercise known features; they are not 42,000 independent PDF
+that 24 shards partition the full 28,000 scenarios without omissions or overlap.
+The original 14,000 scenarios keep their IDs and parameters; the expansion adds
+14,000 different parameter sets using the same seed and permutation.
+These combinations exercise known features; they are not 84,000 independent PDF
 implementations or a replacement for hostile-input fuzzing and real-world fixtures.
 
 ## Gates
@@ -46,12 +48,15 @@ are **not** substitutes for this CI gate.
 | --- | ---: | ---: | ---: | ---: |
 | Pull request / main / release | 60 | 180 | 1 | All 60 |
 | Nightly, Monday–Saturday | 600 | 1,800 | 4 | Every 10th: 60 |
-| Weekly Sunday / manual full | 14,000 | 42,000 | 12 | Every 100th: 140 |
+| Weekly Sunday / manual full | 28,000 | 84,000 | 24 | Every 100th: 280 |
 
 All three producers are rendered for selected scenarios. Every PDF receives the
-non-render checks. The full suite has 420 rendered PDFs, with all their pages
+non-render checks. The full suite has 840 rendered PDFs, with all their pages
 compared. `--render-every 1` renders the full collection when more compute is
 available. CI limits concurrency to four shards and each shard to 60 minutes.
+Doubling the full suite from 12 to 24 shards keeps the per-shard PDF count about
+the same. Total weekly runner work roughly doubles; pull-request and nightly
+budgets are unchanged.
 Workflows become active only after they reach the appropriate GitHub branch;
 creating this configuration is not evidence that a hosted run has completed.
 
@@ -74,10 +79,10 @@ Use a new output directory for each run. Full run:
 
 ```sh
 /tmp/freepdf-corpus-venv/bin/python eng/corpus/run.py artifacts/corpus-full \
-  --count 14000 --workers 4 --generation-workers 4 --render-every 100
+  --count 28000 --workers 4 --generation-workers 4 --render-every 100
 ```
 
-Or divide it with `--shards 12 --shard 0` through `--shard 11`, each with its own
+Or divide it with `--shards 24 --shard 0` through `--shard 23`, each with its own
 output directory. The default fixed seed is `20261116`; record a different seed
 when expanding coverage. Pin a seed while comparing revisions.
 
@@ -103,3 +108,9 @@ The [2026-11-16 verification record](verification-2026-11-16.json) records the
 42,000-file local run, report hashes, sampled-render counts, final 180-file recheck,
 other completed checks and verification limits. It is historical evidence, not a
 claim that hosted CI or a published package has been verified.
+
+The [84,000-file expansion verification](verification-2026-11-16-84k.json)
+records uniqueness/sharding contracts for all 28,000 scenarios and a local run of
+shard 0: 3,501 PDFs passed, including 1,749 from the added range. Render comparisons
+passed for 141 PDFs / 285 pages. It also records the packaged CLI checks. The full
+84,000-file execution is configured but has not yet been run.

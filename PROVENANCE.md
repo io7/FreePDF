@@ -423,3 +423,11 @@ Chromium-generated scenario. Independent qpdf inspection showed the page box was
 rounded while its content matrix remained unchanged; restoring the original page
 coordinates removed the Poppler rendering difference. The regression is expressed
 as a small original programmatic fixture, not an imported producer implementation.
+
+The follow-up expands the original recipe count to 28,000 scenarios / 84,000 PDFs
+without importing another corpus. Its plain-text CLI summary and terminal-text
+escaping are original code using the existing report model and .NET character
+categories. Local tool installation follows Microsoft's .NET tool documentation.
+The accessibility roadmap uses the public DOJ Title II fact sheet, W3C's guidance
+on evaluation-tool limits and veraPDF's documented validation scope. These sources
+inform requirements and scope; no validator implementation was copied.

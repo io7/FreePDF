@@ -36,7 +36,7 @@ jobs:
           python3 - <<'PY'
           import json, os
           suite = os.environ['REQUESTED_SUITE'] or ('full' if os.environ['SCHEDULE'] == '23 1 * * 0' else 'nightly' if os.environ['SCHEDULE'] else 'smoke')
-          count, shards, render = {'smoke': (60, 1, 1), 'nightly': (600, 4, 10), 'full': (14000, 12, 100)}[suite]
+          count, shards, render = {'smoke': (60, 1, 1), 'nightly': (600, 4, 10), 'full': (28000, 24, 100)}[suite]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'matrix={json.dumps({"shard": list(range(shards))})}\ncount={count}\nshards={shards}\nrender={render}\n')
           PY

@@ -59,7 +59,7 @@ def write_manifest(path, count, seed, shard=0, shards=1):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--count", type=int, default=14000, help="scenarios; three producers yield 42,000 PDFs")
+    parser.add_argument("--count", type=int, default=28000, help="scenarios; the default yields 84,000 PDFs across three producers")
     parser.add_argument("--seed", type=int, default=20261116)
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--shards", type=int, default=1)

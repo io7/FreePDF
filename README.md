@@ -130,10 +130,11 @@ See the [support policy](docs/support-policy.md) for what is covered.
 
 The native `PdfAccessibilityScanner.Scan("document.pdf")` API inspects existing
 PDFs without changing them. It reports structural failures, incomplete checks and
-required human review, with explicit partial PDF/UA-1 coverage. The companion CLI
-exports JSON, SARIF and offline HTML reports. This is an accessibility preflight,
+required human review, with explicit partial PDF/UA-1 coverage. The `freepdf-a11y`
+CLI prints a plain-English summary and exports JSON, SARIF and offline HTML reports.
+This is an accessibility preflight,
 not ADA certification; see [the scanner guide](docs/accessibility-preflight.md).
-The [producer corpus](eng/corpus/README.md) defines 42,000 synthetic PDFs from
+The [producer corpus](eng/corpus/README.md) defines 84,000 synthetic PDFs from
 FreePDF, ReportLab and Chromium, with tiered CI checks for text, rendering and
 accessibility regressions.
 

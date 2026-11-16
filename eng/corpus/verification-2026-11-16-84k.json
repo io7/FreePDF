@@ -1,0 +1,97 @@
+{
+  "date": "2026-11-16",
+  "scope": "Local verification of the 84,000-file CI configuration and plain-text CLI; the complete 84,000-file suite has not been executed.",
+  "baseCommit": "cc832bba75cc1d566a695751c503bbadcf0be343",
+  "workingTreeDirtyDuringVerification": true,
+  "fullSuite": {
+    "scenarioCount": 28000,
+    "expectedPdfs": 84000,
+    "shards": 24,
+    "maxParallelShards": 4,
+    "renderEvery": 100,
+    "expectedRenderedPdfs": 840,
+    "allShardsExecuted": false,
+    "manifestSha256": "655dc3f22e723f9ffe7ce7599aac913132022886ba318354337311d2e3b4e8cf"
+  },
+  "executedShard": {
+    "status": "passed",
+    "scenarioCount": 1167,
+    "expectedPdfs": 3501,
+    "checkedPdfs": 3501,
+    "passedPdfs": 3501,
+    "failedPdfs": 0,
+    "renderedPdfs": 141,
+    "renderedPages": 285,
+    "seed": 20261116,
+    "shard": 0,
+    "shards": 24,
+    "renderEvery": 100,
+    "manifestSha256": "d9142bf03b0937a711b48faffc09858d7ef698b8e63c658cd8e6b209769c573b",
+    "newRangePassedPdfs": 1749,
+    "perProducer": {
+      "chromium": 1167,
+      "freepdf": 1167,
+      "reportlab": 1167
+    },
+    "uniqueInputSha256Count": 3501,
+    "maxFractionOfPixelsDifferingByMoreThan16": 0,
+    "assembliesUnchangedThroughoutRun": true
+  },
+  "shardArtifactDirectory": "artifacts/corpus-84k-shard-00",
+  "shardArtifactSha256": {
+    "manifest.jsonl": "d9142bf03b0937a711b48faffc09858d7ef698b8e63c658cd8e6b209769c573b",
+    "results.jsonl": "7f66220ef0ff95fc250900d77c35ece401b013ec2598b767d149f8b0191fa0f5",
+    "summary.json": "11411c97b7b493ef9d8b81ec612dc0f1017c1fab275b968df224af6b3c69f639",
+    "tools.json": "1c04129df3f40228b3ec072e3d959c3f3d2e86c84667f0b01a2176cc4ca1193d"
+  },
+  "contractTests": {
+    "passed": 13,
+    "failed": 0,
+    "workflowPlanCasesPassed": 6,
+    "actionlint": "passed"
+  },
+  "cli": {
+    "toolAssemblyMatchesBuild": true,
+    "assemblySha256": "6bafb18701bb20507e433bed030a209dbb5a43c67d66dfe51312313fd162d468",
+    "results": [
+      {
+        "fixture": "valid",
+        "exit": 2,
+        "unchanged": true,
+        "textReportSha256": "1ba663aa4aada3de50bd13ecf5f43667a48e800a7ed0383702ed8e6576e58acf",
+        "htmlReportSha256": "62e43984bbedaf7289337108a4f082cc798d6c2c2a129e2fd2511ab660dc6f6c"
+      },
+      {
+        "fixture": "missing-alt",
+        "exit": 1,
+        "unchanged": true,
+        "textReportSha256": "c9601af58bab843165d4aece74201edbc294fc91d338b700897876f960dbd41d",
+        "htmlReportSha256": "c76a56fb7ff2f69c60d81891adb7dc791afd7cd5f218b4e5d507a002260a73bc"
+      },
+      {
+        "fixture": "missing-language",
+        "exit": 1,
+        "unchanged": true,
+        "textReportSha256": "6fd0e89bc4ed6275528972f36be66f2d42d0d51334692685b653a613989c8c0b",
+        "htmlReportSha256": "a04523b230df7d1e65ad483083fa100b388f34dbff5b5713e689b27861436253"
+      },
+      {
+        "fixture": "untagged",
+        "exit": 1,
+        "unchanged": true,
+        "textReportSha256": "d43cd199cf4d1f9f89381ba872f3ec88bed9e0ab22dbfe5ebc015b5351da20bc",
+        "htmlReportSha256": "959c76749206191bb71493a058af42ec02a014e572468c9afec0f446cc489def"
+      }
+    ],
+    "package": "artifacts/a11y-package/FreePDF.Accessibility.Tool.7.10.2.nupkg",
+    "packageSha256": "41f236a64d4bce86739bf2b1aadef2192fdfc3ccf9211870ab1aeb82a58efceb",
+    "installation": "artifacts/a11y-tool",
+    "examples": "artifacts/a11y-demo-final",
+    "published": false
+  },
+  "limits": [
+    "Generated synthetic scenarios are not an annotated PDF/UA or WCAG conformance corpus.",
+    "The native scanner retains partial PDF/UA-1 coverage; full ADA compliance is not established.",
+    "The full 84,000-file hosted CI run and Windows/macOS tool execution were not performed."
+  ]
+}

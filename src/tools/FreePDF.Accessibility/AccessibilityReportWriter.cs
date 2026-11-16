@@ -1,4 +1,5 @@
 // Original FreePDF implementation. No remote resources or executable document content.
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -18,11 +19,69 @@ internal static class AccessibilityReportWriter
 
     internal static string Write(PdfAccessibilityReport report, string name, string format) => format switch
     {
+        "text" => Text(report, name),
         "json" => JsonSerializer.Serialize(report, Json),
         "sarif" => Sarif(report, name),
         "html" => Html(report, name),
         _ => throw new ArgumentException("Unknown report format.")
     };
+
+    // File names and findings can contain untrusted PDF text. Never emit terminal
+    // control sequences, hidden direction changes or injected lines in summaries.
+    internal static string SafeText(string value)
+    {
+        var text = new StringBuilder();
+        foreach (char c in value)
+            if (char.IsControl(c) || char.GetUnicodeCategory(c) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator)
+                text.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+            else
+                text.Append(c);
+        return text.ToString();
+    }
+
+    static string Text(PdfAccessibilityReport report, string name)
+    {
+        var result = report.Status switch
+        {
+            PdfAccessibilityScanStatus.Failed => "Problems found. Fix the findings below and check the PDF again.",
+            PdfAccessibilityScanStatus.Incomplete => "Scan incomplete. Some content could not be checked; detected problems are listed below.",
+            _ => "Human review required. No failures found by the implemented checks."
+        };
+        var text = new StringBuilder("FreePDF accessibility check\n");
+        text.Append("File: ").AppendLine(SafeText(name));
+        text.Append("Result: ").AppendLine(result);
+        text.Append("Pages: ").AppendLine(report.PageCount.ToString(CultureInfo.InvariantCulture));
+        text.AppendLine("Scope: partial PDF/UA-1 checks. This is not an ADA compliance certificate.");
+        text.Append("Checks: ").Append(report.Checks.Count(c => c.Status == PdfAccessibilityCheckStatus.Passed)).Append(" passed; ")
+            .Append(report.Checks.Count(c => c.Status == PdfAccessibilityCheckStatus.Failed)).Append(" failed; ")
+            .Append(report.Checks.Count(c => c.Status == PdfAccessibilityCheckStatus.NotChecked)).Append(" not checked; ")
+            .Append(report.Checks.Count(c => c.Status == PdfAccessibilityCheckStatus.NeedsReview)).Append(" need review; ")
+            .Append(report.Checks.Count(c => c.Status == PdfAccessibilityCheckStatus.NotApplicable)).AppendLine(" not applicable.");
+        const int maximumFindings = 20;
+        foreach (var finding in report.Findings.OrderByDescending(f => f.Status).Take(maximumFindings))
+        {
+            var check = report.Checks.Single(c => c.Id == finding.RuleId);
+            var label = finding.Status == PdfAccessibilityCheckStatus.Failed ? "FAIL" : finding.Status == PdfAccessibilityCheckStatus.NotChecked ? "NOT CHECKED" : "REVIEW";
+            text.AppendLine().Append(label).Append(" ").Append(SafeText(finding.RuleId)).Append(": ").Append(SafeText(check.Title));
+            if (finding.Page is int page) text.Append(" (page ").Append(page).Append(')');
+            text.AppendLine();
+            if (finding.Message != check.Guidance) text.Append("  ").AppendLine(SafeText(finding.Message));
+            var guidance = check.Id switch
+            {
+                "FPDF-A11Y-ALT" => "Add a meaningful description to the image or formula in the source document. Mark purely decorative images as decorative.",
+                "FPDF-A11Y-LANG" => "Set the document's main language in the source document or PDF editor.",
+                "FPDF-A11Y-TITLE" => "Set a descriptive document title in the source document or PDF editor, then export the PDF again.",
+                "FPDF-A11Y-TREE" or "FPDF-A11Y-MARKED" => "Export the source document as a tagged PDF. Tags identify headings, paragraphs, lists and tables for screen readers. Existing tags may need repair in a PDF editor.",
+                _ => check.Guidance
+            };
+            text.Append(finding.Status == PdfAccessibilityCheckStatus.Failed ? "  How to fix: " : "  Next step: ").AppendLine(SafeText(guidance));
+        }
+        if (report.Findings.Count > maximumFindings)
+            text.AppendLine().Append(report.Findings.Count - maximumFindings).AppendLine(" more findings are available in the full HTML or JSON report.");
+        text.AppendLine().AppendLine("Next: use an independent validator for further checks, and have a person review reading order, descriptions and screen-reader use.");
+        text.AppendLine("For all findings, coverage and limitations: --format html --output report.html");
+        return text.ToString();
+    }
 
     static string Sarif(PdfAccessibilityReport report, string name)
     {

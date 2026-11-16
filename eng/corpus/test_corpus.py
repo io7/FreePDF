@@ -3,6 +3,7 @@ from collections import Counter
 from html.parser import HTMLParser
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -16,23 +17,23 @@ CLI = ROOT / "src/tools/FreePDF.Accessibility/bin/Release/net10.0/FreePDF.Access
 
 
 class ManifestTests(unittest.TestCase):
-    def test_full_suite_has_14000_distinct_parameter_sets_and_42000_producer_inputs(self):
-        cases = [scenario(i) for i in range(14000)]
+    def test_full_suite_has_28000_distinct_parameter_sets_and_84000_producer_inputs(self):
+        cases = [scenario(i) for i in range(28000)]
         parameters = {json.dumps({key: case[key] for key in AXES}, sort_keys=True) for case in cases}
-        self.assertEqual(14000, len(parameters))
-        self.assertEqual(42000, len({(case["id"], producer) for case in cases for producer in ("freepdf", "reportlab", "chromium")}))
+        self.assertEqual(28000, len(parameters))
+        self.assertEqual(84000, len({(case["id"], producer) for case in cases for producer in ("freepdf", "reportlab", "chromium")}))
         for axis, values in AXES.items():
             self.assertEqual({json.dumps(v) for v in values}, {json.dumps(c[axis]) for c in cases})
 
     def test_sharding_is_disjoint_complete_and_preserves_the_same_scenarios(self):
         with tempfile.TemporaryDirectory() as folder:
             gathered = []
-            for shard in range(12):
+            for shard in range(24):
                 path = Path(folder) / str(shard)
-                write_manifest(path, 14000, 20261116, shard, 12)
+                write_manifest(path, 28000, 20261116, shard, 24)
                 gathered.extend(json.loads(line) for line in path.read_text().splitlines())
-            self.assertEqual(14000, len(gathered))
-            self.assertEqual(14000, len({c["id"] for c in gathered}))
+            self.assertEqual(28000, len(gathered))
+            self.assertEqual(28000, len({c["id"] for c in gathered}))
             for c in gathered:
                 self.assertEqual(scenario(c["index"]), c)
 
@@ -79,6 +80,10 @@ class CliTests(unittest.TestCase):
     def test_default_requires_review_and_automated_policy_is_explicit(self):
         result = self.scan()
         self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("Human review required", result.stdout)
+        self.assertIn("partial PDF/UA-1", result.stdout)
+        self.assertIn("Next step:", result.stdout)
+        result = self.scan("valid.pdf", "--format", "json")
         report = json.loads(result.stdout)
         self.assertEqual("NeedsReview", report["status"])
         self.assertEqual("Partial", report["coverage"])
@@ -88,15 +93,44 @@ class CliTests(unittest.TestCase):
     def test_negative_fixtures_fail_with_the_expected_rules(self):
         for name, rule in (("missing-alt", "ALT"), ("missing-language", "LANG"), ("untagged", "TREE")):
             with self.subTest(name=name):
-                result = self.scan(name + ".pdf", "--policy", "automated")
+                result = self.scan(name + ".pdf", "--policy", "automated", "--format", "json")
                 self.assertEqual(1, result.returncode, result.stderr)
                 self.assertIn("FPDF-A11Y-" + rule, {f["ruleId"] for f in json.loads(result.stdout)["findings"]})
 
     def test_unreadable_files_are_incomplete_and_cannot_satisfy_automated_policy(self):
         (self.root / "malformed.pdf").write_bytes(b"not a PDF")
-        result = self.scan("malformed.pdf", "--policy", "automated")
+        result = self.scan("malformed.pdf", "--policy", "automated", "--format", "json")
         self.assertEqual(3, result.returncode)
         self.assertFalse(json.loads(result.stdout)["scanCompleted"])
+
+    def test_text_reports_problems_and_incomplete_scans_without_claiming_success(self):
+        result = self.scan("missing-alt.pdf")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("Problems found", result.stdout)
+        self.assertIn("FAIL FPDF-A11Y-ALT:", result.stdout)
+        self.assertIn("How to fix:", result.stdout)
+        (self.root / "broken.pdf").write_bytes(b"not a PDF")
+        result = self.scan("broken.pdf", "--policy", "automated")
+        self.assertEqual(3, result.returncode)
+        self.assertIn("Scan incomplete", result.stdout)
+        self.assertNotIn("No failures found", result.stdout)
+
+    @unittest.skipIf(os.name == "nt", "Windows does not allow control characters in file names")
+    def test_text_and_output_confirmation_escape_terminal_controls(self):
+        name = "untrusted-\x1b[31m\n\u202e.pdf"
+        (self.root / name).write_bytes((self.root / "valid.pdf").read_bytes())
+        result = self.scan(name)
+        self.assertEqual(2, result.returncode)
+        self.assertNotIn("\x1b", result.stdout)
+        self.assertNotIn("\u202e", result.stdout)
+        self.assertIn(r"untrusted-\u001b[31m\u000a\u202e.pdf", result.stdout)
+        output = self.root / "report-\x1b[31m.html"
+        result = self.scan(name, "--format", "html", "--output", str(output))
+        self.assertEqual(2, result.returncode)
+        self.assertEqual("", result.stdout)
+        self.assertTrue(output.is_file())
+        self.assertIn("Report written to", result.stderr)
+        self.assertNotIn("\x1b", result.stderr)
 
     def test_html_escapes_document_text_and_contains_manual_review(self):
         result = self.scan("valid.pdf", "--format", "html")
