@@ -274,4 +274,20 @@ public class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
         Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-CONTENT" && f.Status == PdfAccessibilityCheckStatus.NotChecked);
     }
+
+    [Fact]
+    public void A_non_boolean_suspects_flag_is_not_treated_as_false()
+        => Fails(Scan(Fixture(d => d.Catalog.Elements.GetDictionary("/MarkInfo")!.Elements.SetString("/Suspects", "false"))), "SUSPECTS");
+
+    [Fact]
+    public void Matching_but_negative_parent_tree_keys_are_invalid()
+    {
+        var report = Scan(Fixture(d =>
+        {
+            d.Pages[0].Elements.SetInteger("/StructParents", -1);
+            var tree = d.Catalog.Elements.GetDictionary("/StructTreeRoot")!.Elements.GetDictionary("/ParentTree")!;
+            tree.Elements.GetArray("/Nums")!.Elements[0] = new PdfInteger(-1);
+        }));
+        Fails(report, "MCID");
+    }
 }

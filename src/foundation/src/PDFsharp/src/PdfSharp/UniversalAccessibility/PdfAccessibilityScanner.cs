@@ -169,6 +169,8 @@ namespace PdfSharp.UniversalAccessibility
         { PdfName n => n.Value, PdfNameObject n => n.Value, _ => "" };
         static int? Integer(PdfItem? item) => Resolve(item) switch { PdfInteger i => i.Value, PdfIntegerObject i => i.Value, _ => null };
         static bool True(PdfDictionary? d, string key) => d != null && (Resolve(d.Elements[key]) switch { PdfBoolean b => b.Value, PdfBooleanObject b => b.Value, _ => false });
+        static bool FalseOrAbsent(PdfDictionary? d, string key) => d == null || (Resolve(d.Elements[key]) switch
+        { null or PdfNull or PdfNullObject => true, PdfBoolean b => !b.Value, PdfBooleanObject b => !b.Value, _ => false });
         static IEnumerable<PdfItem> Items(PdfItem? item)
         {
             item = Resolve(item);
@@ -186,7 +188,7 @@ namespace PdfSharp.UniversalAccessibility
             Test("DISPLAYTITLE", True(Dict(catalog, "/ViewerPreferences"), "/DisplayDocTitle"), "DisplayDocTitle is not true.");
             var markInfo = Dict(catalog, "/MarkInfo");
             Test("MARKED", True(markInfo, "/Marked"), "MarkInfo/Marked is not true.");
-            Test("SUSPECTS", !True(markInfo, "/Suspects"), "MarkInfo/Suspects is true; tagging needs review.");
+            Test("SUSPECTS", FalseOrAbsent(markInfo, "/Suspects"), "MarkInfo/Suspects is true or is not a boolean; tagging needs review.");
             InspectMetadata(Dict(catalog, "/Metadata"));
             var root = Dict(catalog, "/StructTreeRoot");
             Test("TREE", root != null && Name(root, "/Type") == "/StructTreeRoot" && Items(root.Elements["/K"]).Any(), "A nonempty StructTreeRoot with the correct Type is required.");
@@ -312,7 +314,7 @@ namespace PdfSharp.UniversalAccessibility
                     for (int i = 0; i + 1 < nums.Elements.Count; i += 2)
                     {
                         Visit(depth);
-                        if (Integer(nums.Elements[i]) is int key && !entries.ContainsKey(key)) entries.Add(key, nums.Elements[i + 1]);
+                        if (Integer(nums.Elements[i]) is int key && key >= 0 && !entries.ContainsKey(key)) entries.Add(key, nums.Elements[i + 1]);
                         else Test("MCID", false, "ParentTree key is invalid or duplicated.");
                     }
                 }
@@ -326,8 +328,8 @@ namespace PdfSharp.UniversalAccessibility
                 if (pageMcids.Count == 0) continue;
                 var key = Integer(page.Key.Elements["/StructParents"]);
                 PdfItem? value = null;
-                bool valid = key.HasValue && pageKeys.Add(key.Value) && entries.TryGetValue(key.Value, out value);
-                Test("MCID", valid, "Page StructParents is missing, duplicated or absent from ParentTree.", page.Value);
+                bool valid = key.HasValue && key.Value >= 0 && pageKeys.Add(key.Value) && entries.TryGetValue(key.Value, out value);
+                Test("MCID", valid, "Page StructParents is missing, negative, duplicated or absent from ParentTree.", page.Value);
                 var array = Resolve(value) as PdfArray;
                 foreach (var entry in pageMcids)
                 {
