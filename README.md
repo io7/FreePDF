@@ -301,7 +301,10 @@ certifies documents when signing. 7.10.0 signs PAdES B-B and B-T signatures,
 adds validation data and document time-stamps (B-LT, B-LTA) and checks the
 signatures of a file; 7.10.1 hardens reading, flattening and signature checking
 against hostile files; 7.10.2 corrects which revocation data the signature
-check accepts. See the release notes
+check accepts. The 7.11.0 candidate adds accessibility checking through a native
+API and CLI, improves coordinate precision and defines an 84,000-PDF regression
+corpus. See [7.11.0 candidate notes](docs/releases/7.11.0.md) for its scope.
+See the release notes
 for [7.10.2](docs/releases/7.10.2.md), [7.10.1](docs/releases/7.10.1.md), [7.10.0](docs/releases/7.10.0.md), [7.9.0](docs/releases/7.9.0.md), [7.8.0](docs/releases/7.8.0.md), [7.7.0](docs/releases/7.7.0.md), [7.6.1](docs/releases/7.6.1.md), [7.6.0](docs/releases/7.6.0.md), [7.5.2](docs/releases/7.5.2.md), [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
@@ -321,7 +324,9 @@ and `MigraDoc`, so an application references exactly one implementation:
 | `PDFsharp-WPF` | `io7.FreePDF.Wpf` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
 | `PDFsharp-MigraDoc-WPF` | `io7.FreePDF.Layout.Wpf` | Windows .NET 8, 9, 10, .NET Framework 4.6.2 |
 
-Each layout package depends on its matching core package. Build and test them with PowerShell 7:
+Each layout package depends on its matching core package. The separate
+`io7.FreePDF.Accessibility.Tool` package supplies `freepdf-a11y` for .NET 10.
+Build and test all seven packages with PowerShell 7:
 
 ```powershell
 ./eng/Test-Packages.ps1 -OutputDirectory /absolute/path/to/candidate-packages
@@ -335,7 +340,7 @@ packaging projects are blocked to prevent output under upstream identities.
 The [v7 migration guide](docs/migrating-to-7.md),
 [support policy](docs/support-policy.md) and
 [dependency audit](docs/dependency-audit.md) define the release's scope.
-CI additionally rehearses unpublished plain `7.0.0` packages, checks public APIs
+CI additionally rehearses unpublished plain stable packages, checks public APIs
 against pinned MIT baselines, and validates generated output with qpdf, Poppler
 and veraPDF.
 The manual [publication workflow](docs/releasing.md) promotes verified CI

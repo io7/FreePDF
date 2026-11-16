@@ -15,6 +15,7 @@ retained. New fixes use independent reproductions; see PROVENANCE.md.
 | `io7.FreePDF.Layout.Gdi` | `PDFsharp-MigraDoc-GDI` | MigraDoc layout on `io7.FreePDF.Gdi` |
 | `io7.FreePDF.Wpf` | `PDFsharp-WPF` | The same, drawing through WPF, for Windows and .NET Framework |
 | `io7.FreePDF.Layout.Wpf` | `PDFsharp-MigraDoc-WPF` | MigraDoc layout on `io7.FreePDF.Wpf` |
+| `io7.FreePDF.Accessibility.Tool` | Separate .NET tool | Offline accessibility checks with the `freepdf-a11y` command (.NET 10) |
 
 The namespaces and assembly names remain `PdfSharp` and `MigraDoc`. Replace
 upstream package references when migrating, and use one variant only: the

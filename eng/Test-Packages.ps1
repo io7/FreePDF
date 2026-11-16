@@ -25,18 +25,28 @@ if (!$StableRehearsal -and $settings.FreePDFVersionLabel) { $version += "-$($set
 if ($PackageDirectory) {
     if ($StableRehearsal) { throw 'A stable rehearsal builds its own packages; it cannot test existing ones.' }
     $existing = @(Get-ChildItem $PackageDirectory -Filter "*.$version.nupkg")
-    if ($existing.Count -ne 6) { throw "Expected the six $version packages in $PackageDirectory, found $($existing.Count)." }
+    if ($existing.Count -ne 7) { throw "Expected the seven $version packages in $PackageDirectory, found $($existing.Count)." }
     $existing | Copy-Item -Destination $output
 } else {
     foreach ($project in @('FreePDF','Layout','FreePDF.Gdi','Layout.Gdi','FreePDF.Wpf','Layout.Wpf')) {
         & dotnet pack "$repo/src/packages/$project/$project.csproj" -c Release -m:1 -o $output @versionProperties
         if ($LASTEXITCODE -ne 0) { throw "Package build failed: $project" }
     }
+    & dotnet pack "$repo/src/tools/FreePDF.Accessibility/FreePDF.Accessibility.csproj" -c Release -m:1 -o $output @versionProperties
+    if ($LASTEXITCODE -ne 0) { throw 'Accessibility tool package build failed.' }
+    & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/tools/FreePDF.Accessibility/obj/project.assets.json" -OutputDirectory "$output/tool-dependencies"
+    & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/tools/FreePDF.Accessibility/FreePDF.Accessibility.csproj" -OutputPath "$output/tool-advisories.json"
     & "$PSScriptRoot/Write-PackageInventory.ps1" -AssetsPath "$repo/src/packages/FreePDF/obj/project.assets.json" -OutputDirectory "$output/library-dependencies"
     & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF/FreePDF.csproj" -OutputPath "$output/library-advisories.json"
     foreach ($variant in @('Gdi','Wpf')) {
         & "$PSScriptRoot/Test-PackageAdvisories.ps1" -Project "$repo/src/packages/FreePDF.$variant/FreePDF.$variant.csproj" -OutputPath "$output/library-advisories-$($variant.ToLowerInvariant()).json"
     }
+}
+$toolResult = $null
+if (!$PackageDirectory) {
+    # The build jobs have .NET 10 on Linux and Windows. Existing-package jobs
+    # exercise library consumers on other runtimes; they do not retest the CLI.
+    $toolResult = & "$PSScriptRoot/Test-AccessibilityTool.ps1" -PackageDirectory $output -Version $version -OutputDirectory "$output/accessibility-tool"
 }
 $portable = @('net8.0','net9.0','net10.0','netstandard2.0')
 $windows = @('net8.0-windows7.0','net9.0-windows7.0','net10.0-windows7.0','net462')
@@ -122,6 +132,7 @@ $endedDirty = @(& git -C $repo status --porcelain).Count -ne 0
 if ($env:CI -eq 'true' -and $endedDirty) { throw 'CI source checkout changed during package checks.' }
 if ($startedDirty -or $endedDirty) { $revision += '+worktree' }
 $receipt = @{ sourceRevision=$revision; version=$version; consumers=$results; packages=@(Get-ChildItem $output -Filter '*.nupkg' | ForEach-Object { @{ file=$_.Name; sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) }
+if ($toolResult) { $receipt.accessibilityTool = $toolResult }
 # The packages were built elsewhere; this receipt records consumers, not a build of $revision.
 if ($PackageDirectory) { $receipt.testedExistingPackages = $true }
 $receipt | ConvertTo-Json -Depth 6 | Set-Content "$output/validation.json" -Encoding utf8

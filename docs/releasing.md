@@ -30,24 +30,31 @@ Official setup: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publis
 1. Merge the reviewed version/release-notes change into `main`, the default
    branch. The version label must be empty for a stable release. Keep source
    changes out of a version promotion.
-2. Wait for the latest push runs of `Core build`, `Comparison lab` and
-   `Candidate packages` to pass at the exact merged commit.
+2. Wait for the latest push runs of `Core build`, `Comparison lab`,
+   `Candidate packages` and `Accessibility and producer corpus` to pass at the
+   exact merged commit. The push corpus runs 180 PDFs. The weekly/manual full
+   configuration runs 84,000; retain that separate evidence before claiming a
+   complete full-corpus run.
 3. Run `Publish verified packages` on that default-branch commit with the
    successful `Candidate packages` run ID and `publish=false`. Retain its
-   `verified-release-<version>` artifact: two nupkgs, their validation receipt
+   `verified-release-<version>` artifact: seven nupkgs, their validation receipt
    and SHA256SUMS. The workflow checks source revision, successful consumer
-   targets, package IDs, versions, hashes, repository metadata and MIT licence.
+   targets, the installed CLI result, package IDs, versions, hashes, repository
+   metadata, MIT licence, tool command and bundled dependency notices.
 4. After the maintainer's publication decision, run the same workflow on the
    same commit and run ID with `publish=true`. Only the default branch can
    publish. The `nuget` environment and NuGet policy must match.
-5. Verify all six NuGet listings and install from NuGet into a clean package cache.
+5. Verify all seven NuGet listings and install from NuGet into a clean package cache.
+   Install `io7.FreePDF.Accessibility.Tool` and run `freepdf-a11y` against the
+   synthetic positive and negative accessibility controls.
    Tag the exact verified source `v<version>` and publish GitHub release notes
    with the same nupkgs, validation receipt and SHA256SUMS. NuGet may add its
    repository signature; original artifact hashes describe the uploaded files.
 
 NuGet publication is not atomic across packages. Each core package is uploaded
 before its layout package: `io7.FreePDF`, `io7.FreePDF.Layout`, then the GDI pair,
-then the WPF pair. If one upload fails, inspect the feed before retrying. The workflow
+then the WPF pair, then `io7.FreePDF.Accessibility.Tool`. If one upload fails,
+inspect the feed before retrying. The workflow
 does not silently skip an existing version or overwrite one. Keep the original
 artifact and resolve any partial publication explicitly.
 

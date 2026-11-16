@@ -113,7 +113,7 @@ The password is never included in the report.
 `Incomplete` takes precedence over `Failed`; inspect findings for failures already
 detected. `--policy automated` never turns an incomplete scan into success.
 
-The CLI is configured as a packable .NET tool (`FreePDF.Accessibility.Tool`, command
+The CLI is configured as a packable .NET tool (`io7.FreePDF.Accessibility.Tool`, command
 `freepdf-a11y`). Adding it here does not publish it to NuGet; publication remains a
 separate release step. The scanner itself ships in the existing library assemblies,
 including the Core, GDI and WPF variants.
@@ -123,7 +123,7 @@ local directory (run from the repository root):
 
 ```sh
 dotnet pack src/tools/FreePDF.Accessibility -c Release -o artifacts/a11y-package
-dotnet tool install FreePDF.Accessibility.Tool --tool-path artifacts/a11y-tool \
+dotnet tool install io7.FreePDF.Accessibility.Tool --tool-path artifacts/a11y-tool \
   --source artifacts/a11y-package
 artifacts/a11y-tool/freepdf-a11y document.pdf
 artifacts/a11y-tool/freepdf-a11y document.pdf --format html --output audit.html

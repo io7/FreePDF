@@ -60,7 +60,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: pwsh
         run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -OutputDirectory "$env:RUNNER_TEMP/freepdf-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
-      - name: Rehearse plain 7.0.0 packages in a separate cache
+      - name: Rehearse plain stable packages in a separate cache
         shell: pwsh
         run: |
           $frameworks = if ($IsWindows) { @('net10.0','net472') } else { @('net10.0') }
@@ -81,6 +81,11 @@ jobs:
             ${{ runner.temp }}/freepdf-packages/validation.json
             ${{ runner.temp }}/freepdf-packages/library-advisories*.json
             ${{ runner.temp }}/freepdf-packages/library-dependencies/**
+            ${{ runner.temp }}/freepdf-packages/tool-dependencies/**
+            ${{ runner.temp }}/freepdf-packages/tool-advisories.json
+            ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.json
+            ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.txt
+            ${{ runner.temp }}/freepdf-packages/accessibility-tool/report.*
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: error
@@ -92,6 +97,10 @@ jobs:
             ${{ runner.temp }}/freepdf-stable-rehearsal/*.nupkg
             ${{ runner.temp }}/freepdf-stable-rehearsal/*.json
             ${{ runner.temp }}/freepdf-stable-rehearsal/library-dependencies/**
+            ${{ runner.temp }}/freepdf-stable-rehearsal/tool-dependencies/**
+            ${{ runner.temp }}/freepdf-stable-rehearsal/accessibility-tool/*.json
+            ${{ runner.temp }}/freepdf-stable-rehearsal/accessibility-tool/*.txt
+            ${{ runner.temp }}/freepdf-stable-rehearsal/accessibility-tool/report.*
             ${{ runner.temp }}/freepdf-stable-rehearsal/consumer-*/**
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: warn

@@ -5,6 +5,20 @@ finds defects it can detect automatically, and records the human review needed
 for the remaining requirements. The current CLI is a partial PDF/UA-1 preflight.
 It does not establish ADA compliance.
 
+## Release order
+
+| Release | Scope | State |
+| --- | --- | --- |
+| 7.11.0 | Native preflight API, offline CLI, coordinate precision fix and 84,000-file corpus configuration. Package and test the CLI with the six library packages. | Prepared as a release candidate. Publication and hosted release gates remain separate. |
+| Next minor release, proposed 7.12.0 | Complete the requirements inventory and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles, versions and unsupported checks. | Next implementation priority. |
+| Following releases | Extend native inspection to nested content, Unicode, forms and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
+
+The 7.12.0 acceptance gate is a traceable requirement list plus positive and
+negative adapter controls. A missing validator, timeout, malformed report or
+unsupported profile must remain an incomplete result. A machine-validation pass
+must retain the human-review requirements. No release in this plan promises
+automatic legal certification.
+
 PDF/UA defines PDF accessibility requirements. WCAG describes accessibility
 outcomes, including meaning and usability. ADA obligations also depend on the
 organization and how it provides the document. For example, the US Department

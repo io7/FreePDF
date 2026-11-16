@@ -9,6 +9,7 @@
   <ItemGroup>
     <!-- Logging packages used by all PDFsharp projects -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="$(Logging_PackageVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(Logging_Abstractions_PackageVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Configuration" Version="$(Logging_PackageVersion)" />

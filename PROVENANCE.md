@@ -431,3 +431,18 @@ categories. Local tool installation follows Microsoft's .NET tool documentation.
 The accessibility roadmap uses the public DOJ Title II fact sheet, W3C's guidance
 on evaluation-tool limits and veraPDF's documented validation scope. These sources
 inform requirements and scope; no validator implementation was copied.
+
+## Accessibility tool release packaging (7.11.0)
+
+The tool uses the existing `io7.FreePDF*` package identity and release workflow.
+The new package/install guards and tests are original code based on the existing
+FreePDF package checks and Microsoft's documented .NET tool commands.
+
+The tool bundles Microsoft's logging/DI abstractions 10.0.5 and PKCS 10.0.13.
+Their own `THIRD-PARTY-NOTICES.TXT` files are included from the resolved NuGet
+packages. `src/packages/DotNet-MIT-LICENSE.txt` preserves the .NET Foundation
+licence from `dotnet/runtime` tags `v10.0.5` and `v10.0.13`, whose `LICENSE.TXT`
+files share git blob `984713a49622a96da110443c15477613bc12656b`. The copied file
+has that same blob hash. Only these licence texts were read; no runtime source
+was used as implementation input. FreePDF's existing source and embedded-asset
+notices are also included in the tool package.

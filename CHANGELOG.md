@@ -1,5 +1,25 @@
 # FreePDF changelog
 
+## 7.11.0
+
+- `PdfAccessibilityScanner` checks existing PDFs without changing their bytes.
+  It reports detected failures, unsupported content and required human review.
+  Reports include rule IDs, page/path locations, guidance and the document hash.
+  Coverage is partial PDF/UA-1. It does not certify ADA, WCAG or complete PDF/UA
+  compliance.
+- `io7.FreePDF.Accessibility.Tool` adds the `freepdf-a11y` command for .NET 10.
+  It prints a text summary and exports JSON, SARIF and offline HTML reports.
+  CI installs the package on Linux and Windows and checks its outcomes against
+  positive, negative and malformed synthetic PDFs.
+- PDF numbers and page rectangles retain more coordinate precision when saved.
+  This fixes a rendering shift found when saving a Chromium-generated PDF.
+- The producer corpus defines 84,000 synthetic PDFs: 28,000 parameter sets from
+  FreePDF, ReportLab and Chromium. Pull requests check 180 PDFs, nightly runs
+  check 1,800, and weekly/manual full runs check 84,000 across 24 shards.
+  Selected files also receive rendering comparisons for every page.
+- Release checks now include the accessibility workflow and the exact installed
+  CLI package, including its executable command, notices and package hash.
+
 ## 7.10.2
 
 - `PdfSignatureVerifier`: a signature with a time-stamp no longer stays

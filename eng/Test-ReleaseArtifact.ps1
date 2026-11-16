@@ -18,7 +18,8 @@ function ExpectConsumer([string]$variant, [string]$framework) {
 }
 foreach ($framework in $RequiredFrameworks) { ExpectConsumer '' $framework }
 foreach ($framework in $RequiredWindowsFrameworks) { foreach ($variant in @('Gdi','Wpf')) { ExpectConsumer $variant $framework } }
-$expected = @('io7.FreePDF','io7.FreePDF.Layout','io7.FreePDF.Gdi','io7.FreePDF.Layout.Gdi','io7.FreePDF.Wpf','io7.FreePDF.Layout.Wpf') | ForEach-Object { "$_.$Version.nupkg" }
+if ($receipt.accessibilityTool.status -cne 'passed' -or $receipt.accessibilityTool.packageId -cne 'io7.FreePDF.Accessibility.Tool' -or $receipt.accessibilityTool.framework -cne 'net10.0' -or $receipt.accessibilityTool.command -cne 'freepdf-a11y') { throw 'Missing successful accessibility tool installation.' }
+$expected = @('io7.FreePDF','io7.FreePDF.Layout','io7.FreePDF.Gdi','io7.FreePDF.Layout.Gdi','io7.FreePDF.Wpf','io7.FreePDF.Layout.Wpf','io7.FreePDF.Accessibility.Tool') | ForEach-Object { "$_.$Version.nupkg" }
 if (@($receipt.packages).Count -ne $expected.Count -or (Compare-Object ($expected | Sort-Object) (@($receipt.packages.file) | Sort-Object))) { throw 'Unexpected release package manifest.' }
 $actual = @(Get-ChildItem -LiteralPath $root -File -Filter '*.nupkg' | ForEach-Object Name)
 if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object)) { throw 'Unexpected release package files.' }
@@ -35,6 +36,19 @@ foreach ($package in $receipt.packages) {
         if ($metadata.icon -cne 'icon.png') { throw "Release package icon metadata mismatch: $id" }
         $icon = $archive.GetEntry('icon.png')
         if (!$icon -or $icon.Length -eq 0 -or $icon.Length -gt 1MB) { throw "Missing or invalid release package icon: $id" }
+        if ($id -ceq 'io7.FreePDF.Accessibility.Tool') {
+            if (@($metadata.packageTypes.packageType.name) -cnotcontains 'DotnetTool') { throw 'Invalid accessibility tool package type.' }
+            $settings = $archive.GetEntry('tools/net10.0/any/DotnetToolSettings.xml')
+            if (!$settings -or !$archive.GetEntry('tools/net10.0/any/FreePDF.Accessibility.dll')) { throw 'Missing accessibility tool executable.' }
+            $reader = [IO.StreamReader]::new($settings.Open())
+            try { [xml]$toolSettings = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $commands = @($toolSettings.DotNetCliTool.Commands.Command)
+            if ($commands.Count -ne 1 -or $commands[0].Name -cne 'freepdf-a11y' -or $commands[0].EntryPoint -cne 'FreePDF.Accessibility.dll' -or $commands[0].Runner -cne 'dotnet') { throw 'Invalid accessibility tool command.' }
+            foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
+                'THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/Microsoft.Extensions.Logging.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/System.Security.Cryptography.Pkcs/THIRD-PARTY-NOTICES.TXT')) {
+                if (!$archive.GetEntry($notice)) { throw "Missing tool notice: $notice" }
+            }
+        }
     } finally { $archive.Dispose() }
 }
 Write-Output "Verified $($expected.Count) release packages at $ExpectedRevision, version $Version."

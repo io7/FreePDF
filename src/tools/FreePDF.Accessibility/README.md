@@ -5,6 +5,8 @@ them. Reports include detected structural failures, check coverage, document has
 and required human review. Coverage is partial PDF/UA-1; this tool does not certify
 ADA, WCAG, Section 508 or complete PDF/UA compliance.
 
+Package: `io7.FreePDF.Accessibility.Tool`. Command: `freepdf-a11y`.
+
 ```sh
 freepdf-a11y document.pdf
 freepdf-a11y document.pdf --format html --output audit.html
@@ -17,8 +19,10 @@ required, or scan incomplete. It lists up to 20 findings with suggested next ste
 The HTML report opens in a browser and contains every finding, check coverage,
 structure order and limitations. JSON and SARIF are for automation.
 
-The tool is implemented in this repository but has not been published to NuGet.
-With the .NET 10 SDK, run it from a source checkout:
+For a published version, install the package with
+`dotnet tool install --global io7.FreePDF.Accessibility.Tool`. Candidate packages
+can be installed with `--source /path/to/candidate-packages --version 7.11.0`.
+With the .NET 10 SDK, you can also run it from a source checkout:
 
 ```sh
 dotnet run --project src/tools/FreePDF.Accessibility -c Release -- document.pdf
