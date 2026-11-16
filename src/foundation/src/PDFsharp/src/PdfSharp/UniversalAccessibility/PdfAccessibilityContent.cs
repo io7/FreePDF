@@ -16,25 +16,48 @@ namespace PdfSharp.UniversalAccessibility
         static readonly Regex McidProperty = new(@"^<<\s*/MCID\s+([0-9]+)\s*>>$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         static readonly HashSet<string> Painting = new("Tj TJ ' \" Do sh S s f F f* B B* b b* BI".Split(' '));
 
+        static readonly HashSet<string> ShowText = new("Tj TJ ' \"".Split(' '));
+
+        // Page content is bounded by MaxDecodedBytes, not MaxNodes; this loop only observes cancellation.
         void InspectContent(PdfDictionary page, int number)
         {
             using var content = new MemoryStream();
             foreach (var raw in Items(page.Elements["/Contents"]))
             {
-                Visit(0);
+                _cancellation.ThrowIfCancellationRequested();
                 if (Resolve(raw) is not PdfDictionary { Stream: not null } stream)
                 { Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Page content is not a stream.", number); return; }
                 var bytes = Decode(stream);
                 content.Write(bytes, 0, bytes.Length); content.WriteByte(10);
             }
+            var resources = InheritedResources(page);
             var scopes = new Stack<bool>();
             var ids = new HashSet<int>();
             COperator? dictionary = null;
             bool understood = true;
+            // Only fonts that paint glyphs need an embedded program (PDF/UA-1 7.21.4.1). The font and the text
+            // rendering mode are graphics state: q/Q save and restore them, BT/ET do not reset them, and
+            // mode 3 paints nothing (ISO 32000-1 9.3.6).
+            var text = new TextState(null, "", false, 0);
+            var saved = new Stack<TextState>();
             foreach (var item in ContentReader.ReadContent(content.ToArray()))
             {
-                Visit(0);
+                _cancellation.ThrowIfCancellationRequested();
                 if (item is not COperator op) continue;
+                if (op.Name == "q") saved.Push(text);
+                else if (op.Name == "Q" && saved.Count > 0) text = saved.Pop();
+                else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) text = text with { Mode = mode.Value };
+                else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
+                    text = new TextState(Dict(Dict(resources, "/Font"), fontName.Name), "/Resources/Font" + fontName.Name, true, text.Mode);
+                else if (op.Name == "gs" && op.Operands.FirstOrDefault() is CName stateName
+                    && Resolve(Dict(Dict(resources, "/ExtGState"), stateName.Name)?.Elements["/Font"]) is PdfArray { Elements.Count: > 0 } stateFont)
+                    text = new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary, "/Resources/ExtGState" + stateName.Name + "/Font", true, text.Mode);
+                if (ShowText.Contains(op.Name) && text.Mode != 3)
+                {
+                    if (text.Selected) InspectFont(text.Font, number, text.Path);
+                    else if (_reportedFonts.Add(number + ":/Contents"))
+                        Record("FONT", PdfAccessibilityCheckStatus.NotChecked, "Text is shown before a font is selected.", number, "/Contents");
+                }
                 if (op.OpCode.OpCodeName == OpCodeName.Dictionary) { dictionary = op; continue; }
                 if (op.Name is "BDC" or "BMC")
                 {
@@ -66,16 +89,13 @@ namespace PdfSharp.UniversalAccessibility
                     Test("CONTENT", scopes.Count > 0, "EMC has no matching marked-content begin.", number, "/Contents");
                     if (scopes.Count > 0) scopes.Pop();
                 }
-                else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
-                    InspectFont(Dict(Dict(InheritedResources(page), "/Font"), fontName.Name), number, "/Resources/Font" + fontName.Name);
                 else if (Painting.Contains(op.Name))
                 {
                     // Once properties are unassessed, a missing scope is uncertain, not proof of failure.
                     if (understood) Test("CONTENT", scopes.Count > 0 && scopes.Peek(), "Painting operation is outside tagged content or an artifact.", number, "/Contents");
                     if (op.Name == "Do" && op.Operands.FirstOrDefault() is CName name)
                     {
-                        var resource = InheritedResources(page);
-                        if (Name(Dict(Dict(resource, "/XObject"), name.Name), "/Subtype") == "/Form")
+                        if (Name(Dict(Dict(resources, "/XObject"), name.Name), "/Subtype") == "/Form")
                         {
                             understood = false;
                             Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Form XObject content is outside this preflight's coverage.", number, "/Resources/XObject" + name.Name);
@@ -94,10 +114,16 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         readonly HashSet<PdfDictionary> _fonts = new();
+        // Text shows repeat per string; report a missing or unknown font once per page and resource name.
+        readonly HashSet<string> _reportedFonts = new();
 
         void InspectFont(PdfDictionary? font, int page, string path)
         {
-            if (font == null) { Test("FONT", false, "Selected font resource is missing.", page, path); return; }
+            if (font == null)
+            {
+                if (_reportedFonts.Add(page + ":" + path)) Test("FONT", false, "Font used for text is missing from the page resources.", page, path);
+                return;
+            }
             if (!_fonts.Add(font)) return;
             if (Name(font, "/Subtype") == "/Type0")
             {
@@ -117,18 +143,22 @@ namespace PdfSharp.UniversalAccessibility
             Test("FONT", embedded, "Selected font has no embedded font program.", page, path);
         }
 
+        // Looked up once per page; the page-tree ancestors are bounded by MaxDepth and do not count as structure nodes.
         PdfDictionary? InheritedResources(PdfDictionary page)
         {
             var seen = new HashSet<PdfDictionary>();
             PdfDictionary? node = page;
             while (node != null && seen.Add(node))
             {
-                Visit(seen.Count);
+                _cancellation.ThrowIfCancellationRequested();
+                if (seen.Count > _options.MaxDepth) throw new AccessibilityLimitException("Page tree nesting exceeded MaxDepth.");
                 var resources = Dict(node, "/Resources");
                 if (resources != null) return resources;
                 node = Dict(node, "/Parent");
             }
             return null;
         }
+
+        readonly record struct TextState(PdfDictionary? Font, string Path, bool Selected, int Mode);
     }
 }

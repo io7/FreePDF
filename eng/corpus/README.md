@@ -47,13 +47,17 @@ are **not** substitutes for this CI gate.
 | Trigger | Scenarios | PDFs | Shards | Rendered scenarios |
 | --- | ---: | ---: | ---: | ---: |
 | Pull request / main / release | 60 | 180 | 1 | All 60 |
-| Nightly, Monday–Saturday | 600 | 1,800 | 4 | Every 10th: 60 |
-| Weekly Sunday / manual full | 28,000 | 84,000 | 24 | Every 100th: 280 |
+| Nightly, Monday–Saturday | 600 | 1,800 | 4 | About 1 in 10: 66 |
+| Weekly Sunday / manual full | 28,000 | 84,000 | 24 | About 1 in 100: 289 |
 
 All three producers are rendered for selected scenarios. Every PDF receives the
-non-render checks. The full suite has 840 rendered PDFs, with all their pages
-compared. `--render-every 1` renders the full collection when more compute is
-available. CI limits concurrency to four shards and each shard to 60 minutes.
+non-render checks. `--render-every N` selects a scenario when its scenario hash
+is divisible by N. Selecting every Nth index instead fixed the low digits of the
+scenario permutation, so nightly and full runs never rendered A5 landscape, A4
+landscape or Letter portrait pages. With the hash, both tiers render all six page
+geometries, and the full tier's 867 rendered PDFs cover every pair of parameter
+values; a contract test checks this. `--render-every 1` renders the full
+collection when more compute is available. CI limits concurrency to four shards and each shard to 60 minutes.
 Doubling the full suite from 12 to 24 shards keeps the per-shard PDF count about
 the same. Total weekly runner work roughly doubles; pull-request and nightly
 budgets are unchanged.

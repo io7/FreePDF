@@ -494,6 +494,9 @@ namespace PdfSharp.Pdf.IO
 
                 RereadUnicodeStrings();
 
+                if (parser.RepairedCrossReferences)
+                    _document.RepairedWhileReading = true;
+
                 // An update can only point back to cross-reference data that is right.
                 if (openMode == PdfDocumentOpenMode.Append && parser.RepairedCrossReferences)
                 {

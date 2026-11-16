@@ -12,7 +12,7 @@ internal static class Program
             Console.WriteLine("freepdf-a11y INPUT.pdf [--format text|json|sarif|html] [--output PATH] [--policy review|automated] [--password-env NAME]");
             Console.WriteLine("Checks a PDF locally without changing it. The default is a plain-English summary.");
             Console.WriteLine("For a full report you can open in a browser: freepdf-a11y INPUT.pdf --format html --output report.html");
-            Console.WriteLine("Exit codes: 0 automated policy satisfied (review still required); 1 detected failures; 2 review required; 3 incomplete scan; 64 usage/I/O error.");
+            Console.WriteLine("Exit codes: 0 automated policy satisfied (review still required); 1 detected failures, also in an incomplete scan; 2 review required; 3 incomplete scan without detected failures; 64 usage/I/O error.");
             Console.WriteLine("Partial PDF/UA-1 preflight. Does not certify ADA, WCAG or PDF/UA compliance. Reports may contain document text.");
             return args.Length == 0 ? 64 : 0;
         }
@@ -46,12 +46,10 @@ internal static class Program
                 writer.Flush();
                 Console.Error.WriteLine("Report written to " + AccessibilityReportWriter.SafeText(output));
             }
-            return report.Status switch
-            {
-                PdfAccessibilityScanStatus.Incomplete => 3,
-                PdfAccessibilityScanStatus.Failed => 1,
-                _ => policy == "automated" ? 0 : 2
-            };
+            // A detected failure is definite even when other content could not be checked.
+            if (report.HasFailures) return 1;
+            if (report.Status == PdfAccessibilityScanStatus.Incomplete) return 3;
+            return policy == "automated" ? 0 : 2;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {

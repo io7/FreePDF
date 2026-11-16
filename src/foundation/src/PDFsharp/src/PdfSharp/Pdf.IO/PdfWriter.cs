@@ -131,8 +131,14 @@ namespace PdfSharp.Pdf.IO
             // Preserve imported coordinates. Narrowing to float and formatting it can
             // turn Chromium's 594.95996 page height into 594.96 while its unchanged
             // content matrix still uses the original value, moving rasterized lines.
+            // Readers may hold reals in single precision (ISO 32000-1 Annex C, about ±3.403e38).
+            // A double's 15 formatted digits round float.MaxValue up past that range, and an
+            // infinity would be written as a word, so values from 1e38 on are clamped and
+            // formatted as a float, as before 7.11.0.
             WriteSeparator(CharCat.Character);
-            WriteRaw(value.ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture));
+            WriteRaw(Math.Abs(value) < 1e38
+                ? value.ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture)
+                : ((float)Math.Max(Single.MinValue, Math.Min(Single.MaxValue, value))).ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture));
         }
 
         /// <summary>

@@ -41,12 +41,15 @@ internal static class AccessibilityReportWriter
 
     static string Text(PdfAccessibilityReport report, string name)
     {
-        var result = report.Status switch
-        {
-            PdfAccessibilityScanStatus.Failed => "Problems found. Fix the findings below and check the PDF again.",
-            PdfAccessibilityScanStatus.Incomplete => "Scan incomplete. Some content could not be checked; detected problems are listed below.",
-            _ => "Human review required. No failures found by the implemented checks."
-        };
+        string result;
+        if (report.HasFailures && !report.ScanCompleted)
+            result = "Problems found, and some content could not be checked. Fix the findings below and check the PDF again.";
+        else if (report.HasFailures)
+            result = "Problems found. Fix the findings below and check the PDF again.";
+        else if (report.Status == PdfAccessibilityScanStatus.Incomplete)
+            result = "Scan incomplete. Some content could not be checked; see the findings below.";
+        else
+            result = "Human review required. No failures found by the implemented checks.";
         var text = new StringBuilder("FreePDF accessibility check\n");
         text.Append("File: ").AppendLine(SafeText(name));
         text.Append("Result: ").AppendLine(result);
@@ -110,7 +113,7 @@ internal static class AccessibilityReportWriter
                 artifacts = new[] { new { location = new { uri }, hashes = new Dictionary<string, string> { ["sha-256"] = report.DocumentSha256 } } },
                 invocations = new[] { new { executionSuccessful = report.ScanCompleted } },
                 results,
-                properties = new { report.Profile, report.Coverage, report.Status, report.Limitations }
+                properties = new { report.Profile, report.Coverage, report.Status, report.HasFailures, report.ScanCompleted, report.Limitations }
             } }
         }, Json);
     }
@@ -119,7 +122,10 @@ internal static class AccessibilityReportWriter
     {
         static string E(object? s) => WebUtility.HtmlEncode(s?.ToString() ?? "");
         var html = new StringBuilder("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\"><title>FreePDF accessibility preflight</title><style>body{font:1rem/1.6 system-ui,sans-serif;max-width:76rem;margin:auto;padding:2rem;color:#17202b;background:#fff}a{color:#174d94}table{border-collapse:collapse;width:100%;margin-bottom:2rem}th,td{padding:.7rem;border:1px solid #9aa3ae;text-align:left;vertical-align:top;overflow-wrap:anywhere}caption{text-align:left;font-weight:bold;font-size:1.3rem}code{overflow-wrap:anywhere}.table{overflow-x:auto}:focus-visible{outline:3px solid #164b8d}</style></head><body><main><h1>Accessibility preflight</h1>");
-        html.Append("<p><strong>").Append(E(report.Status)).Append(" — partial coverage</strong></p><p>").Append(E(name)).Append(" · ").Append(E(report.PageCount)).Append(" pages · rules ").Append(E(report.RulesetVersion)).Append("</p><p>SHA-256: <code>").Append(E(report.DocumentSha256)).Append("</code></p><nav aria-label=\"Report sections\"><a href=\"#findings\">Findings and review</a> · <a href=\"#checks\">Check coverage</a> · <a href=\"#order\">Structure order</a> · <a href=\"#limits\">Limitations</a></nav><h2 id=\"findings\">Findings and required review</h2>");
+        var outcome = report.Status.ToString();
+        if (report.HasFailures && report.Status != PdfAccessibilityScanStatus.Failed)
+            outcome += ", with failures";
+        html.Append("<p><strong>").Append(E(outcome)).Append(" — partial coverage</strong></p><p>").Append(E(name)).Append(" · ").Append(E(report.PageCount)).Append(" pages · rules ").Append(E(report.RulesetVersion)).Append("</p><p>SHA-256: <code>").Append(E(report.DocumentSha256)).Append("</code></p><nav aria-label=\"Report sections\"><a href=\"#findings\">Findings and review</a> · <a href=\"#checks\">Check coverage</a> · <a href=\"#order\">Structure order</a> · <a href=\"#limits\">Limitations</a></nav><h2 id=\"findings\">Findings and required review</h2>");
         foreach (var f in report.Findings)
         {
             var check = report.Checks.Single(c => c.Id == f.RuleId);

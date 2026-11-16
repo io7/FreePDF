@@ -49,13 +49,10 @@ namespace PdfSharp.UniversalAccessibility
                 input.Position = 0;
                 try
                 {
-                    using var document = PdfReader.Open(input, options.Password, PdfDocumentOpenMode.Import, new PdfReaderOptions
-                    {
-                        InvalidStreamLength = PdfReaderProblemBehavior.ThrowException,
-                        ReferenceToUndefinedObject = PdfReaderProblemBehavior.ThrowException,
-                        IssuesWithDecryption = PdfReaderProblemBehavior.ThrowException,
-                        ReaderProblemCallback = _ => scan.ReaderProblem = true
-                    });
+                    using var document = PdfReader.Open(input, options.Password, PdfDocumentOpenMode.Import);
+                    // The reader repairs damaged cross-reference data and stream lengths silently. Such a scan
+                    // describes the repaired file, which independent validators may reject.
+                    scan.RepairedByReader = document.RepairedWhileReading;
                     scan.Inspect(document);
                 }
                 catch (OperationCanceledException) { throw; }
@@ -87,17 +84,19 @@ namespace PdfSharp.UniversalAccessibility
         readonly HashSet<PdfDictionary> _visited = new();
         readonly Dictionary<string, PdfDictionary> _mcids = new();
         readonly HashSet<PdfDictionary> _objects = new();
+        // Checks whose every occurrence was inspected. After a limit stops the scan, the others are not reported as passed.
+        readonly HashSet<string> _finished = new();
         PdfDictionary? _roleMap;
         int _nodes, _decoded;
         bool _incomplete;
-        internal bool ReaderProblem;
+        internal bool RepairedByReader;
         const string Technique = "https://www.w3.org/WAI/WCAG22/Techniques/pdf/";
         const string Matterhorn = "https://pdfa.org/resource/the-matterhorn-protocol/";
 
         internal AccessibilityScan(PdfAccessibilityScanOptions options, CancellationToken cancellation)
         {
             _options = options; _cancellation = cancellation;
-            Add("READ", "Input can be inspected", "Provide a readable PDF and password if required; resolve resource limits or unsupported content.");
+            Add("READ", "Input can be inspected without repair", "Provide an undamaged, readable PDF and its password if required; resolve resource limits or unsupported content.");
             Add("LANG", "Catalog language is present", "Set the document's default language; review language changes within the content.", "PDF16.html");
             Add("TITLE", "XMP document title is present", "Supply a descriptive dc:title in XMP metadata.", "PDF18.html");
             Add("UAID", "XMP identifies PDF/UA-1", "Only declare pdfuaid:part=1 after satisfying the full standard.");
@@ -110,7 +109,7 @@ namespace PdfSharp.UniversalAccessibility
             Add("NESTING", "List and table children have expected parents", "Place list items in lists, list labels/bodies in items, rows in tables and cells in rows.");
             Add("MCID", "Page marked content matches structure references", "Associate each page MCID with one structure element and its ParentTree entry.");
             Add("CONTENT", "Page painting occurs inside marked content", "Tag meaningful content and mark decorative content as artifacts.", "PDF4.html");
-            Add("FONT", "Fonts selected by page content have embedded programs", "Embed the fonts used by page text and independently validate their glyph and Unicode mappings.");
+            Add("FONT", "Fonts that show visible page text have embedded programs", "Embed the fonts used by page text and independently validate their glyph and Unicode mappings.");
             Add("TABS", "Annotated pages use structure tab order", "Set page Tabs to S and verify keyboard navigation.", "PDF3.html");
             Add("ANNOT", "Links and widgets have structure object references", "Include each link/widget annotation in the structure tree and review its accessible name.", "PDF11.html");
             Add("REVIEW", "Human accessibility review", "Review reading order, text alternatives, headings, table associations, language, contrast, forms and assistive-technology behavior.");
@@ -134,12 +133,18 @@ namespace PdfSharp.UniversalAccessibility
         void Test(string id, bool success, string message, int? page = null, string path = "/Root")
             => Record(id, success ? PdfAccessibilityCheckStatus.Passed : PdfAccessibilityCheckStatus.Failed, message, page, path);
 
+        // Counts structure, role-map and number-tree nodes. Page content is bounded by MaxDecodedBytes instead:
+        // counting its operators here made ordinary long or dense documents incomplete.
         void Visit(int depth)
         {
             _cancellation.ThrowIfCancellationRequested();
-            if (++_nodes > _options.MaxNodes || depth > _options.MaxDepth)
-                throw new AccessibilityLimitException("Structure traversal exceeded MaxNodes or MaxDepth.");
+            if (++_nodes > _options.MaxNodes)
+                throw new AccessibilityLimitException("Structure or number-tree traversal exceeded MaxNodes.");
+            if (depth > _options.MaxDepth)
+                throw new AccessibilityLimitException("Structure nesting exceeded MaxDepth.");
         }
+
+        void Finished(params string[] ids) => _finished.UnionWith(ids);
 
         internal PdfAccessibilityReport Unreadable(string reason)
         {
@@ -147,8 +152,10 @@ namespace PdfSharp.UniversalAccessibility
             _checks["READ"].Status = PdfAccessibilityCheckStatus.NotChecked;
             if (_findings.Count >= _options.MaxFindings) _findings.RemoveAt(_findings.Count - 1);
             _findings.Add(new PdfAccessibilityFinding("FPDF-A11Y-READ", PdfAccessibilityCheckStatus.NotChecked, reason, null, "/"));
-            foreach (var check in _checks.Values)
-                if (check.Status == PdfAccessibilityCheckStatus.NotApplicable) check.Status = PdfAccessibilityCheckStatus.NotChecked;
+            // A check that did not inspect every occurrence has no passed or not-applicable outcome. Failures stay.
+            foreach (var check in _checks)
+                if (!_finished.Contains(check.Key) && check.Value.Status is PdfAccessibilityCheckStatus.NotApplicable or PdfAccessibilityCheckStatus.Passed)
+                    check.Value.Status = PdfAccessibilityCheckStatus.NotChecked;
             return Finish();
         }
 
@@ -190,6 +197,7 @@ namespace PdfSharp.UniversalAccessibility
             Test("MARKED", True(markInfo, "/Marked"), "MarkInfo/Marked is not true.");
             Test("SUSPECTS", FalseOrAbsent(markInfo, "/Suspects"), "MarkInfo/Suspects is true or is not a boolean; tagging needs review.");
             InspectMetadata(Dict(catalog, "/Metadata"));
+            Finished("LANG", "DISPLAYTITLE", "MARKED", "SUSPECTS", "TITLE", "UAID");
             var root = Dict(catalog, "/StructTreeRoot");
             Test("TREE", root != null && Name(root, "/Type") == "/StructTreeRoot" && Items(root.Elements["/K"]).Any(), "A nonempty StructTreeRoot with the correct Type is required.");
             if (root != null)
@@ -197,6 +205,7 @@ namespace PdfSharp.UniversalAccessibility
                 _roleMap = Dict(root, "/RoleMap");
                 WalkKids(root.Elements["/K"], root, null, "", "/StructTreeRoot/K", 0);
             }
+            Finished("TREE", "ROLE", "ALT", "NESTING");
             foreach (var page in _pages)
             {
                 InspectContent(page.Key, page.Value);
@@ -207,9 +216,13 @@ namespace PdfSharp.UniversalAccessibility
                     if (Name(annotation, "/Subtype") is "/Link" or "/Widget")
                         Test("ANNOT", _objects.Contains(annotation), "Link or widget has no structure OBJR association.", page.Value, "/Annots");
             }
+            Finished("CONTENT", "FONT", "TABS", "ANNOT");
             InspectParentTree(root);
+            Finished("MCID");
             Record("REVIEW", PdfAccessibilityCheckStatus.NeedsReview, _checks["REVIEW"].Guidance);
-            Record("READ", ReaderProblem ? PdfAccessibilityCheckStatus.NotChecked : PdfAccessibilityCheckStatus.Passed, "The PDF reader reported a recovery; results require independent validation.");
+            Record("READ", RepairedByReader ? PdfAccessibilityCheckStatus.NotChecked : PdfAccessibilityCheckStatus.Passed,
+                "The PDF reader repaired damaged cross-reference data or stream lengths. Results describe the repaired file; validate the original independently.");
+            Finished("REVIEW", "READ");
         }
 
         byte[] Decode(PdfDictionary d)

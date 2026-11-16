@@ -24,11 +24,24 @@ static class AccessibilityFixtures
         }
         var original = buffer.ToArray();
         WriteNew("valid.pdf", original);
-        foreach (var mutation in new[] { "missing-alt", "missing-language", "untagged" })
+        foreach (var mutation in new[] { "missing-alt", "missing-language", "untagged", "incomplete-missing-language" })
         {
             using var pdf = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
             if (mutation == "missing-language") pdf.Catalog.Elements.Remove("/Lang");
             else if (mutation == "untagged") pdf.Catalog.Elements.Remove("/StructTreeRoot");
+            else if (mutation == "incomplete-missing-language")
+            {
+                // A confirmed failure plus content outside the preflight's coverage (a Form XObject).
+                pdf.Catalog.Elements.Remove("/Lang");
+                var form = new PdfDictionary(pdf);
+                form.Elements.SetName("/Type", "/XObject"); form.Elements.SetName("/Subtype", "/Form");
+                form.Elements.SetRectangle("/BBox", new PdfRectangle(new XPoint(0, 0), new XPoint(10, 10)));
+                form.CreateStream(System.Text.Encoding.ASCII.GetBytes("0 0 10 10 re f"));
+                pdf.Internals.AddObject(form);
+                var xobjects = new PdfDictionary(pdf); xobjects.Elements["/Form0"] = form.Reference!;
+                pdf.Pages[0].Elements.GetDictionary("/Resources")!.Elements["/XObject"] = xobjects;
+                pdf.Pages[0].Contents.AppendContent().CreateStream(System.Text.Encoding.ASCII.GetBytes("/Artifact BMC /Form0 Do EMC"));
+            }
             else
             {
                 static PdfDictionary Child(PdfDictionary d) => d.Elements.GetDictionary("/K") ?? d.Elements.GetArray("/K")!.Elements.GetDictionary(0)!;

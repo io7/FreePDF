@@ -32,8 +32,8 @@ Output files must not already exist. Use `--password-env NAME` to supply a passw
 through an environment variable. Reports can contain text from the input PDF.
 
 Exit codes: `0` explicit automated policy satisfied (review still required), `1`
-failed checks, `2` human review required, `3` incomplete scan, `64` usage or I/O
-error. The default policy returns `2` even when all implemented checks pass.
+failed checks (also in an incomplete scan), `2` human review required, `3`
+incomplete scan without detected failures, `64` usage or I/O error. The default policy returns `2` even when all implemented checks pass.
 That means a person still needs to check the document; it is not a tool crash.
 
 See [the full scanner guide](https://github.com/io7/FreePDF/blob/main/docs/accessibility-preflight.md)

@@ -2,6 +2,7 @@
 from collections import Counter
 from html.parser import HTMLParser
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from manifest import AXES, scenario, write_manifest
-from run import ROOT, GENERATOR, assert_semantics, check_one
+from run import ROOT, GENERATOR, assert_semantics, check_one, rendered
 
 CLI = ROOT / "src/tools/FreePDF.Accessibility/bin/Release/net10.0/FreePDF.Accessibility.dll"
 
@@ -36,6 +37,24 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(28000, len({c["id"] for c in gathered}))
             for c in gathered:
                 self.assertEqual(scenario(c["index"]), c)
+
+    def test_render_samples_cover_every_page_geometry_and_axis_value(self):
+        # Tiers from .github/workflows/accessibility-corpus.yml: (scenario count, render every Nth).
+        for tier, count, every in (("nightly", 600, 10), ("full", 28000, 100)):
+            with self.subTest(tier=tier):
+                sample = [c for c in (scenario(i) for i in range(count)) if rendered(c, every)]
+                self.assertGreater(len(sample), count // every // 2)
+                self.assertLess(len(sample), count // every * 2)
+                geometries = {(tuple(c["paper"]), c["landscape"]) for c in sample}
+                self.assertEqual(len(AXES["paper"]) * len(AXES["landscape"]), len(geometries))
+                for axis, values in AXES.items():
+                    self.assertEqual({json.dumps(v) for v in values}, {json.dumps(c[axis]) for c in sample}, axis)
+                if tier == "full":
+                    for a, b in itertools.combinations(AXES, 2):
+                        pairs = {(json.dumps(c[a]), json.dumps(c[b])) for c in sample}
+                        self.assertEqual(len(AXES[a]) * len(AXES[b]), len(pairs), f"{a} x {b}")
+        smoke = [scenario(i) for i in range(60)]
+        self.assertTrue(all(rendered(c, 1) for c in smoke))
 
     def test_seed_changes_parameters_and_does_not_depend_on_producer(self):
         self.assertNotEqual(scenario(0, 1), scenario(0, 2))
@@ -96,6 +115,20 @@ class CliTests(unittest.TestCase):
                 result = self.scan(name + ".pdf", "--policy", "automated", "--format", "json")
                 self.assertEqual(1, result.returncode, result.stderr)
                 self.assertIn("FPDF-A11Y-" + rule, {f["ruleId"] for f in json.loads(result.stdout)["findings"]})
+
+    def test_detected_failures_win_over_an_incomplete_scan(self):
+        result = self.scan("incomplete-missing-language.pdf", "--policy", "automated", "--format", "json")
+        self.assertEqual(1, result.returncode, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual("Incomplete", report["status"])
+        self.assertTrue(report["hasFailures"])
+        self.assertIn("FPDF-A11Y-LANG", {f["ruleId"] for f in report["findings"] if f["status"] == "Failed"})
+        text = self.scan("incomplete-missing-language.pdf")
+        self.assertEqual(1, text.returncode)
+        self.assertIn("Problems found", text.stdout)
+        self.assertIn("could not be checked", text.stdout)
+        sarif = json.loads(self.scan("incomplete-missing-language.pdf", "--format", "sarif").stdout)
+        self.assertTrue(sarif["runs"][0]["properties"]["hasFailures"])
 
     def test_unreadable_files_are_incomplete_and_cannot_satisfy_automated_policy(self):
         (self.root / "malformed.pdf").write_bytes(b"not a PDF")
