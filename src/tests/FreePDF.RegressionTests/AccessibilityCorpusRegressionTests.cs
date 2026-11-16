@@ -40,7 +40,7 @@ public class AccessibilityCorpusRegressionTests
             pdf.Catalog.Elements["/SyntheticProbe"] = probe;
             pdf.Save(bytes);
         }
-        var text = System.Text.Encoding.Latin1.GetString(bytes.ToArray());
+        var text = TestPdf.Latin1.GetString(bytes.ToArray());
         string Literal(string key) => System.Text.RegularExpressions.Regex.Match(text, key + @"\s*([^/>\s]+)").Groups[1].Value;
         Assert.Equal("594.95996", Literal("/Precise"));
         // ISO 32000-1 Annex C: readers may hold reals in single precision (about ±3.403e38).

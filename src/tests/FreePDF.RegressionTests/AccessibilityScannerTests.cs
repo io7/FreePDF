@@ -325,7 +325,7 @@ public class AccessibilityScannerTests
     public void A_missing_cross_reference_table_and_trailer_are_a_repair_not_a_completed_scan()
     {
         var bytes = Fixture();
-        int table = Encoding.Latin1.GetString(bytes).LastIndexOf("\nxref", StringComparison.Ordinal);
+        int table = TestPdf.Latin1.GetString(bytes).LastIndexOf("\nxref", StringComparison.Ordinal);
         Assert.True(table > 0, "Fixture must end with a classic cross-reference table.");
         RepairedByReader(bytes.Take(table + 1).ToArray());
     }
@@ -339,7 +339,7 @@ public class AccessibilityScannerTests
             d.Options.CompressContentStreams = false;
             d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(marker + "\n/Artifact BMC 0 0 10 10 re f EMC"));
         });
-        var text = Encoding.Latin1.GetString(bytes);
+        var text = TestPdf.Latin1.GetString(bytes);
         int digits = text.LastIndexOf("/Length ", text.IndexOf(marker, StringComparison.Ordinal), StringComparison.Ordinal) + "/Length ".Length;
         int count = 0;
         while (Char.IsDigit(text[digits + count])) count++;
