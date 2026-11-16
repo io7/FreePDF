@@ -120,12 +120,16 @@ check failed, and `scanCompleted` says whether every check finished. SARIF carri
 both values in the run properties. `--policy automated` never turns an incomplete
 scan into success.
 
-The CLI is configured as a packable .NET tool (`io7.FreePDF.Accessibility.Tool`, command
-`freepdf-a11y`). Adding it here does not publish it to NuGet; publication remains a
-separate release step. The scanner itself ships in the existing library assemblies,
-including the Core, GDI and WPF variants.
+The CLI is published on NuGet.org as the .NET tool `io7.FreePDF.Accessibility.Tool`
+(command `freepdf-a11y`) since 7.11.0. The scanner itself ships in the existing
+library assemblies, including the Core, GDI and WPF variants.
 
-To use the shorter command without publishing, pack and install it into a new
+```sh
+dotnet tool install --global io7.FreePDF.Accessibility.Tool
+freepdf-a11y document.pdf --format html --output audit.html
+```
+
+To use a build from a source checkout instead, pack and install it into a new
 local directory (run from the repository root):
 
 ```sh

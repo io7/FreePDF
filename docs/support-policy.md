@@ -297,7 +297,7 @@ evidence that those features are complete.
 
 ## Accessibility checking
 
-The 7.11.0 candidate adds an offline accessibility preflight in the Core, GDI and
+7.11.0 adds an offline accessibility preflight in the Core, GDI and
 WPF library assemblies. The separate `io7.FreePDF.Accessibility.Tool` requires
 .NET 10. Candidate-package CI installs and runs the Linux-built tool package that
 publication promotes on Linux, and a package built from the same revision on
