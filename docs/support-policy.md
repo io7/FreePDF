@@ -295,6 +295,20 @@ documents encrypted with a public-key or other non-standard security handler, PD
 layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.10. Placeholder inherited types are not
 evidence that those features are complete.
 
+## Accessibility checking
+
+The 7.11.0 candidate adds an offline accessibility preflight in the Core, GDI and
+WPF library assemblies. The separate `io7.FreePDF.Accessibility.Tool` requires
+.NET 10. Candidate-package CI installs and runs the Linux-built tool package that
+publication promotes on Linux, and a package built from the same revision on
+Windows. The tool has not been tested on macOS or with .NET 11 roll-forward.
+
+Scanner coverage is partial PDF/UA-1. A completed scan means its implemented
+checks finished; it does not establish ADA, WCAG or full PDF/UA compliance.
+Human review and independent validation remain required. Unsupported content
+and inspection limits produce an incomplete result. See `accessibility-preflight.md`
+for the exact check list and limits, and `accessibility-roadmap.md` for next work.
+
 ## Maintenance and security
 
 io7 maintains FreePDF independently. Updates need not match PDFsharp's cadence.
@@ -315,13 +329,13 @@ and Append mode refuses it.
 ## Promotion to stable
 
 Every candidate requires green regression, API, package-install, advisory,
-independent-validator and comparison-lab checks. The exact candidate packages,
+accessibility-corpus, independent-validator and comparison-lab checks. The exact candidate packages,
 source revision, tool versions, baseline hashes and evidence must be retained.
 Known visual changes need an explanation and regression coverage; a green pixel
 match alone is insufficient. Review the migration guide and third-party audit.
 
-The plain `7.0.0` package rehearsal installs from an isolated local source and
-verifies versions in all eleven assemblies. Rehearsal artifacts are unpublished
+The plain stable package rehearsal installs from an isolated local source and
+verifies library assembly versions and the accessibility tool's behavior. Rehearsal artifacts are unpublished
 and must not be mistaken for a released package. A maintainer reviews the final
 candidate and explicitly authorizes public publication; the checks contain no
 NuGet publishing step. The separate manual `Publish verified packages` workflow

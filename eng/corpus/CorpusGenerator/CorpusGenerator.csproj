@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
+    <EmbeddedResource Include="../../../lab/Assets/DejaVuSans.ttf" LogicalName="CorpusFont.ttf" />
+    <EmbeddedResource Include="../../../lab/Assets/colors.png" LogicalName="CorpusImage.png" />
+  </ItemGroup>
+</Project>

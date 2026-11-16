@@ -550,6 +550,7 @@ namespace PdfSharp.Pdf.IO
             // The dictionary obviously has not even the required /Length entry 🤯.
             PdfSharpLogHost.Logger.LogError("Object '{Object}' has no valid /Length entry. Try to determine stream length by looking for 'endstream'.",
                 dict.ObjectID.ToString());
+            _document.RepairedWhileReading = true;
 #if TEST_CODE_
             TestStreamWithoutLengthEntry:
 #endif
@@ -630,6 +631,7 @@ namespace PdfSharp.Pdf.IO
 
             // Give stream the correct Length entry based on position of 'endstream'.
             dict.Elements["/Length"] = new PdfInteger(streamLength);
+            _document.RepairedWhileReading = true;
             return false;
         }
 

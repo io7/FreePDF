@@ -213,6 +213,12 @@ namespace PdfSharp.Pdf
         internal PdfIncrementalUpdate? IncrementalUpdate { get; set; }
 
         /// <summary>
+        /// Gets whether the reader repaired the file while opening it: it rebuilt or corrected the cross-reference
+        /// information, or determined a stream's length from 'endstream' because /Length was missing or wrong.
+        /// </summary>
+        internal bool RepairedWhileReading { get; set; }
+
+        /// <summary>
         /// Gets or sets a value indicating whether to save a document even if it is imported.
         /// For development and unit testing only.
         /// </summary>

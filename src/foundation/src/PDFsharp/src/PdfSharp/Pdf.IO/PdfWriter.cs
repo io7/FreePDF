@@ -128,11 +128,17 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         public void Write(double value)
         {
-            // See unit test Test_Single_Write_and_Read to understand why double values now
-            // are written as singles values.
-            float f = (float)value;
+            // Preserve imported coordinates. Narrowing to float and formatting it can
+            // turn Chromium's 594.95996 page height into 594.96 while its unchanged
+            // content matrix still uses the original value, moving rasterized lines.
+            // Readers may hold reals in single precision (ISO 32000-1 Annex C, about ±3.403e38).
+            // A double's 15 formatted digits round float.MaxValue up past that range, and an
+            // infinity would be written as a word, so values from 1e38 on are clamped and
+            // formatted as a float, as before 7.11.0.
             WriteSeparator(CharCat.Character);
-            WriteRaw(f.ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture));
+            WriteRaw(Math.Abs(value) < 1e38
+                ? value.ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture)
+                : ((float)Math.Max(Single.MinValue, Math.Min(Single.MaxValue, value))).ToString(Config.SignificantDecimalPlaces7, CultureInfo.InvariantCulture));
         }
 
         /// <summary>
@@ -236,7 +242,10 @@ namespace PdfSharp.Pdf.IO
         /// </summary>
         public void Write(PdfRectangle rect)
         {
-            const string format = Config.SignificantDecimalPlaces3;
+            // Imported Chromium page boxes commonly contain five decimal places.
+            // Rounding to three moves the page origin relative to its unchanged content
+            // matrix and can change rasterized thin lines. Match scalar real precision.
+            const string format = Config.SignificantDecimalPlaces7;
             WriteSeparator(CharCat.Delimiter);
             WriteRaw(PdfEncoders.Format("[{0:" + format + "} {1:" + format + "} {2:" + format + "} {3:" + format + "}]", rect.X1, rect.Y1, rect.X2, rect.Y2));
         }

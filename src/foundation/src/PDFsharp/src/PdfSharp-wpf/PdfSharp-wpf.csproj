@@ -476,6 +476,9 @@
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfRendererExtensions.cs" Link="UniversalAccessibility\PdfRendererExtensions.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\StructureBuilder.cs" Link="UniversalAccessibility\StructureBuilder.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\StructureElementStack.cs" Link="UniversalAccessibility\StructureElementStack.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityReport.cs" Link="UniversalAccessibility\PdfAccessibilityReport.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityScanner.cs" Link="UniversalAccessibility\PdfAccessibilityScanner.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityContent.cs" Link="UniversalAccessibility\PdfAccessibilityContent.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\UAManager.cs" Link="UniversalAccessibility\UAManager.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\RenderMode.cs" Link="Windows\enums\RenderMode.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\Zoom.cs" Link="Windows\enums\Zoom.cs" />

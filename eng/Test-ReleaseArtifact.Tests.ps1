@@ -40,6 +40,41 @@ try {
         ($receipt.consumers | Where-Object { $_.framework -eq $RequiredFrameworks[0] -and !"$($_.variant)" }).status = 'failed'
         $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
     } 'Missing successful consumer:'
+    ExpectRejected 'failed-accessibility-tool' {
+        param($directory)
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        $receipt.accessibilityTool.status = 'failed'
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Missing successful accessibility tool installation.'
+    ExpectRejected 'missing-accessibility-tool' {
+        param($directory)
+        Remove-Item -LiteralPath "$directory/io7.FreePDF.Accessibility.Tool.$Version.nupkg"
+    } 'Unexpected release package files.'
+    ExpectRejected 'wrong-tool-command-with-valid-hash' {
+        param($directory)
+        $path = Join-Path $directory "io7.FreePDF.Accessibility.Tool.$Version.nupkg"
+        $archive = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Update)
+        try {
+            $entry = $archive.GetEntry('tools/net10.0/any/DotnetToolSettings.xml')
+            $reader = [IO.StreamReader]::new($entry.Open())
+            try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $entry.Delete()
+            $writer = [IO.StreamWriter]::new($archive.CreateEntry('tools/net10.0/any/DotnetToolSettings.xml').Open())
+            try { $writer.Write($text.Replace('freepdf-a11y', 'wrong-command')) } finally { $writer.Dispose() }
+        } finally { $archive.Dispose() }
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Accessibility.Tool.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Invalid accessibility tool command.'
+    ExpectRejected 'missing-tool-notice-with-valid-hash' {
+        param($directory)
+        $path = Join-Path $directory "io7.FreePDF.Accessibility.Tool.$Version.nupkg"
+        $archive = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Update)
+        try { $archive.GetEntry('THIRD-PARTY/DotNet-MIT-LICENSE.txt').Delete() } finally { $archive.Dispose() }
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Accessibility.Tool.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Missing tool notice:'
     ExpectRejected 'upstream-package' {
         param($directory)
         Copy-Item "$directory/io7.FreePDF.$Version.nupkg" "$directory/PDFsharp.$Version.nupkg"

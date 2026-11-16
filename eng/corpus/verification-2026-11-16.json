@@ -1,0 +1,116 @@
+{
+  "date": "2026-11-16",
+  "implementationCommit": "a9a5a6fe7b3f43781e59b815749eecf19dbb70f1",
+  "finalHardeningCommit": "3aadc28b4d4c9142b465b2e5c5cde406615d899d",
+  "scope": "Partial PDF/UA-1 preflight and synthetic producer regression corpus; no ADA or complete PDF/UA certification.",
+  "fullCorpus": {
+    "status": "passed",
+    "scenarioCount": 14000,
+    "expectedPdfs": 42000,
+    "checkedPdfs": 42000,
+    "passedPdfs": 42000,
+    "failedPdfs": 0,
+    "renderedPdfs": 420,
+    "renderedPages": 852,
+    "seed": 20261116,
+    "shard": 0,
+    "shards": 1,
+    "renderEvery": 100,
+    "manifestSha256": "6e58d911a63388dfe661e804e8881992c933c6772d0c8d301cdf87beb2b0c02a",
+    "producerCounts": {
+      "chromium": 14000,
+      "freepdf": 14000,
+      "reportlab": 14000
+    },
+    "uniqueInputSha256Count": 42000,
+    "maximumFractionOfPixelsExceeding16GrayLevels": 0,
+    "localEvidenceDirectory": "artifacts/corpus-full-02",
+    "reportSha256": {
+      "manifest.jsonl": "6e58d911a63388dfe661e804e8881992c933c6772d0c8d301cdf87beb2b0c02a",
+      "results.jsonl": "d2fe5d1b3d2df927093e35bdc9a6b013ca422d68d448d7128fa60b20cf8392c3",
+      "tools.json": "4dc935105b46a1b478a13a45172602af446a6d4c4011c413a6620f34327d097a",
+      "summary.json": "5f8ce04dfa7b3e5383b568d9ffda153f9852337f07496aa2053824e375cb24bf"
+    },
+    "buildNote": "Run used the recorded pre-commit implementation binaries corresponding to a9a5a6f. The subsequent two malformed-tag guards were verified by the final focused tests and 180-PDF recheck."
+  },
+  "finalCorpusRecheck": {
+    "status": "passed",
+    "scenarioCount": 60,
+    "expectedPdfs": 180,
+    "checkedPdfs": 180,
+    "passedPdfs": 180,
+    "failedPdfs": 0,
+    "renderedPdfs": 180,
+    "renderedPages": 357,
+    "seed": 20261116,
+    "shard": 0,
+    "shards": 1,
+    "renderEvery": 1,
+    "manifestSha256": "e0d2032549c4e6de2304bf64417b7798aeb68e66940d52ea509e2d525e06f5c2",
+    "localEvidenceDirectory": "artifacts/corpus-final-smoke"
+  },
+  "tests": {
+    "fullRegressionSuite": {
+      "passed": 1267,
+      "failed": 0,
+      "note": "Full run after the coordinate precision fix; later scanner changes covered by the final focused suite."
+    },
+    "finalAccessibilityRegressionSuite": {
+      "passed": 30,
+      "failed": 0
+    },
+    "finalCliAndCorpusContracts": {
+      "passed": 11,
+      "failed": 0
+    },
+    "independentUa1Controls": {
+      "validator": "veraPDF 1.30.3",
+      "matchedExpectations": 4,
+      "fixtures": [
+        "valid",
+        "missing-alt",
+        "missing-language",
+        "untagged"
+      ]
+    },
+    "sarifSchema": {
+      "format": "2.1.0",
+      "validReports": 4,
+      "schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json"
+    },
+    "comparisonLab": {
+      "matches": 9,
+      "knownReviewCases": 14,
+      "unexpectedFailures": 0,
+      "note": "Existing approved-reference differences remain review cases."
+    },
+    "workflowLint": {
+      "tool": "actionlint 1.7.7",
+      "passed": true
+    },
+    "localToolPackage": {
+      "id": "FreePDF.Accessibility.Tool",
+      "built": true,
+      "installedAndExecuted": true,
+      "published": false
+    }
+  },
+  "builds": {
+    "final": [
+      "Core net10.0",
+      "Core netstandard2.0",
+      "GDI net462",
+      "WPF net8.0-windows"
+    ],
+    "beforeFinalScannerGuards": [
+      "Core net8.0"
+    ],
+    "windowsRuntimeExercised": false
+  },
+  "verificationLimits": [
+    "Hosted GitHub Actions has not run for this branch; the workflow is committed locally.",
+    "The optional inherited PdfSharp.Tests RealNumberTests project could not build because its SegoeWP font assets are absent. The original coordinate regression and the maintained FreePDF regression suite passed.",
+    "Rendering was sampled for the full corpus; every page was rendered in the final 180-PDF suite.",
+    "Tool versions, dependency assembly hashes and scenario hashes are recorded in tools.json and the per-file logs. Generated PDF timestamps and IDs need not be byte-reproducible."
+  ]
+}

@@ -12,10 +12,12 @@ using System.Text;
 using System.Text.Json;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
+using PdfSharp.UniversalAccessibility;
 
 return args.FirstOrDefault() switch
 {
     "check" when args.Length == 3 => Child.Check(args[1], args[2]),
+    "check-a11y" when args.Length == 3 => Child.Check(args[1], args[2], audit: true),
     "run" when args.Length >= 3 => Parent.Run(args[1], args[2], args.Skip(3).ToArray()),
     "fuzz" when args.Length >= 3 => Fuzzer.Run(args[1], args[2], args.Skip(3).ToArray()),
     _ => Usage(),
@@ -41,7 +43,7 @@ static class Outcome
 
 static class Child
 {
-    public static int Check(string path, string resaved)
+    public static int Check(string path, string resaved, bool audit = false)
     {
         int pages;
         try
@@ -67,6 +69,18 @@ static class Child
         }
         catch (Exception ex) { return Report(Outcome.CrashReopen, ex); }
 
+        if (audit)
+        {
+            var before = PdfAccessibilityScanner.Scan(path);
+            var after = PdfAccessibilityScanner.Scan(resaved);
+            static Dictionary<string, int> Failures(PdfAccessibilityReport report) => report.Findings
+                .Where(f => f.Status == PdfAccessibilityCheckStatus.Failed).GroupBy(f => f.RuleId).ToDictionary(g => g.Key, g => g.Count());
+            var originalFailures = Failures(before);
+            var savedFailures = Failures(after);
+            bool regression = savedFailures.Any(x => x.Value > originalFailures.GetValueOrDefault(x.Key)) || (before.ScanCompleted && !after.ScanCompleted);
+            Console.WriteLine(JsonSerializer.Serialize(new { pages, before = before.Status.ToString(), after = after.Status.ToString(), originalFailures, savedFailures, regression }));
+            return regression ? 17 : Outcome.Ok;
+        }
         Console.WriteLine(JsonSerializer.Serialize(new { pages }));
         return Outcome.Ok;
     }

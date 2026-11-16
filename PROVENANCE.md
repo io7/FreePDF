@@ -400,3 +400,62 @@ existence; FreePDF does not implement its full process), RFC 5652, RFC 5035, RFC
 the documentation of .NET's System.Security.Cryptography.Pkcs, X509Certificates and System.Formats.Asn1 types. No
 source of iText, PDFBox, pyHanko, EU DSS or other signing or validation libraries was read; pyHanko 0.38.1 was used
 only as an external validator to compare verdicts, called through its documented API.
+
+## Accessibility preflight and producer corpus (2026-11-16)
+
+`PdfAccessibilityScanner.cs`, `PdfAccessibilityContent.cs`, their public result
+types, the accessibility CLI/report writers and their regression tests are original
+FreePDF code. Inputs were the public PDF structure concepts, the PDF Association's
+Matterhorn Protocol, W3C PDF accessibility techniques and the existing reviewed
+FreePDF reader and tagged-PDF writer. This is explicitly partial PDF/UA-1 preflight
+coverage; no implementation from another accessibility checker was imported.
+
+`eng/corpus` contains original deterministic scenario recipes and test contracts.
+ReportLab 4.4.3 and Playwright 1.58.0/Chromium are separate test-only producers, used
+through their public APIs. Their implementation source was not consulted or copied.
+The corpus uses the existing lab DejaVu font (with its existing separate license)
+and bitmap asset. It contains no customer documents or copied commercial corpus.
+qpdf, Poppler and SHA-256-pinned veraPDF 1.30.3 are external validation tools only.
+No later AGPL PDFsharp source was fetched or consulted.
+
+The PDF real/rectangle serialization precision fix was derived from an original
+Chromium-generated scenario. Independent qpdf inspection showed the page box was
+rounded while its content matrix remained unchanged; restoring the original page
+coordinates removed the Poppler rendering difference. The regression is expressed
+as a small original programmatic fixture, not an imported producer implementation.
+
+The follow-up expands the original recipe count to 28,000 scenarios / 84,000 PDFs
+without importing another corpus. Its plain-text CLI summary and terminal-text
+escaping are original code using the existing report model and .NET character
+categories. Local tool installation follows Microsoft's .NET tool documentation.
+The accessibility roadmap uses the public DOJ Title II fact sheet, W3C's guidance
+on evaluation-tool limits and veraPDF's documented validation scope. These sources
+inform requirements and scope; no validator implementation was copied.
+
+## Accessibility tool release packaging (7.11.0)
+
+The tool uses the existing `io7.FreePDF*` package identity and release workflow.
+The new package/install guards and tests are original code based on the existing
+FreePDF package checks and Microsoft's documented .NET tool commands.
+
+The tool bundles Microsoft's logging/DI abstractions 10.0.5 and PKCS 10.0.13.
+Their own `THIRD-PARTY-NOTICES.TXT` files are included from the resolved NuGet
+packages. `src/packages/DotNet-MIT-LICENSE.txt` preserves the .NET Foundation
+licence from `dotnet/runtime` tags `v10.0.5` and `v10.0.13`, whose `LICENSE.TXT`
+files share git blob `984713a49622a96da110443c15477613bc12656b`. The copied file
+has that same blob hash. Only these licence texts were read; no runtime source
+was used as implementation input. FreePDF's existing source and embedded-asset
+notices are also included in the tool package.
+
+### Release-review corrections (7.11.0)
+
+An independent review of the candidate found the defects corrected here. The fixes
+are original FreePDF code and tests, written from original synthetic reproducers:
+the reader's existing internal cross-reference repair flag now also marks recovered
+stream lengths and reaches the scanner (READ); font embedding is checked where text
+is shown, following the text rendering modes of ISO 32000-1 9.3.6 and the
+"fonts used for rendering" wording of PDF/UA-1 7.21.4.1; page content no longer
+counts against the structure-node limit; the writer keeps reals within the
+ISO 32000-1 Annex C range; the corpus render sample is chosen by scenario hash.
+Pinned veraPDF 1.30.3 and qpdf were run only as external tools to compare verdicts
+on those reproducers. No validator or later PDFsharp implementation was consulted.

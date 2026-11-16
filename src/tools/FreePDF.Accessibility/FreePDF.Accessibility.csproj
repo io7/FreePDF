@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>freepdf-a11y</ToolCommandName>
+    <PackageId>io7.FreePDF.Accessibility.Tool</PackageId>
+    <Authors>io7</Authors>
+    <Description>Offline PDF/UA-1 accessibility preflight with explicit partial coverage and human review tasks.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/io7/FreePDF</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/io7/FreePDF</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
+    <!-- Tools bundle these assemblies; retain their notices as well as the FreePDF notices. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" GeneratePathProperty="true" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" GeneratePathProperty="true" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../packages/icon.png" Pack="true" PackagePath="/" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../../PROVENANCE.md" Pack="true" PackagePath="/" />
+    <None Include="../../packages/ICC-sRGB2014.txt" Pack="true" PackagePath="THIRD-PARTY/" />
+    <None Include="../../packages/Adobe-Core14-AFM.txt" Pack="true" PackagePath="THIRD-PARTY/" />
+    <None Include="../../packages/DotNet-MIT-LICENSE.txt" Pack="true" PackagePath="THIRD-PARTY/" />
+    <None Include="../../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
+    <None Include="$(PkgMicrosoft_Extensions_DependencyInjection_Abstractions)/THIRD-PARTY-NOTICES.TXT" Pack="true" PackagePath="THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/" />
+    <None Include="$(PkgMicrosoft_Extensions_Logging_Abstractions)/THIRD-PARTY-NOTICES.TXT" Pack="true" PackagePath="THIRD-PARTY/Microsoft.Extensions.Logging.Abstractions/" />
+    <None Include="$(PkgSystem_Security_Cryptography_Pkcs)/THIRD-PARTY-NOTICES.TXT" Pack="true" PackagePath="THIRD-PARTY/System.Security.Cryptography.Pkcs/" />
+  </ItemGroup>
+</Project>
