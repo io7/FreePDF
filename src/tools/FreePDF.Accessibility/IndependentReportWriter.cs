@@ -15,7 +15,8 @@ internal static class IndependentReportWriter
         if (format == "json")
             return JsonSerializer.Serialize(new
             {
-                schemaVersion = "2.0", status, coverage = "Partial", native.DocumentSha256,
+                schemaVersion = "2.0", status, hasFailures = IndependentValidation.HasFailures(native, independent),
+                coverage = "Partial", native.DocumentSha256,
                 humanReviewRequired = true, native, independentValidation = independent,
                 requirementsInventory = RequirementInventory.Summary
             }, AccessibilityReportWriter.Json);
@@ -82,7 +83,8 @@ internal static class IndependentReportWriter
         document["runs"]!.AsArray().Add(JsonSerializer.SerializeToNode(run, AccessibilityReportWriter.Json));
         document["properties"] = JsonSerializer.SerializeToNode(new
         {
-            status = IndependentValidation.Combine(native, independent), humanReviewRequired = true, coverage = "Partial"
+            status = IndependentValidation.Combine(native, independent), hasFailures = IndependentValidation.HasFailures(native, independent),
+            humanReviewRequired = true, coverage = "Partial"
         }, AccessibilityReportWriter.Json);
         return document.ToJsonString(AccessibilityReportWriter.Json);
     }

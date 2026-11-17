@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 
-from run import GENERATOR, ROOT, command
+from run import GENERATOR, ROOT
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     cli = [str(args.tool)] if args.tool else ["dotnet", str(ROOT / "src/tools/FreePDF.Accessibility/bin/Release/net10.0/FreePDF.Accessibility.dll")]
-    command(["dotnet", GENERATOR, "--fixtures", args.output])
+    subprocess.run(["dotnet", str(GENERATOR), "--fixtures", str(args.output)], check=True, timeout=30)
     (args.output / "malformed.pdf").write_text("not a PDF")
     results = []
 
@@ -30,13 +30,21 @@ def main():
             raise RuntimeError("The original PDF changed")
         return run.stdout, before
 
-    for name, expected, verdict in (("valid", 2, "MachineChecksPassed"), ("missing-alt", 1, "Failed"),
-                                    ("missing-language", 1, "Failed"), ("untagged", 1, "Failed"), ("malformed", 3, "Incomplete")):
+    for name, expected, status, verdict in (
+        ("valid", 2, "NeedsReview", "MachineChecksPassed"),
+        ("missing-alt", 1, "Failed", "Failed"),
+        ("missing-language", 1, "Failed", "Failed"),
+        ("untagged", 1, "Failed", "Failed"),
+        ("incomplete-missing-language", 1, "Incomplete", "Failed"),
+        ("malformed", 3, "Incomplete", "Incomplete"),
+    ):
         text, sha = scan(name, expected, "--format", "json")
         report = json.loads(text)
         independent = report["independentValidation"]
         if report["schemaVersion"] != "2.0" or independent["status"] != verdict or independent["validatorVersion"] != "1.30.3":
             raise RuntimeError(f"Incorrect independent verdict or validator version for {name}")
+        if report["status"] != status or report["hasFailures"] != (expected == 1):
+            raise RuntimeError(f"Incorrect combined status or failure flag for {name}")
         if {report["documentSha256"], report["native"]["documentSha256"], independent["documentSha256"]} != {sha}:
             raise RuntimeError("Native and independent results are not bound to the same bytes")
         if not report["humanReviewRequired"] or len(report["requirementsInventory"]["humanRequirementIds"]) != 48:
@@ -48,6 +56,10 @@ def main():
     text, _ = scan("valid", 3, "--format", "json", validator=args.output / "missing-validator")
     if json.loads(text)["independentValidation"]["status"] != "Incomplete":
         raise RuntimeError("Missing validator was accepted")
+    text, _ = scan("missing-language", 1, "--policy", "automated", "--format", "json", validator=args.output / "missing-validator")
+    report = json.loads(text)
+    if report["status"] != "Incomplete" or not report["hasFailures"] or report["independentValidation"]["status"] != "Incomplete":
+        raise RuntimeError("An unavailable validator hid a detected native failure")
     text, _ = scan("valid", 3, "--verapdf-profile", "ua2", "--format", "json")
     if json.loads(text)["independentValidation"]["status"] != "Incomplete":
         raise RuntimeError("Unsupported profile was accepted")
@@ -62,10 +74,11 @@ def main():
     if len(json.loads(inventory.stdout)["requirements"]) != 137:
         raise RuntimeError("Installed requirements inventory is incomplete")
     summary = {"status": "passed", "validator": "veraPDF 1.30.3", "fixtures": results,
-               "additionalControls": ["explicit automated policy", "missing validator", "unsupported profile", "text", "html", "sarif", "inventory"],
+               "additionalControls": ["explicit automated policy", "missing validator", "native failure with missing validator",
+                                      "unsupported profile", "text", "html", "sarif", "inventory"],
                "scope": "Original controls only; not complete conformance coverage"}
     (args.output / "adapter-summary.json").write_text(json.dumps(summary, indent=2))
-    print("PASS: optional adapter, five fixture outcomes, seven additional controls, original-byte preservation and separate reports.")
+    print(f"PASS: optional adapter, {len(results)} fixture outcomes, {len(summary['additionalControls'])} additional controls, original-byte preservation and separate reports.")
 
 
 if __name__ == "__main__":

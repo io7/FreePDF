@@ -26,5 +26,6 @@ $target = [Security.SecurityElement]::Escape((Join-Path $output 'cli'))
 "@ | Set-Content (Join-Path $output 'install.xml') -Encoding utf8
 & java -jar (Join-Path $output 'installer/verapdf-greenfield-1.30.3/verapdf-izpack-installer-1.30.3.jar') (Join-Path $output 'install.xml')
 if ($LASTEXITCODE -ne 0) { throw 'veraPDF installation failed.' }
-& (Join-Path $output 'cli/verapdf') --version
+$launcher = if ($IsWindows) { 'cli/verapdf.bat' } else { 'cli/verapdf' }
+& (Join-Path $output $launcher) --version
 if ($LASTEXITCODE -ne 0) { throw 'veraPDF executable failed.' }

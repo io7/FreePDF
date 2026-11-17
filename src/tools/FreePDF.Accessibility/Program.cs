@@ -15,7 +15,7 @@ internal static class Program
             Console.WriteLine("For a full report you can open in a browser: freepdf-a11y INPUT.pdf --format html --output report.html");
             Console.WriteLine("Optional independent validation: --verapdf PATH [--verapdf-profile ua1] [--verapdf-timeout SECONDS]");
             Console.WriteLine("List all Matterhorn requirements without scanning: freepdf-a11y --requirements [--format text|json] [--output PATH]");
-            Console.WriteLine("Exit codes: 0 automated policy satisfied (review still required); 1 detected failures; 2 review required; 3 incomplete scan; 64 usage/I/O error.");
+            Console.WriteLine("Exit codes: 0 automated policy satisfied (review still required); 1 detected failures, also in an incomplete scan; 2 review required; 3 incomplete scan without detected failures; 64 usage/I/O error.");
             Console.WriteLine("Partial PDF/UA-1 preflight. Does not certify ADA, WCAG or PDF/UA compliance. Reports may contain document text.");
             return args.Length == 0 ? 64 : 0;
         }
@@ -78,12 +78,10 @@ internal static class Program
             var text = independent == null ? AccessibilityReportWriter.Write(report, Path.GetFileName(input!), format)
                 : IndependentReportWriter.Write(report, independent, Path.GetFileName(input!), format);
             WriteOutput(text, output);
-            return IndependentValidation.Combine(report, independent) switch
-            {
-                PdfAccessibilityScanStatus.Incomplete => 3,
-                PdfAccessibilityScanStatus.Failed => 1,
-                _ => policy == "automated" ? 0 : 2
-            };
+            // A detected failure is definite even when other content could not be checked.
+            if (IndependentValidation.HasFailures(report, independent)) return 1;
+            if (IndependentValidation.Combine(report, independent) == PdfAccessibilityScanStatus.Incomplete) return 3;
+            return policy == "automated" ? 0 : 2;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {

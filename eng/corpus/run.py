@@ -41,6 +41,15 @@ def command(args, timeout=30):
     return stdout.decode("utf-8", "replace")
 
 
+def rendered(case, every):
+    """Render about one scenario in `every`, chosen by scenario hash.
+
+    Every Nth index would pin the low digits of manifest.py's permutation and
+    never render some page geometries (for example A4 landscape in the full tier).
+    """
+    return int(case["scenarioSha256"][:16], 16) % every == 0
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -111,7 +120,7 @@ def check_one(case, producer, output, timeout, render_every, keep_pdfs):
         if normalized(original_text) != normalized(saved_text):
             raise ValueError("Extracted text changed on round trip")
         result["semanticSha256"] = hashlib.sha256(json.dumps(case["lines"], ensure_ascii=False).encode()).hexdigest()
-        if case["index"] % render_every == 0:
+        if rendered(case, render_every):
             result["maxPixelDifference"] = render_diff(source, saved, work, case["pages"], timeout)
             result["renderedPages"] = case["pages"]
         result["outcome"] = "ok"
@@ -143,7 +152,7 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--generation-workers", type=int, default=1, choices=range(1, 5), help="independent Chromium processes; useful for an unsharded full run")
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--render-every", type=int, default=1, help="render all pages of every Nth scenario, across all producers")
+    parser.add_argument("--render-every", type=int, default=1, help="render all pages of about one scenario in N (chosen by scenario hash), across all producers")
     parser.add_argument("--keep-pdfs", action="store_true")
     args = parser.parse_args()
     if min(args.workers, args.timeout, args.render_every) < 1:

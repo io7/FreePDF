@@ -447,6 +447,19 @@ has that same blob hash. Only these licence texts were read; no runtime source
 was used as implementation input. FreePDF's existing source and embedded-asset
 notices are also included in the tool package.
 
+### Release-review corrections (7.11.0)
+
+An independent review of the candidate found the defects corrected here. The fixes
+are original FreePDF code and tests, written from original synthetic reproducers:
+the reader's existing internal cross-reference repair flag now also marks recovered
+stream lengths and reaches the scanner (READ); font embedding is checked where text
+is shown, following the text rendering modes of ISO 32000-1 9.3.6 and the
+"fonts used for rendering" wording of PDF/UA-1 7.21.4.1; page content no longer
+counts against the structure-node limit; the writer keeps reals within the
+ISO 32000-1 Annex C range; the corpus render sample is chosen by scenario hash.
+Pinned veraPDF 1.30.3 and qpdf were run only as external tools to compare verdicts
+on those reproducers. No validator or later PDFsharp implementation was consulted.
+
 ## Requirements inventory and optional validator adapter (7.12.0)
 
 The adapter, bounded subprocess runner, snapshot handling, report composition,

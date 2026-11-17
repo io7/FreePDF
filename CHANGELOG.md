@@ -8,7 +8,8 @@
 - `--verapdf PATH` adds optional independent PDF/UA-1 machine validation. Reports
   keep native findings and veraPDF results separate and retain human review.
   Missing tools, timeouts, unsupported profiles and inconsistent reports produce
-  an incomplete outcome. Both validators inspect the same private snapshot.
+  an incomplete outcome. A detected failure from either validator gives exit code
+  1 even when the report is incomplete. Both validators inspect the same private snapshot.
 - Native-only JSON retains its existing shape. Opting into independent validation
   produces a version 2.0 JSON envelope with both reports and a combined status.
   SARIF uses separate runs. The optional validator is not bundled or downloaded.
@@ -19,17 +20,22 @@
   It reports detected failures, unsupported content and required human review.
   Reports include rule IDs, page/path locations, guidance and the document hash.
   Coverage is partial PDF/UA-1. It does not certify ADA, WCAG or complete PDF/UA
-  compliance.
+  compliance. A file the reader had to repair gives an incomplete scan, and
+  `HasFailures` reports failures found in an incomplete scan.
 - `io7.FreePDF.Accessibility.Tool` adds the `freepdf-a11y` command for .NET 10.
   It prints a text summary and exports JSON, SARIF and offline HTML reports.
-  CI installs the package on Linux and Windows and checks its outcomes against
-  positive, negative and malformed synthetic PDFs.
+  Detected failures exit with 1, also when the scan is incomplete. CI runs the
+  Linux-built package that publication promotes on Linux, and a package built from
+  the same revision on Windows, against positive, negative, incomplete and
+  malformed synthetic PDFs.
 - PDF numbers and page rectangles retain more coordinate precision when saved.
-  This fixes a rendering shift found when saving a Chromium-generated PDF.
+  This fixes a rendering shift found when saving a Chromium-generated PDF. Values
+  from ±1e38 on stay within the single-precision range readers support.
 - The producer corpus defines 84,000 synthetic PDFs: 28,000 parameter sets from
   FreePDF, ReportLab and Chromium. Pull requests check 180 PDFs, nightly runs
   check 1,800, and weekly/manual full runs check 84,000 across 24 shards.
-  Selected files also receive rendering comparisons for every page.
+  Files selected by scenario hash also receive rendering comparisons for every
+  page, covering every page geometry.
 - Release checks now include the accessibility workflow and the exact installed
   CLI package, including its executable command, notices and package hash.
 

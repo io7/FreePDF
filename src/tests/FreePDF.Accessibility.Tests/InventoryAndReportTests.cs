@@ -69,9 +69,25 @@ public sealed class InventoryAndReportTests
         var independent = new IndependentValidation { IncompleteReason = "missing executable" };
         using var json = JsonDocument.Parse(IndependentReportWriter.Write(native, independent, "test.pdf", "json"));
         Assert.Equal("Incomplete", json.RootElement.GetProperty("status").GetString());
+        Assert.True(json.RootElement.GetProperty("hasFailures").GetBoolean());
         Assert.Equal("Failed", json.RootElement.GetProperty("native").GetProperty("status").GetString());
         Assert.True(json.RootElement.GetProperty("humanReviewRequired").GetBoolean());
         Assert.Equal(48, json.RootElement.GetProperty("requirementsInventory").GetProperty("humanRequirementIds").GetArrayLength());
+    }
+
+    [Fact]
+    public void AnIndependentFailureIsReportedEvenWhenTheNativeScanCannotComplete()
+    {
+        using var input = new MemoryStream("not a PDF"u8.ToArray());
+        var native = PdfAccessibilityScanner.Scan(input);
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, native.Status);
+        Assert.False(native.HasFailures);
+
+        var independent = new IndependentValidation { Status = IndependentValidationStatus.Failed };
+        using var sarif = JsonDocument.Parse(IndependentReportWriter.Write(native, independent, "test.pdf", "sarif"));
+        var combined = sarif.RootElement.GetProperty("properties");
+        Assert.Equal("Incomplete", combined.GetProperty("status").GetString());
+        Assert.True(combined.GetProperty("hasFailures").GetBoolean());
     }
 
     [Fact]

@@ -28,11 +28,13 @@ All IDs have the prefix `FPDF-A11Y-`. An individual `Passed` means only that the
 named check passed for its inspected occurrences. `NotApplicable` means no
 applicable occurrence was found. A failure takes precedence over other occurrences;
 the findings still record unassessed occurrences and `ScanCompleted` remains false
-if any implemented check could not finish.
+if any implemented check could not finish. When a limit stops the scan, every check
+that had not inspected all its occurrences becomes `NotChecked`; failures already
+found stay `Failed`, and `HasFailures` reports them.
 
 | ID | Scope |
 | --- | --- |
-| READ | Strict reader diagnostics, bounded inspection, unreadable/password-protected inputs |
+| READ | Readable without repair: a rebuilt or corrected cross-reference table, or a stream length recovered from `endstream`, makes it `NotChecked`; also bounded inspection and unreadable/password-protected inputs |
 | LANG | Presence of a nonempty catalog language |
 | TITLE | Nonempty XMP `dc:title` |
 | UAID | XMP `pdfuaid:part=1`; PDF/UA-2 is reported as unsupported |
@@ -44,7 +46,7 @@ if any implemented check could not finish.
 | NESTING | Basic list/item/label/body and table/row/cell parent relationships |
 | MCID | Unique page MCIDs, content/structure associations and ParentTree back-references |
 | CONTENT | Page painting inside tags/artifacts; balanced marked-content scopes |
-| FONT | Embedded-program presence for fonts selected by page content |
+| FONT | Embedded-program presence for fonts that show text in page content, except in text rendering mode 3 (invisible) |
 | TABS | Structure tab order on annotated pages |
 | ANNOT | Structure object references for links/widgets |
 | REVIEW | Required human accessibility review |
@@ -52,8 +54,10 @@ if any implemented check could not finish.
 Complex or named marked-content property dictionaries and Form XObject content
 produce `NotChecked`, not a guessed pass. Metadata uses a secure XML reader with
 DTD processing disabled. Input, decoded-content, page, traversal, depth and finding
-limits are configurable through `PdfAccessibilityScanOptions`. Limit exhaustion
-produces `Incomplete`. Cancellation propagates to the caller.
+limits are configurable through `PdfAccessibilityScanOptions`. `MaxNodes` counts
+structure-tree, role-map and number-tree nodes; page content is bounded by
+`MaxDecodedBytes`. Limit exhaustion produces `Incomplete`. Cancellation propagates
+to the caller.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
 do not validate Unicode mappings, embedded glyph correctness, all heading/table
@@ -105,20 +109,27 @@ The password is never included in the report.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Explicit `--policy automated` satisfied; human review still required |
-| 1 | At least one implemented check failed |
+| 1 | At least one implemented check failed, also when the scan is incomplete |
 | 2 | Human review required (default policy for otherwise successful scans) |
-| 3 | Incomplete scan, including unsupported content, parser diagnostics or limits |
+| 3 | Incomplete scan without a detected failure: unsupported content, a repaired file or limits |
 | 64 | Invalid command/options or input/output error |
 
-`Incomplete` takes precedence over `Failed`; inspect findings for failures already
-detected. `--policy automated` never turns an incomplete scan into success.
+A detected failure decides the exit code. In the report, `status` stays
+`Incomplete` when some content could not be checked, `hasFailures` says whether a
+check failed, and `scanCompleted` says whether every check finished. SARIF carries
+both values in the run properties. `--policy automated` never turns an incomplete
+scan into success.
 
-The CLI is configured as a packable .NET tool (`io7.FreePDF.Accessibility.Tool`, command
-`freepdf-a11y`). Adding it here does not publish it to NuGet; publication remains a
-separate release step. The scanner itself ships in the existing library assemblies,
-including the Core, GDI and WPF variants.
+The CLI is published on NuGet.org as the .NET tool `io7.FreePDF.Accessibility.Tool`
+(command `freepdf-a11y`) since 7.11.0. The scanner itself ships in the existing
+library assemblies, including the Core, GDI and WPF variants.
 
-To use the shorter command without publishing, pack and install it into a new
+```sh
+dotnet tool install --global io7.FreePDF.Accessibility.Tool
+freepdf-a11y document.pdf --format html --output audit.html
+```
+
+To use a build from a source checkout instead, pack and install it into a new
 local directory (run from the repository root):
 
 ```sh

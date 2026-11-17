@@ -23,12 +23,15 @@ to the external process. FreePDF checks the snapshot hash again after validation
 | Combined exit | Meaning |
 | --- | --- |
 | 0 | Explicit `--policy automated`; both requested machine checks completed without a detected failure. Human review remains required. |
-| 1 | At least one validator found a failure, and neither result was incomplete. |
+| 1 | At least one validator found a failure, including during an incomplete scan. |
 | 2 | Default review policy; no detected machine failure, but human review remains required. |
-| 3 | At least one result was incomplete. Any known failures remain in its report. |
+| 3 | At least one result was incomplete and neither validator found a failure. |
 | 64 | Invalid command options or input/report I/O failure. |
 
 An independent pass cannot clear native failures or incomplete native checks.
+When either result is incomplete, the combined report status stays `Incomplete`.
+The combined `hasFailures` field in JSON and SARIF records a detected failure
+from either validator.
 A missing executable, timeout, truncated/malformed XML, inconsistent counts,
 wrong input, unexpected process exit or unsupported profile produces an incomplete
 independent result. A PDF/UA machine pass does not certify WCAG or ADA compliance.

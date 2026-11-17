@@ -34,15 +34,16 @@ Output files must not already exist. Use `--password-env NAME` to supply a passw
 through an environment variable. Reports can contain text from the input PDF.
 
 Exit codes: `0` explicit automated policy satisfied (review still required), `1`
-failed checks, `2` human review required, `3` incomplete scan, `64` usage or I/O
-error. The default policy returns `2` even when all implemented checks pass.
+failed checks (also in an incomplete scan), `2` human review required, `3`
+incomplete scan without detected failures, `64` usage or I/O error. The default policy returns `2` even when all implemented checks pass.
 That means a person still needs to check the document; it is not a tool crash.
 
 The optional veraPDF adapter uses a separately installed validator. It supports
 explicit PDF/UA-1 machine validation and retains native findings and human tasks.
 Use `--verapdf-timeout SECONDS` to change its 60-second timeout. Missing tools,
-unsupported profiles and incomplete reports return 3. Native-only JSON keeps its
-existing shape; combined JSON uses a version 2.0 envelope with separate results.
+unsupported profiles and incomplete reports leave the assessment incomplete.
+A failure from either validator still gives exit code 1. Native-only JSON keeps
+its existing shape. Combined JSON uses a version 2.0 envelope with both results.
 
 `--requirements` lists all 137 Matterhorn 1.1 conditions with coverage and source
 references. This inventory does not assign document verdicts. Its source data is

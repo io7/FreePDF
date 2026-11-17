@@ -43,6 +43,20 @@ public class AccessibilityScannerTests
     static void Fails(PdfAccessibilityReport report, string rule)
         => Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-" + rule && f.Status == PdfAccessibilityCheckStatus.Failed);
 
+    static PdfAccessibilityCheckStatus Outcome(PdfAccessibilityReport report, string rule)
+        => report.Checks.Single(c => c.Id == "FPDF-A11Y-" + rule).Status;
+
+    // The fixture page with a non-embedded standard font as /FReview and the given content appended.
+    static byte[] WithReviewFont(string content) => Fixture(d =>
+    {
+        var resources = d.Pages[0].Elements.GetDictionary("/Resources")!;
+        var font = new PdfDictionary(d);
+        font.Elements.SetName("/Type", "/Font"); font.Elements.SetName("/Subtype", "/Type1"); font.Elements.SetName("/BaseFont", "/Helvetica");
+        var fonts = resources.Elements.GetDictionary("/Font") ?? new PdfDictionary(d);
+        fonts.Elements["/FReview"] = font; resources.Elements["/Font"] = fonts;
+        d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content));
+    });
+
     [Fact]
     public void Tagged_figure_passes_implemented_checks_but_still_requires_review()
     {
@@ -289,5 +303,117 @@ public class AccessibilityScannerTests
             tree.Elements.GetArray("/Nums")!.Elements[0] = new PdfInteger(-1);
         }));
         Fails(report, "MCID");
+    }
+
+    static void RepairedByReader(byte[] damaged)
+    {
+        var report = Scan(damaged);
+        Assert.False(report.ScanCompleted);
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "READ"));
+        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message.Contains("repaired"));
+    }
+
+    [Fact]
+    public void Shifted_cross_reference_offsets_are_a_repair_not_a_completed_scan()
+    {
+        var bytes = Fixture();
+        int header = Array.IndexOf(bytes, (byte)'\n') + 1;
+        RepairedByReader(bytes.Take(header).Concat(Encoding.ASCII.GetBytes("   ")).Concat(bytes.Skip(header)).ToArray());
+    }
+
+    [Fact]
+    public void A_missing_cross_reference_table_and_trailer_are_a_repair_not_a_completed_scan()
+    {
+        var bytes = Fixture();
+        int table = TestPdf.Latin1.GetString(bytes).LastIndexOf("\nxref", StringComparison.Ordinal);
+        Assert.True(table > 0, "Fixture must end with a classic cross-reference table.");
+        RepairedByReader(bytes.Take(table + 1).ToArray());
+    }
+
+    [Fact]
+    public void A_corrected_stream_length_is_a_repair_not_a_completed_scan()
+    {
+        const string marker = "% synthetic length marker";
+        var bytes = Fixture(d =>
+        {
+            d.Options.CompressContentStreams = false;
+            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(marker + "\n/Artifact BMC 0 0 10 10 re f EMC"));
+        });
+        var text = TestPdf.Latin1.GetString(bytes);
+        int digits = text.LastIndexOf("/Length ", text.IndexOf(marker, StringComparison.Ordinal), StringComparison.Ordinal) + "/Length ".Length;
+        int count = 0;
+        while (Char.IsDigit(text[digits + count])) count++;
+        Assert.True(count >= 2, "The marked stream must have a direct two-digit or longer /Length.");
+        // Same width, so the cross-reference offsets stay right; only the declared length is too short.
+        var shorter = Encoding.ASCII.GetBytes("1" + new string('0', count - 1));
+        Buffer.BlockCopy(shorter, 0, bytes, digits, count);
+        RepairedByReader(bytes);
+    }
+
+    [Fact]
+    public void A_valid_incremental_update_is_not_mistaken_for_a_repair()
+    {
+        using var document = PdfReader.Open(new MemoryStream(Fixture()), PdfDocumentOpenMode.Append);
+        document.Info.Subject = "Synthetic update";
+        using var updated = new MemoryStream();
+        document.Save(updated);
+        var report = Scan(updated.ToArray());
+        Assert.True(report.ScanCompleted, String.Join("\n", report.Findings.Select(f => f.Message)));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
+    }
+
+    [Theory]
+    [InlineData("BT /FReview 12 Tf 14.4 TL ET")]
+    [InlineData("/Artifact BMC BT 3 Tr /FReview 12 Tf 20 20 Td (Invisible text layer) Tj ET EMC")]
+    public void Fonts_that_render_no_glyphs_need_no_embedded_program(string content)
+        => Assert.NotEqual(PdfAccessibilityCheckStatus.Failed, Outcome(Scan(WithReviewFont(content)), "FONT"));
+
+    [Theory]
+    [InlineData("/Artifact BMC BT 3 Tr /FReview 12 Tf (hidden) Tj 0 Tr (shown) Tj ET EMC")]
+    [InlineData("/Artifact BMC q 3 Tr Q BT /FReview 12 Tf 20 20 Td (shown) Tj ET EMC")]
+    [InlineData("/Artifact BMC BT /FReview 12 Tf 20 20 Td [(sho) 20 (wn)] TJ ET EMC")]
+    public void Visible_text_in_a_font_without_its_program_fails(string content)
+        => Assert.Equal(PdfAccessibilityCheckStatus.Failed, Outcome(Scan(WithReviewFont(content)), "FONT"));
+
+    [Fact]
+    public void Dense_valid_page_content_completes_without_exhausting_the_structure_limit()
+    {
+        var operations = new StringBuilder("/Artifact BMC\n");
+        for (int i = 0; i < 60000; i++) operations.Append("0 0 1 1 re f\n");
+        var report = Scan(Fixture(d => d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(operations.Append("EMC").ToString()))));
+        Assert.True(report.ScanCompleted, String.Join("\n", report.Findings.Select(f => f.Message)));
+        Assert.Equal(PdfAccessibilityScanStatus.NeedsReview, report.Status);
+    }
+
+    [Fact]
+    public void Checks_interrupted_by_a_limit_are_not_reported_as_passed()
+    {
+        var report = Scan(Fixture(), new PdfAccessibilityScanOptions { MaxNodes = 1 });
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "LANG"));
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "TREE"));
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "ROLE"));
+        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message.Contains("MaxNodes"));
+    }
+
+    [Fact]
+    public void An_incomplete_scan_still_reports_that_it_found_failures()
+    {
+        var bytes = Fixture(d =>
+        {
+            d.Catalog.Elements.Remove("/Lang");
+            var form = new PdfDictionary(d);
+            form.Elements.SetName("/Type", "/XObject"); form.Elements.SetName("/Subtype", "/Form");
+            form.Elements.SetRectangle("/BBox", new PdfRectangle(new XPoint(0, 0), new XPoint(10, 10)));
+            form.CreateStream(Encoding.ASCII.GetBytes("0 0 10 10 re f"));
+            d.Internals.AddObject(form);
+            var xobjects = new PdfDictionary(d); xobjects.Elements["/Form0"] = form.Reference!;
+            d.Pages[0].Elements.GetDictionary("/Resources")!.Elements["/XObject"] = xobjects;
+            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC /Form0 Do EMC"));
+        });
+        var report = Scan(bytes);
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.True(report.HasFailures);
+        Assert.False(Scan(Fixture()).HasFailures);
     }
 }

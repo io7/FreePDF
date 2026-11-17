@@ -29,11 +29,14 @@ internal sealed record IndependentValidation
     public IReadOnlyList<IndependentFinding> Findings { get; init; } = Array.Empty<IndependentFinding>();
     public string? IncompleteReason { get; init; }
 
+    internal static bool HasFailures(PdfAccessibilityReport native, IndependentValidation? independent) =>
+        native.HasFailures || independent?.Status == IndependentValidationStatus.Failed;
+
     internal static PdfAccessibilityScanStatus Combine(PdfAccessibilityReport native, IndependentValidation? independent)
     {
         if (native.Status == PdfAccessibilityScanStatus.Incomplete || independent?.Status == IndependentValidationStatus.Incomplete)
             return PdfAccessibilityScanStatus.Incomplete;
-        if (native.Status == PdfAccessibilityScanStatus.Failed || independent?.Status == IndependentValidationStatus.Failed)
+        if (HasFailures(native, independent))
             return PdfAccessibilityScanStatus.Failed;
         return PdfAccessibilityScanStatus.NeedsReview;
     }
