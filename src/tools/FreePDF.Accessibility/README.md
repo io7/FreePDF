@@ -22,8 +22,8 @@ The HTML report opens in a browser and contains every finding, check coverage,
 structure order and limitations. JSON and SARIF are for automation.
 
 For a published version, install the package with
-`dotnet tool install --global io7.FreePDF.Accessibility.Tool`. Candidate packages
-can be installed with `--source /path/to/candidate-packages --version 7.12.0-alpha.1`.
+`dotnet tool install --global io7.FreePDF.Accessibility.Tool`. To install from a
+local package directory, add `--source /path/to/candidate-packages --version 7.12.0`.
 With the .NET 10 SDK, you can also run it from a source checkout:
 
 ```sh

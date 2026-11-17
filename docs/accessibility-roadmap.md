@@ -10,7 +10,7 @@ It does not establish ADA compliance.
 | Release | Scope | State |
 | --- | --- | --- |
 | 7.11.0 | Native preflight API, offline CLI, coordinate precision fix and 84,000-file corpus configuration. Package and test the CLI with the six library packages. | Released 2026-11-16. The full 84,000-file run was not part of the release gates. |
-| 7.12.0-alpha.1 | Account for all Matterhorn 1.1 conditions and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles and versions. | Implemented in the 7.12 alpha. |
+| [7.12.0](releases/7.12.0.md) | Account for all Matterhorn 1.1 conditions and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles and versions. | Prepared for stable publication. |
 | Following releases | Extend native inspection to nested content, Unicode, forms and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
 
 The 7.12.0 acceptance gate is a traceable requirement list plus positive and

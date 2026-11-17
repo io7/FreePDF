@@ -303,6 +303,10 @@ WPF library assemblies. The separate `io7.FreePDF.Accessibility.Tool` requires
 publication promotes on Linux, and a package built from the same revision on
 Windows. The tool has not been tested on macOS or with .NET 11 roll-forward.
 
+The 7.12.0 CLI can run a separately installed veraPDF validator with its PDF/UA-1
+profile. The package checks exercise veraPDF 1.30.3 on Linux and Windows. Use
+`freepdf-a11y --requirements` to see which Matterhorn conditions need human review.
+
 Scanner coverage is partial PDF/UA-1. A completed scan means its implemented
 checks finished; it does not establish ADA, WCAG or full PDF/UA compliance.
 Human review and independent validation remain required. Unsupported content

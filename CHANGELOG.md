@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## 7.12.0-alpha.1 (unreleased)
+## 7.12.0
 
 - `freepdf-a11y --requirements` lists all 137 Matterhorn 1.1 conditions. The
   inventory records source references, native coverage, human tasks and
