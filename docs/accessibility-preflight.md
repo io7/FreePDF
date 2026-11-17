@@ -145,7 +145,7 @@ The report can include document content, so handle it with the same care as the 
 
 ## Validation and next coverage
 
-The 7.12 development branch adds an optional [veraPDF adapter](accessibility-verapdf.md)
+FreePDF 7.12.0 adds an optional [veraPDF adapter](accessibility-verapdf.md)
 and a [complete Matterhorn inventory](accessibility/README.md). Use
 `freepdf-a11y --requirements` to inspect the inventory. Independent machine
 results remain separate from native findings and human review.
