@@ -63,6 +63,8 @@ jobs:
         run: ./eng/Install-VeraPdf.ps1 -OutputDirectory '${{ runner.temp }}/verapdf'
       - name: Positive and negative PDF/UA-1 oracle controls
         run: python3 eng/corpus/check_oracle.py '${{ runner.temp }}/verapdf/cli/verapdf' '${{ runner.temp }}/a11y-oracle'
+      - name: Optional adapter with pinned validator and failure controls
+        run: python3 eng/corpus/check_adapter.py '${{ runner.temp }}/verapdf/cli/verapdf' '${{ runner.temp }}/a11y-adapter'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -70,6 +72,7 @@ jobs:
           path: |
             ${{ runner.temp }}/a11y-tests
             ${{ runner.temp }}/a11y-oracle
+            ${{ runner.temp }}/a11y-adapter
           retention-days: 3
   corpus:
     needs: plan

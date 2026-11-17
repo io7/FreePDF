@@ -145,6 +145,11 @@ The report can include document content, so handle it with the same care as the 
 
 ## Validation and next coverage
 
+The 7.12 development branch adds an optional [veraPDF adapter](accessibility-verapdf.md)
+and a [complete Matterhorn inventory](accessibility/README.md). Use
+`freepdf-a11y --requirements` to inspect the inventory. Independent machine
+results remain separate from native findings and human review.
+
 The regression suite includes positive, negative, cyclic, encrypted, malformed,
 resource-limit and original-byte-preservation cases. CLI contracts test exit
 policies, JSON/SARIF structure, HTML escaping and output overwrite protection.

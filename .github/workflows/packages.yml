@@ -32,6 +32,8 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
+      - name: Adapter, inventory and subprocess regression tests
+        run: dotnet test src/tests/FreePDF.Accessibility.Tests/FreePDF.Accessibility.Tests.csproj -c Release --logger 'trx;LogFileName=adapter.trx' --results-directory '${{ runner.temp }}/adapter-tests'
       - name: Build, inspect and install candidate packages
         shell: pwsh
         run: |
@@ -53,13 +55,18 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y qpdf poppler-utils default-jre-headless
       - name: Install verified veraPDF
-        if: runner.os == 'Linux'
         shell: pwsh
         run: ./eng/Install-VeraPdf.ps1 -OutputDirectory "$env:RUNNER_TEMP/verapdf"
       - name: Independently validate installed-package output
         if: runner.os == 'Linux'
         shell: pwsh
         run: ./eng/Test-PdfOutput.ps1 -PackageDirectory "$env:RUNNER_TEMP/freepdf-packages" -OutputDirectory "$env:RUNNER_TEMP/freepdf-independent" -VeraPdf "$env:RUNNER_TEMP/verapdf/cli/verapdf"
+      - name: Validate the installed accessibility adapter
+        shell: pwsh
+        run: |
+          $validator = if ($IsWindows) { 'verapdf.bat' } else { 'verapdf' }
+          $tool = if ($IsWindows) { 'freepdf-a11y.exe' } else { 'freepdf-a11y' }
+          python -X utf8 eng/corpus/check_adapter.py "$env:RUNNER_TEMP/verapdf/cli/$validator" "$env:RUNNER_TEMP/installed-adapter" --tool "$env:RUNNER_TEMP/freepdf-packages/accessibility-tool/tool/$tool"
       - name: Rehearse plain stable packages in a separate cache
         shell: pwsh
         run: |
@@ -89,6 +96,16 @@ jobs:
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: error
+      # Consumers and publish.yml expect the packages at the root of the candidate artifact.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: accessibility-adapter-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/adapter-tests/*.trx
+            ${{ runner.temp }}/installed-adapter/**
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -75,6 +75,15 @@ try {
         ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Accessibility.Tool.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
     } 'Missing tool notice:'
+    ExpectRejected 'missing-matterhorn-attribution-with-valid-hash' {
+        param($directory)
+        $path = Join-Path $directory "io7.FreePDF.Accessibility.Tool.$Version.nupkg"
+        $archive = [IO.Compression.ZipFile]::Open($path, [IO.Compression.ZipArchiveMode]::Update)
+        try { $archive.GetEntry('THIRD-PARTY/Matterhorn-NOTICE.txt').Delete() } finally { $archive.Dispose() }
+        $receipt = Get-Content "$directory/validation.json" -Raw | ConvertFrom-Json
+        ($receipt.packages | Where-Object file -EQ "io7.FreePDF.Accessibility.Tool.$Version.nupkg").sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt | ConvertTo-Json -Depth 10 | Set-Content "$directory/validation.json"
+    } 'Missing tool notice:'
     ExpectRejected 'upstream-package' {
         param($directory)
         Copy-Item "$directory/io7.FreePDF.$Version.nupkg" "$directory/PDFsharp.$Version.nupkg"
