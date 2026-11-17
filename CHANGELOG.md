@@ -1,5 +1,13 @@
 # FreePDF changelog
 
+## 7.13.0-alpha.1
+
+- The native accessibility scanner follows Form XObjects and resolves named
+  marked-content properties. It checks painting, visible fonts and structure
+  references inside nested forms. A page and a form can each use the same
+  marked-content ID. Drawing a form that owns marked-content IDs twice raises
+  `FPDF-A11Y-MCID`.
+
 ## 7.12.0
 
 - `freepdf-a11y --requirements` lists all 137 Matterhorn 1.1 conditions. The

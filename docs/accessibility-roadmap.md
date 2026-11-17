@@ -10,8 +10,9 @@ It does not establish ADA compliance.
 | Release | Scope | State |
 | --- | --- | --- |
 | 7.11.0 | Native preflight API, offline CLI, coordinate precision fix and 84,000-file corpus configuration. Package and test the CLI with the six library packages. | Released 2026-11-16. The full 84,000-file run was not part of the release gates. |
-| [7.12.0](releases/7.12.0.md) | Account for all Matterhorn 1.1 conditions and add an optional veraPDF command-line integration. Keep native and independent results separate, with exact profiles and versions. | Prepared for stable publication. |
-| Following releases | Extend native inspection to nested content, Unicode, forms and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
+| [7.12.0](releases/7.12.0.md) | Account for all Matterhorn 1.1 conditions and add optional veraPDF validation. | Released 2026-11-17. |
+| 7.13.0-alpha.1 | Inspect local Form XObjects, including nested forms, and resolve named marked-content properties. | Development candidate. |
+| Following releases | Extend native inspection to Unicode, form fields and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
 
 The 7.12.0 acceptance gate is a traceable requirement list plus positive and
 negative adapter controls. A missing validator, timeout, malformed report or
@@ -74,5 +75,5 @@ mappings. The optional [veraPDF adapter](accessibility-verapdf.md) reports a
 separate machine verdict. Its result does not mark individual inventory rows as
 passed or complete human review.
 
-The next native work remains Form XObjects and named marked-content properties,
-followed by Unicode/glyph validation and the remaining forms and annotation rules.
+The next native work is Unicode and glyph validation, followed by the remaining
+form-field and annotation rules.

@@ -7,6 +7,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../../lab/Shared/AccessibilityFormFixture.cs" Link="AccessibilityFormFixture.cs" />
     <ProjectReference Include="../../../src/foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
     <EmbeddedResource Include="../../../lab/Assets/DejaVuSans.ttf" LogicalName="CorpusFont.ttf" />
     <EmbeddedResource Include="../../../lab/Assets/colors.png" LogicalName="CorpusImage.png" />

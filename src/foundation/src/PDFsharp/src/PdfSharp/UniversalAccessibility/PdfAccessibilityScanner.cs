@@ -8,6 +8,7 @@ using System.Xml;
 using System.Xml.Linq;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Advanced;
+using PdfSharp.Pdf.Filters;
 using PdfSharp.Pdf.IO;
 
 namespace PdfSharp.UniversalAccessibility
@@ -82,7 +83,11 @@ namespace PdfSharp.UniversalAccessibility
         readonly Dictionary<string, PdfAccessibilityCheck> _checks = new();
         readonly Dictionary<PdfDictionary, int> _pages = new();
         readonly HashSet<PdfDictionary> _visited = new();
-        readonly Dictionary<string, PdfDictionary> _mcids = new();
+        // An MCID belongs to a page's combined contents or to one particular Form XObject.
+        readonly Dictionary<PdfDictionary, Dictionary<int, ContentReference>> _mcids = new();
+        readonly Dictionary<FormPage, PdfDictionary> _formObjects = new();
+        readonly record struct FormPage(PdfDictionary Form, int Page);
+        readonly record struct ContentReference(PdfDictionary Element, int Page);
         readonly HashSet<PdfDictionary> _objects = new();
         // Checks whose every occurrence was inspected. After a limit stops the scan, the others are not reported as passed.
         readonly HashSet<string> _finished = new();
@@ -107,9 +112,9 @@ namespace PdfSharp.UniversalAccessibility
             Add("ROLE", "Structure roles resolve to PDF 1.7 standard roles", "Map custom roles to standard structure types without cycles.");
             Add("ALT", "Figures and formulas have a text alternative", "Provide meaningful Alt or ActualText; mark decorative content as artifacts.", "PDF1.html");
             Add("NESTING", "List and table children have expected parents", "Place list items in lists, list labels/bodies in items, rows in tables and cells in rows.");
-            Add("MCID", "Page marked content matches structure references", "Associate each page MCID with one structure element and its ParentTree entry.");
-            Add("CONTENT", "Page painting occurs inside marked content", "Tag meaningful content and mark decorative content as artifacts.", "PDF4.html");
-            Add("FONT", "Fonts that show visible page text have embedded programs", "Embed the fonts used by page text and independently validate their glyph and Unicode mappings.");
+            Add("MCID", "Page and form content matches its structure references", "Associate each MCID with the owning stream, structure element and ParentTree entry.");
+            Add("CONTENT", "Page and form painting occurs inside tagged content or artifacts", "Tag meaningful content and mark decorative content as artifacts.", "PDF4.html");
+            Add("FONT", "Fonts that show visible text have embedded programs", "Embed the fonts used by page and form text and independently validate their glyph and Unicode mappings.");
             Add("TABS", "Annotated pages use structure tab order", "Set page Tabs to S and verify keyboard navigation.", "PDF3.html");
             Add("ANNOT", "Links and widgets have structure object references", "Include each link/widget annotation in the structure tree and review its accessible name.", "PDF11.html");
             Add("REVIEW", "Human accessibility review", "Review reading order, text alternatives, headings, table associations, language, contrast, forms and assistive-technology behavior.");
@@ -227,9 +232,20 @@ namespace PdfSharp.UniversalAccessibility
 
         byte[] Decode(PdfDictionary d)
         {
-            var bytes = d.Stream?.UnfilteredValue ?? Array.Empty<byte>();
-            if (bytes.Length > _options.MaxDecodedBytes - _decoded) throw new AccessibilityLimitException("Decoded content exceeds MaxDecodedBytes.");
-            _decoded += bytes.Length;
+            int remaining = _options.MaxDecodedBytes - _decoded;
+            var bytes = d.Stream?.Value ?? Array.Empty<byte>();
+            long spent = 0;
+            if (Resolve(d.Elements["/Filter"]) is PdfItem filter && filter is not (PdfNull or PdfNullObject))
+            {
+                var limit = new DecodeLimit(remaining, remaining);
+                try { bytes = Filtering.Decode(bytes, filter, d.Elements["/DecodeParms"], limit); }
+                catch (PdfReaderException ex) when (Parser.IsLimitExceeded(ex))
+                { throw new AccessibilityLimitException("Decoded content exceeds MaxDecodedBytes."); }
+                spent = limit.Spent;
+            }
+            spent = Math.Max(spent, bytes.Length);
+            if (spent > remaining) throw new AccessibilityLimitException("Decoded content exceeds MaxDecodedBytes.");
+            _decoded += (int)spent;
             return bytes;
         }
 
@@ -272,21 +288,32 @@ namespace PdfSharp.UniversalAccessibility
             {
                 Visit(depth);
                 var item = Resolve(raw); var here = path + "[" + index++ + "]";
-                if (Integer(item) is int mcid) { AddMcid(inheritedPage, mcid, parent, here); continue; }
+                if (Integer(item) is int mcid) { AddMcid(inheritedPage, inheritedPage, mcid, parent, here); continue; }
                 if (item is not PdfDictionary d) { Test("TREE", false, "Unexpected structure child type.", path: here); continue; }
-                var page = Dict(d, "/Pg") ?? inheritedPage;
+                var pageEntry = Resolve(d.Elements["/Pg"]);
+                var page = pageEntry is null or PdfNull or PdfNullObject ? inheritedPage : pageEntry as PdfDictionary;
                 int? number = page != null && _pages.TryGetValue(page, out var n) ? n : null;
                 if (Name(d, "/Type") == "/MCR")
                 {
-                    if (d.Elements.ContainsKey("/Stm")) Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "Content in a separate stream is outside this preflight's page-content coverage.", number, here);
-                    else if (Integer(d.Elements["/MCID"]) is int id) AddMcid(page, id, parent, here);
-                    else Test("MCID", false, "MCR is missing its integer MCID.", number, here);
+                    var stream = Dict(d, "/Stm");
+                    if (Integer(d.Elements["/MCID"]) is not int id)
+                        Test("MCID", false, "MCR is missing its integer MCID.", number, here);
+                    else if (!d.Elements.ContainsKey("/Stm")) AddMcid(page, page, id, parent, here);
+                    else if (stream?.Stream == null) Test("MCID", false, "MCR Stm is not a content stream.", number, here);
+                    else if (Name(stream, "/Subtype") == "/Form" && Dict(d, "/StmOwn")?.Elements.ContainsKey("/AP") != true)
+                        AddMcid(page, stream, id, parent, here);
+                    else Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "The referenced stream is outside page and Form XObject coverage.", number, here);
                     continue;
                 }
                 if (Name(d, "/Type") == "/OBJR")
                 {
                     var obj = Dict(d, "/Obj");
-                    Test("ANNOT", obj != null && _objects.Add(obj), "OBJR target is missing or referenced more than once.", number, here);
+                    if (obj != null && Name(obj, "/Subtype") == "/Form")
+                    {
+                        if (number is int p && !_formObjects.ContainsKey(new FormPage(obj, p))) _formObjects.Add(new FormPage(obj, p), parent);
+                        else Test("MCID", false, "Form object reference has no valid page or is duplicated on this page.", number, here);
+                    }
+                    else Test("ANNOT", obj != null && _objects.Add(obj), "OBJR target is missing or referenced more than once.", number, here);
                     continue;
                 }
                 if (!_visited.Add(d)) { Test("TREE", false, "Structure cycle or repeated structure element.", number, here); continue; }
@@ -302,18 +329,22 @@ namespace PdfSharp.UniversalAccessibility
             }
         }
 
-        void AddMcid(PdfDictionary? page, int id, PdfDictionary element, string path)
+        void AddMcid(PdfDictionary? page, PdfDictionary? owner, int id, PdfDictionary element, string path)
         {
             int? number = page != null && _pages.TryGetValue(page, out var n) ? n : null;
-            var key = number + ":" + id;
-            bool valid = number.HasValue && id >= 0 && !_mcids.ContainsKey(key);
-            Test("MCID", valid, "MCID has no valid page, is negative or is referenced more than once.", number, path);
-            if (valid) _mcids.Add(key, element);
+            if (number == null || owner == null || id < 0)
+            {
+                Test("MCID", false, "MCID has no valid page or is negative.", number, path);
+                return;
+            }
+            if (!_mcids.TryGetValue(owner, out var ids)) _mcids.Add(owner, ids = new());
+            if (ids.ContainsKey(id)) Test("MCID", false, "MCID is referenced more than once in the same content stream.", number, path);
+            else ids.Add(id, new ContentReference(element, number.Value));
         }
 
         void InspectParentTree(PdfDictionary? root)
         {
-            if (_mcids.Count == 0) return;
+            if (_mcids.Count == 0 && _formObjects.Count == 0) return;
             var entries = new Dictionary<int, PdfItem>();
             var seen = new HashSet<PdfDictionary>();
             void Walk(PdfDictionary? node, int depth)
@@ -334,21 +365,35 @@ namespace PdfSharp.UniversalAccessibility
                 foreach (var child in Items(node.Elements["/Kids"])) Walk(Resolve(child) as PdfDictionary, depth + 1);
             }
             Walk(Dict(root, "/ParentTree"), 0);
-            var pageKeys = new HashSet<int>();
-            foreach (var page in _pages)
+            var owners = new Dictionary<int, PdfDictionary>();
+            PdfItem? Entry(PdfDictionary owner, string field, int page)
             {
-                var pageMcids = _mcids.Where(x => x.Key.StartsWith(page.Value + ":", StringComparison.Ordinal)).ToList();
-                if (pageMcids.Count == 0) continue;
-                var key = Integer(page.Key.Elements["/StructParents"]);
-                PdfItem? value = null;
-                bool valid = key.HasValue && key.Value >= 0 && pageKeys.Add(key.Value) && entries.TryGetValue(key.Value, out value);
-                Test("MCID", valid, "Page StructParents is missing, negative, duplicated or absent from ParentTree.", page.Value);
-                var array = Resolve(value) as PdfArray;
-                foreach (var entry in pageMcids)
+                if (Integer(owner.Elements[field]) is int key && entries.TryGetValue(key, out var value) &&
+                    (!owners.TryGetValue(key, out var other) || ReferenceEquals(other, owner)))
                 {
-                    int id = Int32.Parse(entry.Key.Substring(entry.Key.IndexOf(':') + 1), System.Globalization.CultureInfo.InvariantCulture);
-                    Test("MCID", array != null && id < array.Elements.Count && ReferenceEquals(Resolve(array.Elements[id]), entry.Value), "ParentTree does not point back to the MCID's structure element.", page.Value, "/ParentTree");
+                    owners[key] = owner;
+                    return Resolve(value);
                 }
+                Test("MCID", false, field + " is missing, negative, duplicated or absent from ParentTree.", page, "/ParentTree");
+                return null;
+            }
+            foreach (var stream in _mcids)
+            {
+                var array = Entry(stream.Key, "/StructParents", stream.Value.First().Value.Page) as PdfArray;
+                if (!_pages.ContainsKey(stream.Key))
+                    foreach (var page in stream.Value.Values.Select(reference => reference.Page).Distinct())
+                        CheckFormPage(stream.Key, page);
+                foreach (var entry in stream.Value)
+                {
+                    Test("MCID", array != null && entry.Key < array.Elements.Count && ReferenceEquals(Resolve(array.Elements[entry.Key]), entry.Value.Element),
+                        "ParentTree does not point back to the MCID's structure element.", entry.Value.Page, "/ParentTree");
+                }
+            }
+            foreach (var entry in _formObjects)
+            {
+                CheckFormPage(entry.Key.Form, entry.Key.Page);
+                Test("MCID", ReferenceEquals(Entry(entry.Key.Form, "/StructParent", entry.Key.Page), entry.Value),
+                    "ParentTree does not point back to the form's OBJR structure element.", entry.Key.Page, "/ParentTree");
             }
         }
     }

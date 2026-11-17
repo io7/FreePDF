@@ -1,4 +1,6 @@
 // Original small oracle/CLI fixtures, independent of the large generated corpus.
+using System.Text;
+using FreePDF.Lab.Fixtures;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -24,23 +26,24 @@ static class AccessibilityFixtures
         }
         var original = buffer.ToArray();
         WriteNew("valid.pdf", original);
-        foreach (var mutation in new[] { "missing-alt", "missing-language", "untagged", "incomplete-missing-language" })
+        foreach (var mutation in new[] { "missing-alt", "missing-language", "untagged", "incomplete-missing-language", "nested-form", "reused-tagged-form", "untagged-form-paint" })
         {
             using var pdf = PdfReader.Open(new MemoryStream(original), PdfDocumentOpenMode.Modify);
             if (mutation == "missing-language") pdf.Catalog.Elements.Remove("/Lang");
             else if (mutation == "untagged") pdf.Catalog.Elements.Remove("/StructTreeRoot");
             else if (mutation == "incomplete-missing-language")
             {
-                // A confirmed failure plus content outside the preflight's coverage (a Form XObject).
+                // A confirmed failure plus an inline property dictionary outside native coverage.
                 pdf.Catalog.Elements.Remove("/Lang");
-                var form = new PdfDictionary(pdf);
-                form.Elements.SetName("/Type", "/XObject"); form.Elements.SetName("/Subtype", "/Form");
-                form.Elements.SetRectangle("/BBox", new PdfRectangle(new XPoint(0, 0), new XPoint(10, 10)));
-                form.CreateStream(System.Text.Encoding.ASCII.GetBytes("0 0 10 10 re f"));
-                pdf.Internals.AddObject(form);
-                var xobjects = new PdfDictionary(pdf); xobjects.Elements["/Form0"] = form.Reference!;
-                pdf.Pages[0].Elements.GetDictionary("/Resources")!.Elements["/XObject"] = xobjects;
-                pdf.Pages[0].Contents.AppendContent().CreateStream(System.Text.Encoding.ASCII.GetBytes("/Artifact BMC /Form0 Do EMC"));
+                pdf.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Span <</Lang (en) /ActualText (sample)>> BDC EMC"));
+            }
+            else if (mutation is "nested-form" or "reused-tagged-form" or "untagged-form-paint")
+            {
+                var inner = AccessibilityFormFixture.AddTaggedForm(pdf);
+                if (mutation == "reused-tagged-form")
+                    pdf.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Outer Do"));
+                if (mutation == "untagged-form-paint")
+                    inner.Stream.Value = inner.Stream.Value.Concat(Encoding.ASCII.GetBytes(" 2 2 5 5 re f")).ToArray();
             }
             else
             {

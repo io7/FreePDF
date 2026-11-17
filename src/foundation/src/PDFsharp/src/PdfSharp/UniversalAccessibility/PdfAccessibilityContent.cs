@@ -14,11 +14,42 @@ namespace PdfSharp.UniversalAccessibility
         // Only this deliberately narrow inline property dictionary is interpreted.
         // Other dictionaries are reported as unassessed, never guessed with a substring match.
         static readonly Regex McidProperty = new(@"^<<\s*/MCID\s+([0-9]+)\s*>>$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-        static readonly HashSet<string> Painting = new("Tj TJ ' \" Do sh S s f F f* B B* b b* BI".Split(' '));
+        static readonly HashSet<string> Painting = new("Tj TJ ' \" sh S s f F f* B B* b b* BI".Split(' '));
 
         static readonly HashSet<string> ShowText = new("Tj TJ ' \"".Split(' '));
 
-        // Page content is bounded by MaxDecodedBytes, not MaxNodes; this loop only observes cancellation.
+        enum Marking { None, Tagged, Artifact, Unknown }
+
+        sealed class PageContent(int number, PdfDictionary? resources)
+        {
+            internal readonly int Number = number;
+            internal readonly PdfDictionary? Resources = resources;
+            internal readonly HashSet<PdfDictionary> ActiveForms = new();
+        }
+
+        readonly record struct ContentStream(PdfDictionary Owner, PdfDictionary? Resources, string Path)
+        {
+            internal string ContentPath => Path.Length == 0 ? "/Contents" : Path;
+            internal string ResourcePath => Path + "/Resources";
+        }
+
+        sealed class FormUse
+        {
+            internal readonly HashSet<int> Pages = new();
+            internal bool ContainsMcids;
+        }
+
+        readonly Dictionary<PdfDictionary, FormUse> _formUses = new();
+        readonly HashSet<string> _unknownPainting = new();
+
+        void CheckFormPage(PdfDictionary form, int page)
+        {
+            if (_formUses.TryGetValue(form, out var uses))
+                Test("MCID", uses.Pages.Contains(page), "Form was not drawn on the page specified by its structure reference.", page, "/ParentTree");
+            else
+                Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "The referenced stream was not reached through page or form content.", page, "/ParentTree");
+        }
+
         void InspectContent(PdfDictionary page, int number)
         {
             using var content = new MemoryStream();
@@ -28,89 +59,180 @@ namespace PdfSharp.UniversalAccessibility
                 if (Resolve(raw) is not PdfDictionary { Stream: not null } stream)
                 { Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Page content is not a stream.", number); return; }
                 var bytes = Decode(stream);
-                content.Write(bytes, 0, bytes.Length); content.WriteByte(10);
+                content.Write(bytes, 0, bytes.Length);
+                content.WriteByte(10);
             }
             var resources = InheritedResources(page);
-            var scopes = new Stack<bool>();
-            var ids = new HashSet<int>();
-            COperator? dictionary = null;
-            bool understood = true;
-            // Only fonts that paint glyphs need an embedded program (PDF/UA-1 7.21.4.1). The font and the text
-            // rendering mode are graphics state: q/Q save and restore them, BT/ET do not reset them, and
-            // mode 3 paints nothing (ISO 32000-1 9.3.6).
-            var text = new TextState(null, "", false, 0);
+            InspectOperators(new PageContent(number, resources), new ContentStream(page, resources, ""),
+                content.ToArray(), Marking.None, new TextState(null, "", false, 0));
+        }
+
+        bool InspectOperators(PageContent page, ContentStream stream, byte[] bytes, Marking inherited, TextState text)
+        {
+            var scopes = new Stack<Marking>();
             var saved = new Stack<TextState>();
-            foreach (var item in ContentReader.ReadContent(content.ToArray()))
+            var ids = new HashSet<int>();
+            _mcids.TryGetValue(stream.Owner, out var expected);
+            COperator? dictionary = null;
+            bool allIdsKnown = true;
+            foreach (var item in ContentReader.ReadContent(bytes))
             {
                 _cancellation.ThrowIfCancellationRequested();
                 if (item is not COperator op) continue;
-                if (op.Name == "q") saved.Push(text);
-                else if (op.Name == "Q" && saved.Count > 0) text = saved.Pop();
-                else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) text = text with { Mode = mode.Value };
-                else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
-                    text = new TextState(Dict(Dict(resources, "/Font"), fontName.Name), "/Resources/Font" + fontName.Name, true, text.Mode);
-                else if (op.Name == "gs" && op.Operands.FirstOrDefault() is CName stateName
-                    && Resolve(Dict(Dict(resources, "/ExtGState"), stateName.Name)?.Elements["/Font"]) is PdfArray { Elements.Count: > 0 } stateFont)
-                    text = new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary, "/Resources/ExtGState" + stateName.Name + "/Font", true, text.Mode);
-                if (ShowText.Contains(op.Name) && text.Mode != 3)
-                {
-                    if (text.Selected) InspectFont(text.Font, number, text.Path);
-                    else if (_reportedFonts.Add(number + ":/Contents"))
-                        Record("FONT", PdfAccessibilityCheckStatus.NotChecked, "Text is shown before a font is selected.", number, "/Contents");
-                }
                 if (op.OpCode.OpCodeName == OpCodeName.Dictionary) { dictionary = op; continue; }
+                var inline = dictionary != null && op.Operands.Count == 0;
+                var operands = inline ? dictionary!.Operands : op.Operands;
+                dictionary = null;
+                var marking = scopes.Count == 0 ? inherited : scopes.Peek();
                 if (op.Name is "BDC" or "BMC")
                 {
-                    var operands = dictionary?.Operands ?? op.Operands;
-                    var tag = operands.FirstOrDefault() as CName;
-                    bool artifact = tag?.Name == "/Artifact";
-                    int? id = null;
-                    if (op.Name == "BDC" && !artifact)
-                    {
-                        var property = operands.Skip(1).FirstOrDefault() as CString;
-                        var match = McidProperty.Match(property?.Value ?? "");
-                        if (match.Success && Int32.TryParse(match.Groups[1].Value, out var parsed)) id = parsed;
-                        else
-                        {
-                            understood = false;
-                            Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "Named or complex marked-content properties require independent validation.", number, "/Contents");
-                        }
-                    }
+                    bool artifact = operands.FirstOrDefault() is CName { Name: "/Artifact" };
+                    bool known = true;
+                    int? id = op.Name == "BDC" ? PropertyMcid(operands.ElementAtOrDefault(1), inline, artifact, page.Number, stream, out known) : null;
+                    allIdsKnown &= known;
                     if (id.HasValue)
                     {
-                        Test("MCID", ids.Add(id.Value), "MCID occurs more than once on this page.", number, "/Contents");
-                        Test("MCID", _mcids.ContainsKey(number + ":" + id.Value), "Page MCID has no structure-tree association.", number, "/Contents");
+                        Test("MCID", ids.Add(id.Value), "MCID occurs more than once in this content stream.", page.Number, stream.ContentPath);
+                        Test("MCID", expected != null && expected.TryGetValue(id.Value, out var reference) && reference.Page == page.Number,
+                            "MCID has no structure-tree association for this stream and page.", page.Number, stream.ContentPath);
+                        Test("CONTENT", !artifact && marking != Marking.Artifact && inherited != Marking.Tagged,
+                            "Tagged content occurs inside an artifact or a form already tagged as a whole.", page.Number, stream.ContentPath);
                     }
-                    scopes.Push(artifact || id.HasValue || (scopes.Count > 0 && scopes.Peek()));
+                    if (artifact && marking == Marking.Tagged)
+                        Test("CONTENT", false, "An artifact occurs inside tagged content.", page.Number, stream.ContentPath);
+                    if (artifact) marking = Marking.Artifact;
+                    else if (id.HasValue) marking = Marking.Tagged;
+                    else if (!known && marking == Marking.None) marking = Marking.Unknown;
+                    scopes.Push(marking);
                     if (scopes.Count > _options.MaxDepth) throw new AccessibilityLimitException("Marked-content nesting exceeds MaxDepth.");
+                    continue;
                 }
-                else if (op.Name == "EMC")
+                if (op.Name == "EMC")
                 {
-                    Test("CONTENT", scopes.Count > 0, "EMC has no matching marked-content begin.", number, "/Contents");
+                    Test("CONTENT", scopes.Count > 0, "EMC has no matching marked-content begin.", page.Number, stream.ContentPath);
                     if (scopes.Count > 0) scopes.Pop();
+                    continue;
                 }
-                else if (Painting.Contains(op.Name))
-                {
-                    // Once properties are unassessed, a missing scope is uncertain, not proof of failure.
-                    if (understood) Test("CONTENT", scopes.Count > 0 && scopes.Peek(), "Painting operation is outside tagged content or an artifact.", number, "/Contents");
-                    if (op.Name == "Do" && op.Operands.FirstOrDefault() is CName name)
-                    {
-                        if (Name(Dict(Dict(resources, "/XObject"), name.Name), "/Subtype") == "/Form")
-                        {
-                            understood = false;
-                            Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Form XObject content is outside this preflight's coverage.", number, "/Resources/XObject" + name.Name);
-                        }
-                    }
-                }
-                dictionary = null;
+                if (op.Name == "DP" && operands.ElementAtOrDefault(1) is CName property)
+                    PropertyMcid(property, false, false, page.Number, stream, out _);
+
+                text = InspectText(op, page.Number, stream, saved, text);
+                if (op.Name == "Do")
+                    InspectXObject(op.Operands.FirstOrDefault() as CName, page, stream, marking, text);
+                else if (Painting.Contains(op.Name)) CheckPainting(marking, page.Number, stream.ContentPath);
             }
-            Test("CONTENT", scopes.Count == 0, "Marked-content sequence is not closed.", number, "/Contents");
-            if (understood)
-                foreach (var entry in _mcids.Where(x => x.Key.StartsWith(number + ":", StringComparison.Ordinal)))
+            Test("CONTENT", scopes.Count == 0, "Marked-content sequence is not closed.", page.Number, stream.ContentPath);
+            if (allIdsKnown && expected != null)
+                foreach (var entry in expected)
+                    if (entry.Value.Page == page.Number)
+                        Test("MCID", ids.Contains(entry.Key), "Structure MCID does not occur in its content stream.", page.Number, stream.ContentPath);
+            return ids.Count != 0;
+        }
+
+        TextState InspectText(COperator op, int page, ContentStream stream, Stack<TextState> saved, TextState text)
+        {
+            // A form inherits its caller's graphics state and restores it on return (ISO 32000-1 8.10.2).
+            if (op.Name == "q") saved.Push(text);
+            else if (op.Name == "Q" && saved.Count > 0) return saved.Pop();
+            else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) return text with { Mode = mode.Value };
+            else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
+                return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), stream.ResourcePath + "/Font" + fontName.Name, true, text.Mode);
+            else if (op.Name == "gs" && op.Operands.FirstOrDefault() is CName stateName
+                && Resolve(Dict(Dict(stream.Resources, "/ExtGState"), stateName.Name)?.Elements["/Font"]) is PdfArray { Elements.Count: > 0 } stateFont)
+                return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary, stream.ResourcePath + "/ExtGState" + stateName.Name + "/Font", true, text.Mode);
+            else if (ShowText.Contains(op.Name) && text.Mode != 3)
+            {
+                if (text.Selected) InspectFont(text.Font, page, text.Path);
+                else if (_reportedFonts.Add(page + ":" + stream.ContentPath))
+                    Record("FONT", PdfAccessibilityCheckStatus.NotChecked, "Text is shown before a font is selected.", page, stream.ContentPath);
+            }
+            return text;
+        }
+
+        void CheckPainting(Marking marking, int page, string path)
+        {
+            if (marking == Marking.Unknown)
+            {
+                if (_unknownPainting.Add(page + ":" + path))
+                    Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "The markings for this painting operation could not be resolved.", page, path);
+            }
+            else
+                Test("CONTENT", marking != Marking.None, "Painting operation is outside tagged content or an artifact.", page, path);
+        }
+
+        int? PropertyMcid(CObject? operand, bool inline, bool artifact, int page, ContentStream stream, out bool known)
+        {
+            known = true;
+            var path = stream.ContentPath;
+            if (operand is CName name)
+            {
+                path = stream.ResourcePath + "/Properties" + name.Name;
+                var properties = Dict(Dict(stream.Resources, "/Properties"), name.Name);
+                if (properties != null && properties.Stream == null)
                 {
-                    int id = Int32.Parse(entry.Key.Substring(entry.Key.IndexOf(':') + 1), System.Globalization.CultureInfo.InvariantCulture);
-                    Test("MCID", ids.Contains(id), "Structure MCID does not occur in the page content.", number, "/Contents");
+                    if (!properties.Elements.ContainsKey("/MCID")) return null;
+                    var id = Integer(properties.Elements["/MCID"]);
+                    if (id >= 0) return id;
+                    Test("MCID", false, "Named property MCID must be a non-negative integer.", page, path);
+                    return null;
                 }
+                Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "Named marked-content property list could not be resolved to a dictionary.", page, path);
+            }
+            else if (inline && operand is CString property)
+            {
+                var match = McidProperty.Match(property.Value);
+                if (match.Success && Int32.TryParse(match.Groups[1].Value, out var id)) return id;
+                if (artifact) return null;
+                Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "Complex inline marked-content properties require independent validation.", page, path);
+            }
+            else Record("MCID", PdfAccessibilityCheckStatus.NotChecked, "Marked-content property operand could not be inspected.", page, path);
+            known = false;
+            return null;
+        }
+
+        void InspectXObject(CName? name, PageContent page, ContentStream caller, Marking marking, TextState text)
+        {
+            var path = caller.ResourcePath + "/XObject" + name?.Name;
+            var obj = name == null ? null : Dict(Dict(caller.Resources, "/XObject"), name.Name);
+            if (obj?.Stream == null)
+            {
+                Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "XObject could not be resolved to a stream.", page.Number, path);
+                return;
+            }
+            if (Name(obj, "/Subtype") == "/Image") { CheckPainting(marking, page.Number, path); return; }
+            if (Name(obj, "/Subtype") != "/Form" || obj.Elements.ContainsKey("/Ref") || obj.Elements.ContainsKey("/F"))
+            {
+                Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "This XObject's content cannot be inspected as a local form or image.", page.Number, path);
+                return;
+            }
+            if (!page.ActiveForms.Add(obj))
+            {
+                Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Form XObject invocation is recursive.", page.Number, path);
+                return;
+            }
+            if (page.ActiveForms.Count > _options.MaxDepth) throw new AccessibilityLimitException("Form XObject nesting exceeds MaxDepth.");
+            bool repeated = _formUses.TryGetValue(obj, out var use);
+            if (use == null) _formUses.Add(obj, use = new FormUse());
+            use.Pages.Add(page.Number);
+            bool wholeObject = _formObjects.ContainsKey(new FormPage(obj, page.Number));
+            if (wholeObject || obj.Elements.ContainsKey("/StructParent"))
+            {
+                Test("MCID", wholeObject && !obj.Elements.ContainsKey("/StructParents"),
+                    "A form tagged as an object needs its own OBJR and cannot also own structural sequences.", page.Number, path);
+                if (wholeObject)
+                {
+                    Test("CONTENT", marking is not (Marking.Tagged or Marking.Artifact),
+                        "A form tagged by an object reference is also enclosed by a tag or artifact.", page.Number, path);
+                    marking = Marking.Tagged;
+                }
+            }
+            // A legacy form without Resources looks up names on the page. A form with Resources uses only its own dictionary.
+            var resources = obj.Elements.ContainsKey("/Resources") ? Dict(obj, "/Resources") : page.Resources;
+            var stream = new ContentStream(obj, resources, path);
+            use.ContainsMcids |= InspectOperators(page, stream, Decode(obj), marking, text);
+            if (repeated && use.ContainsMcids)
+                Test("MCID", false, "A Form XObject containing MCIDs is invoked more than once.", page.Number, path);
+            page.ActiveForms.Remove(obj);
         }
 
         readonly HashSet<PdfDictionary> _fonts = new();
@@ -121,7 +243,7 @@ namespace PdfSharp.UniversalAccessibility
         {
             if (font == null)
             {
-                if (_reportedFonts.Add(page + ":" + path)) Test("FONT", false, "Font used for text is missing from the page resources.", page, path);
+                if (_reportedFonts.Add(page + ":" + path)) Test("FONT", false, "Font used for text is missing from the active resources.", page, path);
                 return;
             }
             if (!_fonts.Add(font)) return;

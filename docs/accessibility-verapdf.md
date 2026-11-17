@@ -86,6 +86,11 @@ cancellation, argument handling and snapshot changes. Original PDFs exercise
 the installed tool with pinned veraPDF. These controls do not establish coverage
 of every PDF/UA condition.
 
+The `reused-tagged-form` fixture draws an outer form twice. Its inner form owns
+a marked-content ID. FreePDF reports `FPDF-A11Y-MCID` because the same tagged
+form is painted twice. veraPDF 1.30.3 reports a machine pass on this fixture.
+The combined report retains both results and exits with code 1.
+
 The public CLI contract is documented at:
 https://docs.verapdf.org/cli/validation/
 https://docs.verapdf.org/cli/help/
