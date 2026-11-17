@@ -93,11 +93,19 @@ jobs:
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.json
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/*.txt
             ${{ runner.temp }}/freepdf-packages/accessibility-tool/report.*
-            ${{ runner.temp }}/adapter-tests/*.trx
-            ${{ runner.temp }}/installed-adapter/**
             ${{ runner.temp }}/freepdf-packages/consumer-*/**
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
           if-no-files-found: error
+      # Consumers and publish.yml expect the packages at the root of the candidate artifact.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: accessibility-adapter-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/adapter-tests/*.trx
+            ${{ runner.temp }}/installed-adapter/**
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 3 }}
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
