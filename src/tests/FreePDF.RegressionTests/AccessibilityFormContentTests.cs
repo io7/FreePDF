@@ -218,6 +218,73 @@ public partial class AccessibilityScannerTests
     }
 
     [Fact]
+    public void A_long_form_name_is_shortened_in_every_finding_inside_the_form()
+    {
+        var name = "/" + new string('A', 4096);
+        var report = Scan(Fixture(d =>
+        {
+            var page = d.Pages[0];
+            AccessibilityFormFixture.AddForm(d, page.Elements.GetDictionary("/Resources")!, name,
+                String.Concat(Enumerable.Repeat("/Missing Do\n", 50)));
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC " + name + " Do EMC"));
+        }));
+        var unresolved = report.Findings.Where(f => f.Location.EndsWith("/Resources/XObject/Missing")).ToList();
+        Assert.Equal(50, unresolved.Count);
+        Assert.All(unresolved, f => Assert.Equal("/Resources/XObject" + name.Substring(0, 128) + ".../Resources/XObject/Missing", f.Location));
+    }
+
+    [Fact]
+    public void Deeply_nested_form_locations_keep_their_start_and_end_within_the_limit()
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var resources = d.Pages[0].Elements.GetDictionary("/Resources")!;
+            for (var i = 0; i < 12; i++)
+            {
+                var form = AccessibilityFormFixture.AddForm(d, resources, "/" + new string('B', 120) + i, i < 11 ? "/" + new string('B', 120) + (i + 1) + " Do" : "/Missing Do");
+                resources = form.Elements.GetDictionary("/Resources")!;
+            }
+            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC /" + new string('B', 120) + "0 Do EMC"));
+        }));
+        var finding = Assert.Single(report.Findings, f => f.Location.EndsWith("/Resources/XObject/Missing"));
+        Assert.True(finding.Location.Length <= 1024, finding.Location.Length.ToString());
+        Assert.StartsWith("/Resources/XObject/" + new string('B', 120) + "0/Resources", finding.Location);
+        Assert.Contains("/...", finding.Location);
+        Assert.Contains("B11/Resources/XObject/Missing", finding.Location);
+    }
+
+    [Fact]
+    public void A_chain_of_type0_fonts_fails_once_and_is_not_followed()
+    {
+        var report = Scan(Fixture(d =>
+        {
+            PdfDictionary descendant = new PdfDictionary(d);
+            descendant.Elements.SetName("/Type", "/Font");
+            descendant.Elements.SetName("/Subtype", "/CIDFontType2");
+            d.Internals.AddObject(descendant);
+            for (var i = 0; i < 3; i++)
+            {
+                var type0 = new PdfDictionary(d);
+                type0.Elements.SetName("/Type", "/Font");
+                type0.Elements.SetName("/Subtype", "/Type0");
+                var kids = new PdfArray(d);
+                kids.Elements.Add(descendant.Reference!);
+                type0.Elements["/DescendantFonts"] = kids;
+                d.Internals.AddObject(type0);
+                descendant = type0;
+            }
+            var resources = d.Pages[0].Elements.GetDictionary("/Resources")!;
+            var fonts = new PdfDictionary(d);
+            fonts.Elements["/Chain"] = descendant.Reference!;
+            resources.Elements["/Font"] = fonts;
+            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Chain 10 Tf (x) Tj ET EMC"));
+        }));
+        var font = Assert.Single(report.Findings, f => f.RuleId == "FPDF-A11Y-FONT");
+        Assert.Equal(PdfAccessibilityCheckStatus.Failed, font.Status);
+        Assert.Equal("/Resources/Font/Chain", font.Location);
+    }
+
+    [Fact]
     public void Form_invocations_share_the_document_depth_and_decoded_byte_limits()
     {
         var bytes = Fixture(d =>

@@ -33,6 +33,34 @@ namespace PdfSharp.UniversalAccessibility
             internal string ResourcePath => Path + "/Resources";
         }
 
+        // A location repeats the resource names from the page down to the object. A file can give an outer form a
+        // very long name and then record many findings inside it, so each name and each whole location is shortened
+        // before a finding keeps it. Readers can rely on names of up to 127 bytes (ISO 32000-1, Annex C).
+        internal const int MaxLocationNameLength = 127;
+        internal const int MaxLocationLength = 1024;
+        const string Elision = "...";
+
+        static string Location(string parent, string category, string? name = null)
+        {
+            var key = name ?? "";
+            // The name includes its leading slash.
+            if (key.Length > MaxLocationNameLength + 1) key = Head(key, MaxLocationNameLength + 1) + Elision;
+            var location = parent + category + key;
+            if (location.Length <= MaxLocationLength) return location;
+            // Keep the start (where the page invokes the content) and the end (the object with the finding).
+            int head = MaxLocationLength / 4;
+            return Head(location, head) + "/" + Elision + Tail(location, MaxLocationLength - head - Elision.Length - 1);
+        }
+
+        static string Head(string value, int length) =>
+            value.Substring(0, char.IsHighSurrogate(value[length - 1]) ? length - 1 : length);
+
+        static string Tail(string value, int length)
+        {
+            int start = value.Length - length;
+            return value.Substring(char.IsLowSurrogate(value[start]) ? start + 1 : start);
+        }
+
         sealed class FormUse
         {
             internal readonly HashSet<int> Pages = new();
@@ -136,10 +164,11 @@ namespace PdfSharp.UniversalAccessibility
             else if (op.Name == "Q" && saved.Count > 0) return saved.Pop();
             else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) return text with { Mode = mode.Value };
             else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
-                return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), stream.ResourcePath + "/Font" + fontName.Name, true, text.Mode);
+                return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), Location(stream.ResourcePath, "/Font", fontName.Name), true, text.Mode);
             else if (op.Name == "gs" && op.Operands.FirstOrDefault() is CName stateName
                 && Resolve(Dict(Dict(stream.Resources, "/ExtGState"), stateName.Name)?.Elements["/Font"]) is PdfArray { Elements.Count: > 0 } stateFont)
-                return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary, stream.ResourcePath + "/ExtGState" + stateName.Name + "/Font", true, text.Mode);
+                return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary,
+                    Location(Location(stream.ResourcePath, "/ExtGState", stateName.Name), "/Font"), true, text.Mode);
             else if (ShowText.Contains(op.Name) && text.Mode != 3)
             {
                 if (text.Selected) InspectFont(text.Font, page, text.Path);
@@ -166,7 +195,7 @@ namespace PdfSharp.UniversalAccessibility
             var path = stream.ContentPath;
             if (operand is CName name)
             {
-                path = stream.ResourcePath + "/Properties" + name.Name;
+                path = Location(stream.ResourcePath, "/Properties", name.Name);
                 var properties = Dict(Dict(stream.Resources, "/Properties"), name.Name);
                 if (properties != null && properties.Stream == null)
                 {
@@ -192,7 +221,7 @@ namespace PdfSharp.UniversalAccessibility
 
         void InspectXObject(CName? name, PageContent page, ContentStream caller, Marking marking, TextState text)
         {
-            var path = caller.ResourcePath + "/XObject" + name?.Name;
+            var path = Location(caller.ResourcePath, "/XObject", name?.Name);
             var obj = name == null ? null : Dict(Dict(caller.Resources, "/XObject"), name.Name);
             if (obj?.Stream == null)
             {
@@ -251,7 +280,11 @@ namespace PdfSharp.UniversalAccessibility
             {
                 var children = Items(font.Elements["/DescendantFonts"]).Select(Resolve).OfType<PdfDictionary>().ToList();
                 Test("FONT", children.Count == 1 && Name(children[0], "/Subtype") is "/CIDFontType0" or "/CIDFontType2", "Type0 font must identify a CID descendant font.", page, path);
-                foreach (var child in children) InspectFont(child, page, path + "/DescendantFonts");
+                // Only a CIDFont can be a descendant. Following another Type0 font would let a chain of them nest the
+                // inspection, and its location, once per font; the check above already fails such a chain.
+                foreach (var child in children)
+                    if (Name(child, "/Subtype") is "/CIDFontType0" or "/CIDFontType2")
+                        InspectFont(child, page, Location(path, "/DescendantFonts"));
                 return;
             }
             if (Name(font, "/Subtype") == "/Type3")

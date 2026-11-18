@@ -11,12 +11,15 @@ internal static class ProcessProbe
             var input = args[^1];
             var mode = File.ReadAllText(input);
             if (mode == "bad-report") { Console.Write("not XML"); return 0; }
-            var report = VeraPdfAdapterTests.Report();
+            bool failing = mode.StartsWith("fail", StringComparison.Ordinal);
+            var report = VeraPdfAdapterTests.Report(passed: !failing);
             report.Descendants("name").Single().Value = input;
             report.Descendants("item").Single().SetAttributeValue("size", new FileInfo(input).Length);
-            if (mode == "change-input") File.WriteAllText(input, "changed input");
+            // Keep the length, so only the hash comparison can detect the change.
+            if (mode.EndsWith("change-input", StringComparison.Ordinal)) File.WriteAllText(input, mode.ToUpperInvariant());
+            if (mode == "stderr-flood") Console.Error.Write(new string('x', 70 * 1024));
             Console.Write(report.ToString());
-            return 0;
+            return failing ? 1 : 0;
         }
         switch (args[0])
         {

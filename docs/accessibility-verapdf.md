@@ -34,7 +34,10 @@ The combined `hasFailures` field in JSON and SARIF records a detected failure
 from either validator.
 A missing executable, timeout, truncated/malformed XML, inconsistent counts,
 wrong input, unexpected process exit or unsupported profile produces an incomplete
-independent result. A PDF/UA machine pass does not certify WCAG or ADA compliance.
+independent result. So does validator output above its limit (8 MiB of report or
+64 KiB of error output). If the input bytes change while veraPDF runs, the result
+is incomplete and keeps no rule counts or findings, because they describe other
+bytes. A PDF/UA machine pass does not certify WCAG or ADA compliance.
 
 Only explicit PDF/UA-1 is supported: `--verapdf-profile ua1` is the default.
 Other profile values, including `ua2` and automatic detection, remain incomplete.

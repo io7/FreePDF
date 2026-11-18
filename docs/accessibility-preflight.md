@@ -55,7 +55,9 @@ Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
 own tagged content. The scanner matches each form's IDs to its structure
 references and parent tree. A finding includes the page and resource path,
-for example `/Resources/XObject/Outer/Resources/XObject/Inner`.
+for example `/Resources/XObject/Outer/Resources/XObject/Inner`. A resource name
+longer than 127 bytes is cut and ends with `...`. A location longer than 1,024
+characters keeps its start and its end, joined by `/...`.
 
 The scanner looks up named property lists in the active resources. A legacy
 form that omits its resource dictionary uses the page resources. An unresolved

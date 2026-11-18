@@ -7,6 +7,14 @@
   references inside nested forms. A page and a form can each use the same
   marked-content ID. Drawing a form that owns marked-content IDs twice raises
   `FPDF-A11Y-MCID`.
+- Finding locations are bounded: resource names are cut to 127 bytes and a
+  location keeps at most 1,024 characters. A long form name repeated in many
+  findings no longer exhausts memory.
+- The font check no longer follows a Type0 font into another Type0 font. It
+  fails such a chain once (since 7.11.0 the chain was followed font by font).
+- The veraPDF adapter reports output above its limit as such, instead of as an
+  oversized input. When the input bytes change during validation, the incomplete
+  result keeps no rule counts or findings (both since 7.12.0).
 
 ## 7.12.0
 

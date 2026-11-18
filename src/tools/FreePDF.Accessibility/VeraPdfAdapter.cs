@@ -21,13 +21,20 @@ internal static class VeraPdfAdapter
                 new[] { "--format", "xml", "--flavour", "ua1", "--maxfailures", "-1", "--maxfailuresdisplayed", "100", input },
                 timeout, cancellationToken).ConfigureAwait(false);
             result = Parse(output.Report, output.ExitCode, input, new FileInfo(input).Length, documentSha256);
-            // Detect a validator that changed the snapshot, or a concurrent writer.
+            // Detect a validator that changed the snapshot, or a concurrent writer. The report then describes
+            // unknown bytes, so its verdict and findings are dropped rather than kept beside an incomplete status.
             using var stream = File.OpenRead(input);
             if (!String.Equals(Convert.ToHexStringLower(SHA256.HashData(stream)), documentSha256, StringComparison.Ordinal))
-                return result with { Status = IndependentValidationStatus.Incomplete, IncompleteReason = "Input bytes changed during independent validation." };
+                return result with
+                {
+                    Status = IndependentValidationStatus.Incomplete, IncompleteReason = "Input bytes changed during independent validation.",
+                    PassedRules = null, FailedRules = null, PassedChecks = null, FailedChecks = null,
+                    Findings = Array.Empty<IndependentFinding>()
+                };
             return result;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or TimeoutException or ArgumentException)
+        // InvalidDataException is not an IOException. ValidatorProcess throws it when the validator's output exceeds its limit.
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or Win32Exception or TimeoutException or ArgumentException)
         {
             // Do not include process stderr: it may contain passwords or document text.
             return result with { Status = IndependentValidationStatus.Incomplete, IncompleteReason = ex switch
