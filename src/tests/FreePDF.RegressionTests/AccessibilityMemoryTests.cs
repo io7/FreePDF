@@ -100,7 +100,8 @@ public partial class AccessibilityScannerTests
             d.Internals.AddObject(metadata);
             d.Catalog.Elements["/Metadata"] = metadata.Reference!;
         }));
-        Assert.Equal(Enum.Parse<PdfAccessibilityCheckStatus>(outcome), Outcome(report, "UAID"));
+        // The generic Enum.Parse<T> does not exist on .NET Framework, which this project also targets.
+        Assert.Equal((PdfAccessibilityCheckStatus)Enum.Parse(typeof(PdfAccessibilityCheckStatus), outcome), Outcome(report, "UAID"));
     }
 
     [Fact]
