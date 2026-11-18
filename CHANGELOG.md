@@ -20,7 +20,11 @@
   `/CharProcs` dictionary shared by Type3 fonts are each checked once instead of
   once per use. Files of about 1.3 MB took 1 to 3 s, and up to an hour within
   the default limits.
-- `pdfuaid:part` is read from the element's own text or its `rdf:value`.
+- The XMP declaration and title checks summarise each element once, so their
+  work no longer depends on the nesting depth. A `pdfuaid:part` still counts
+  when its whole text is exactly `1`, in any of the RDF forms.
+- A scan whose `MaxDuration` ran out is never reported as completed, also when
+  the scan is short.
 - Tests scan nine hostile inputs in a process with a 256 MiB .NET heap limit
   and a 20-second `MaxDuration`, and check each input's expected outcome.
 

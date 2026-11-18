@@ -58,13 +58,49 @@ public partial class AccessibilityScannerTests
     [Fact]
     public void MaxDuration_ends_the_scan_as_incomplete_and_keeps_earlier_failures()
     {
-        var bytes = Fixture(d => d.Pages[0].Contents.AppendContent().CreateStream(
-            Encoding.ASCII.GetBytes(String.Concat(Enumerable.Repeat("0 0 1 1 re f ", 2000)))));
+        // The missing language fails in the first phase; the limit is applied when that phase ends.
+        var bytes = Fixture(d => d.Catalog.Elements.Remove("/Lang"));
         var report = Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = TimeSpan.FromTicks(1) });
         Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.True(report.HasFailures);
         Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message == "Scan exceeded MaxDuration.");
-        Fails(report, "CONTENT");
-        Assert.Equal(PdfAccessibilityScanStatus.Failed, Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = null }).Status);
+        Fails(report, "LANG");
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "CONTENT"));
+        var unlimited = Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = null });
+        Assert.True(unlimited.ScanCompleted);
+        Fails(unlimited, "LANG");
+    }
+
+    [Fact]
+    public void An_expired_MaxDuration_never_reports_a_completed_scan()
+    {
+        // The small fixture takes fewer than 256 loop steps; the check after each phase still applies the limit.
+        var report = Scan(Fixture(), new PdfAccessibilityScanOptions { MaxDuration = TimeSpan.FromTicks(1) });
+        Assert.False(report.ScanCompleted);
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message == "Scan exceeded MaxDuration.");
+    }
+
+    [Theory]
+    [InlineData("<pdfuaid:part>12</pdfuaid:part>", "Failed")]
+    [InlineData("<pdfuaid:part> 1</pdfuaid:part>", "Failed")]
+    [InlineData("<pdfuaid:part>2</pdfuaid:part>", "NotChecked")]
+    [InlineData("<pdfuaid:part><x:a xmlns:x=\"urn:x\">1</x:a><x:b xmlns:x=\"urn:x\">2</x:b></pdfuaid:part>", "Failed")]
+    public void Only_a_whole_text_of_exactly_1_declares_pdfua1(string part, string outcome)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var xml = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+                + "<rdf:Description rdf:about=\"\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">" + part
+                + "</rdf:Description></rdf:RDF></x:xmpmeta>";
+            var metadata = new PdfDictionary(d);
+            metadata.Elements.SetName("/Type", "/Metadata");
+            metadata.Elements.SetName("/Subtype", "/XML");
+            metadata.CreateStream(Encoding.UTF8.GetBytes(xml));
+            d.Internals.AddObject(metadata);
+            d.Catalog.Elements["/Metadata"] = metadata.Reference!;
+        }));
+        Assert.Equal(Enum.Parse<PdfAccessibilityCheckStatus>(outcome), Outcome(report, "UAID"));
     }
 
     [Fact]
@@ -92,7 +128,9 @@ public partial class AccessibilityScannerTests
     [Theory]
     [InlineData("<pdfuaid:part>1</pdfuaid:part>")]
     [InlineData("<pdfuaid:part rdf:parseType=\"Resource\"><rdf:value>1</rdf:value></pdfuaid:part>")]
-    public void The_pdfua_declaration_is_read_from_its_own_text_or_rdf_value(string part)
+    [InlineData("<pdfuaid:part><rdf:Description><rdf:value>1</rdf:value></rdf:Description></pdfuaid:part>")]
+    [InlineData("<pdfuaid:part><!-- version -->1</pdfuaid:part>")]
+    public void The_pdfua_declaration_is_read_from_its_whole_text(string part)
     {
         var report = Scan(Fixture(d =>
         {

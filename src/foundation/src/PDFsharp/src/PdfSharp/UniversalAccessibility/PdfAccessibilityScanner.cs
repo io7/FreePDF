@@ -102,7 +102,13 @@ namespace PdfSharp.UniversalAccessibility
         internal void Tick()
         {
             _cancellation.ThrowIfCancellationRequested();
-            if ((++_ticks & 255) == 0 && _options.MaxDuration is TimeSpan limit && _clock.Elapsed > limit)
+            if ((++_ticks & 255) == 0) CheckDuration();
+        }
+
+        // Also called after each phase of Inspect, so a scan that ran out of time never reports itself as completed.
+        void CheckDuration()
+        {
+            if (_options.MaxDuration is TimeSpan limit && _clock.Elapsed > limit)
                 throw new AccessibilityLimitException("Scan exceeded MaxDuration.");
         }
         internal bool RepairedByReader;
@@ -224,6 +230,7 @@ namespace PdfSharp.UniversalAccessibility
             Test("MARKED", True(markInfo, "/Marked"), "MarkInfo/Marked is not true.");
             Test("SUSPECTS", FalseOrAbsent(markInfo, "/Suspects"), "MarkInfo/Suspects is true or is not a boolean; tagging needs review.");
             InspectMetadata(Dict(catalog, "/Metadata"));
+            CheckDuration();
             Finished("LANG", "DISPLAYTITLE", "MARKED", "SUSPECTS", "TITLE", "UAID");
             var root = Dict(catalog, "/StructTreeRoot");
             Test("TREE", root != null && Name(root, "/Type") == "/StructTreeRoot" && Items(root.Elements["/K"]).Any(), "A nonempty StructTreeRoot with the correct Type is required.");
@@ -232,6 +239,7 @@ namespace PdfSharp.UniversalAccessibility
                 _roleMap = Dict(root, "/RoleMap");
                 WalkKids(root.Elements["/K"], root, null, "", "/StructTreeRoot/K", 0);
             }
+            CheckDuration();
             Finished("TREE", "ROLE", "ALT", "NESTING");
             foreach (var page in _pages)
             {
@@ -243,8 +251,10 @@ namespace PdfSharp.UniversalAccessibility
                     if (Name(annotation, "/Subtype") is "/Link" or "/Widget")
                         Test("ANNOT", _objects.Contains(annotation), "Link or widget has no structure OBJR association.", page.Value, "/Annots");
             }
+            CheckDuration();
             Finished("CONTENT", "FONT", "TABS", "ANNOT");
             InspectParentTree(root);
+            CheckDuration();
             Finished("MCID");
             Record("REVIEW", PdfAccessibilityCheckStatus.NeedsReview, _checks["REVIEW"].Guidance);
             Record("READ", RepairedByReader ? PdfAccessibilityCheckStatus.NotChecked : PdfAccessibilityCheckStatus.Passed,
@@ -281,8 +291,7 @@ namespace PdfSharp.UniversalAccessibility
                 string? problem = null;
                 try
                 {
-                    // The title check visits each text node once for every title that encloses it, so the work
-                    // stays proportional to the size only while the nesting is bounded. Deeper XMP is not loaded.
+                    // Real XMP is a few levels deep. Deeper XMP is not loaded, as for the other nesting limits.
                     using (var depth = XmlReader.Create(new MemoryStream(data), settings))
                         while (depth.Read())
                             if (depth.Depth > _options.MaxDepth) { problem = "XMP nesting exceeds MaxDepth."; break; }
@@ -302,18 +311,37 @@ namespace PdfSharp.UniversalAccessibility
             }
             XNamespace dc = "http://purl.org/dc/elements/1.1/";
             XNamespace ua = "http://www.aiim.org/pdfua/ns/id/";
-            XNamespace rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-            // pdfuaid:part is a simple value: the element's own text, or its rdf:value qualifier. Reading only those
-            // text nodes keeps the work linear; Value would join all descendant text again for every nested element.
-            static string Own(XElement e) => String.Concat(e.Nodes().OfType<XText>().Select(t => t.Value));
-            static string Part(XElement e, XNamespace rdf)
-            {
-                var own = Own(e);
-                return String.IsNullOrWhiteSpace(own) && e.Element(rdf + "value") is XElement value ? Own(value) : own;
-            }
-            var declarations = xmp?.Descendants().SelectMany(e => e.Attributes(ua + "part").Select(a => a.Value).Concat(e.Name == ua + "part" ? new[] { Part(e, rdf) } : Array.Empty<string>())).ToList();
-            // Non-blank text anywhere below a title, without building the joined Value.
-            Test("TITLE", xmp != null && xmp.Descendants(dc + "title").Any(t => t.DescendantNodes().OfType<XText>().Any(x => !String.IsNullOrWhiteSpace(x.Value))), "XMP dc:title is missing or empty.", path: "/Metadata");
+            // A declaration counts when an element's whole text (its Value) is exactly "1" or "2", and a title when any
+            // text below it is not blank. Value joins all descendant text again for every nested element, so each element
+            // is summarised once, children before parents: its text cut after two characters, which still tells "1" and
+            // "2" from anything else, and whether it holds non-blank text.
+            static string Take(string value, int count) => value.Length <= count ? value : value.Substring(0, count);
+            var shortText = new Dictionary<XElement, string>();
+            var hasText = new HashSet<XElement>();
+            if (xmp?.Root != null)
+                foreach (var e in xmp.Root.DescendantsAndSelf().Reverse())
+                {
+                    Tick();
+                    string text = "";
+                    bool any = false;
+                    foreach (var node in e.Nodes())
+                    {
+                        if (node is XText t)
+                        {
+                            text += Take(t.Value, 2 - text.Length);
+                            any |= !String.IsNullOrWhiteSpace(t.Value);
+                        }
+                        else if (node is XElement child)
+                        {
+                            text += Take(shortText[child], 2 - text.Length);
+                            any |= hasText.Contains(child);
+                        }
+                    }
+                    shortText.Add(e, text);
+                    if (any) hasText.Add(e);
+                }
+            var declarations = xmp?.Descendants().SelectMany(e => e.Attributes(ua + "part").Select(a => a.Value).Concat(e.Name == ua + "part" ? new[] { shortText[e] } : Array.Empty<string>())).ToList();
+            Test("TITLE", xmp != null && xmp.Descendants(dc + "title").Any(hasText.Contains), "XMP dc:title is missing or empty.", path: "/Metadata");
             if (declarations?.Contains("2") == true) Record("UAID", PdfAccessibilityCheckStatus.NotChecked, "PDF/UA-2 is outside this profile.", path: "/Metadata");
             else Test("UAID", declarations?.Count > 0 && declarations.All(x => x == "1"), "XMP does not unambiguously declare pdfuaid:part=1.", path: "/Metadata");
         }

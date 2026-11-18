@@ -513,8 +513,8 @@ implementation was consulted.
 
 The streaming operator reader added to the inherited MIT `CParser` (`ReadOperators`,
 with `ParseObject` returning after each operator on request), the run-length store
-of saved graphics states, the XMP depth check and declaration reading (XMP's
-`rdf:value` qualifier form), the per-object checks of shared strings, MCIDs and
+of saved graphics states, the XMP depth check and one-pass summary of element text,
+the per-object checks of shared strings, MCIDs and
 glyph dictionaries, the `MaxDuration` option and the hostile-input tests are
 original FreePDF code. Inputs were the reviewed FreePDF source, ISO 32000-1 Annex C
 (implementation limits) and 8.4.2 (the graphics state stack), and original synthetic
