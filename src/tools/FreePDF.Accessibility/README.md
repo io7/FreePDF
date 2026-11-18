@@ -32,6 +32,8 @@ dotnet run --project src/tools/FreePDF.Accessibility -c Release -- document.pdf
 
 Output files must not already exist. Use `--password-env NAME` to supply a password
 through an environment variable. Reports can contain text from the input PDF.
+`--timeout SECONDS` (1 to 3600, default 120) ends the native scan as incomplete when
+it takes longer; failures found until then are kept.
 
 Exit codes: `0` explicit automated policy satisfied (review still required), `1`
 failed checks (also in an incomplete scan), `2` human review required, `3`

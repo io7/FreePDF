@@ -69,9 +69,11 @@ document still gives exit code 1.
 metadata, page streams and each form invocation. `MaxDepth` bounds nested
 forms and XMP elements. `MaxNodes` covers the structure tree, role map and number
 tree. Equal consecutive saved graphics states share one entry, and more than
-65,536 distinct saved states stop the scan. A limit produces `Incomplete`.
-Cancellation propagates to the caller. The metadata reader disables XML DTD
-processing.
+65,536 distinct saved states stop the scan. `MaxDuration` (default 2 minutes,
+`null` for no limit) ends a scan that takes longer; the failures found until then
+stay in the report. Opening the PDF is not interrupted by `MaxDuration`; use the
+cancellation token for that. A limit produces `Incomplete`. Cancellation
+propagates to the caller. The metadata reader disables XML DTD processing.
 
 The scanner reads content one operator at a time. If a stream cannot be parsed
 to its end, failures found before the error remain in the report, and the scan
@@ -128,6 +130,7 @@ characters and end it with `...`, because many elements can share one long text.
 `PdfAccessibilityStructureEntry.AlternativeText` in the API keeps the whole text.
 Output paths must be new files: the CLI refuses to overwrite an existing report or
 PDF. Use `--password-env NAME` for an environment variable containing the password.
+`--timeout SECONDS` (1 to 3600, default 120) sets `MaxDuration` for the native scan.
 The password is never included in the report.
 
 | Exit | Meaning |

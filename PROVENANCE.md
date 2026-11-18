@@ -509,11 +509,13 @@ adapter's handling of validator output limits, and a changed or unreadable
 snapshot that keeps no validator verdict. No validator or later PDFsharp
 implementation was consulted.
 
-## Bounded memory in the accessibility scan (unreleased)
+## Bounded memory and time in the accessibility scan (unreleased)
 
 The streaming operator reader added to the inherited MIT `CParser` (`ReadOperators`,
 with `ParseObject` returning after each operator on request), the run-length store
-of saved graphics states, the XMP depth check and the hostile-input tests are
+of saved graphics states, the XMP depth check and declaration reading (XMP's
+`rdf:value` qualifier form), the per-object checks of shared strings, MCIDs and
+glyph dictionaries, the `MaxDuration` option and the hostile-input tests are
 original FreePDF code. Inputs were the reviewed FreePDF source, ISO 32000-1 Annex C
 (implementation limits) and 8.4.2 (the graphics state stack), and original synthetic
 reproducers found by the 7.13.0 review. `ReadContent` keeps its behaviour. No other

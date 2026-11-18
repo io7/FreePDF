@@ -13,7 +13,16 @@
   its descendants: a 124 KB file used 382 MB.
 - A failure found in content before a parse error is now kept. Before, the
   parse error discarded every finding in that stream.
-- Tests scan six hostile inputs in a process with a 256 MiB .NET heap limit.
+- New `PdfAccessibilityScanOptions.MaxDuration` (default 2 minutes, `null` for
+  none) ends a scan as incomplete and keeps the failures found so far.
+  `freepdf-a11y --timeout SECONDS` sets it (default 120).
+- A shared whitespace-only `/Alt`, the MCIDs of a form drawn many times and a
+  `/CharProcs` dictionary shared by Type3 fonts are each checked once instead of
+  once per use. Files of about 1.3 MB took 1 to 3 s, and up to an hour within
+  the default limits.
+- `pdfuaid:part` is read from the element's own text or its `rdf:value`.
+- Tests scan nine hostile inputs in a process with a 256 MiB .NET heap limit
+  and a 20-second `MaxDuration`, and check each input's expected outcome.
 
 ## 7.13.0
 
