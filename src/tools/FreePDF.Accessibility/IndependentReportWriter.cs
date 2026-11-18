@@ -49,7 +49,7 @@ internal static class IndependentReportWriter
                 section.Append("<li><strong>").Append(E(finding.Specification)).Append(" / ").Append(E(finding.Clause)).Append(" / ").Append(E(finding.TestNumber))
                     .Append("</strong>: ").Append(E(finding.Description)).Append("<ul>")
                     .Append(string.Concat(finding.Locations.Select(l => "<li><code>" + E(l) + "</code></li>"))).Append("</ul></li>");
-            section.Append("</ul><p>Requirements inventory 1.0.0 accounts for 137 Matterhorn conditions. Applicability and human decisions remain unassessed. Use <code>freepdf-a11y --requirements --format json</code> for the inventory.</p></section><h2>Native preflight</h2>");
+            section.Append("</ul><p>Requirements inventory ").Append(E(RequirementInventory.Version)).Append(" accounts for 137 Matterhorn conditions. Applicability and human decisions remain unassessed. Use <code>freepdf-a11y --requirements --format json</code> for the inventory.</p></section><h2>Native preflight</h2>");
             return baseReport.Replace("<h1>Accessibility preflight</h1>", "<h1>Accessibility assessment</h1>" + section);
         }
         throw new ArgumentException("Unknown report format.");

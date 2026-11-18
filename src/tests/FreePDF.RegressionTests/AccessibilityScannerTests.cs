@@ -10,7 +10,7 @@ using Xunit;
 
 namespace FreePDF.RegressionTests;
 
-public class AccessibilityScannerTests
+public partial class AccessibilityScannerTests
 {
     static PdfDictionary Child(PdfDictionary d) => d.Elements.GetDictionary("/K") ?? d.Elements.GetArray("/K")!.Elements.GetDictionary(0)!;
 
@@ -271,25 +271,6 @@ public class AccessibilityScannerTests
     }
 
     [Fact]
-    public void Form_xobject_content_is_explicitly_unassessed()
-    {
-        var bytes = Fixture(d =>
-        {
-            var form = new PdfDictionary(d);
-            form.Elements.SetName("/Type", "/XObject"); form.Elements.SetName("/Subtype", "/Form");
-            form.Elements.SetRectangle("/BBox", new PdfRectangle(new XPoint(0, 0), new XPoint(10, 10)));
-            form.CreateStream(Encoding.ASCII.GetBytes("0 0 10 10 re f"));
-            d.Internals.AddObject(form);
-            var xobjects = new PdfDictionary(d); xobjects.Elements["/Form0"] = form.Reference!;
-            d.Pages[0].Elements.GetDictionary("/Resources")!.Elements["/XObject"] = xobjects;
-            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC /Form0 Do EMC"));
-        });
-        var report = Scan(bytes);
-        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
-        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-CONTENT" && f.Status == PdfAccessibilityCheckStatus.NotChecked);
-    }
-
-    [Fact]
     public void A_non_boolean_suspects_flag_is_not_treated_as_false()
         => Fails(Scan(Fixture(d => d.Catalog.Elements.GetDictionary("/MarkInfo")!.Elements.SetString("/Suspects", "false"))), "SUSPECTS");
 
@@ -402,14 +383,7 @@ public class AccessibilityScannerTests
         var bytes = Fixture(d =>
         {
             d.Catalog.Elements.Remove("/Lang");
-            var form = new PdfDictionary(d);
-            form.Elements.SetName("/Type", "/XObject"); form.Elements.SetName("/Subtype", "/Form");
-            form.Elements.SetRectangle("/BBox", new PdfRectangle(new XPoint(0, 0), new XPoint(10, 10)));
-            form.CreateStream(Encoding.ASCII.GetBytes("0 0 10 10 re f"));
-            d.Internals.AddObject(form);
-            var xobjects = new PdfDictionary(d); xobjects.Elements["/Form0"] = form.Reference!;
-            d.Pages[0].Elements.GetDictionary("/Resources")!.Elements["/XObject"] = xobjects;
-            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC /Form0 Do EMC"));
+            d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Span <</Lang (en) /ActualText (sample)>> BDC EMC"));
         });
         var report = Scan(bytes);
         Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);

@@ -486,3 +486,14 @@ Informative WCAG mappings use the dated W3C recommendations
 https://www.w3.org/TR/2025/REC-WCAG21-20250506/ and
 https://www.w3.org/TR/2024/REC-WCAG22-20241212/.
 Those mappings are not equivalence assertions or legal-conformance conclusions.
+
+## Native page and form content inspection (7.13.0-alpha.1)
+
+The implementation and synthetic fixtures are original FreePDF work. Inputs
+were the reviewed FreePDF 7.12.0 source and ISO 32000-1:2008, sections 7.8.3,
+8.10, 14.6.2 and 14.7.4. They describe resource lookup, form invocation,
+property lists and the structure references for pages and forms. The existing
+Matterhorn inventory supplies condition 30-002 on repeated use of tagged forms.
+The independent checks use the published veraPDF 1.30.3 executable.
+
+Specification: https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf

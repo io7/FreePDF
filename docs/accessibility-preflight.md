@@ -44,20 +44,30 @@ found stay `Failed`, and `HasFailures` reports them.
 | ROLE | Standard PDF 1.7 structure roles and bounded custom role-map resolution |
 | ALT | Presence of `Alt` or `ActualText` for figures and formulas |
 | NESTING | Basic list/item/label/body and table/row/cell parent relationships |
-| MCID | Unique page MCIDs, content/structure associations and ParentTree back-references |
-| CONTENT | Page painting inside tags/artifacts; balanced marked-content scopes |
-| FONT | Embedded-program presence for fonts that show text in page content, except in text rendering mode 3 (invisible) |
+| MCID | IDs within each page or form, structure references, ParentTree entries and repeated use of a form with its own IDs |
+| CONTENT | Painting inside tags or artifacts and balanced marked-content scopes in pages and invoked forms |
+| FONT | Embedded font programs for visible text in pages and invoked forms, except in text rendering mode 3 (invisible) |
 | TABS | Structure tab order on annotated pages |
 | ANNOT | Structure object references for links/widgets |
 | REVIEW | Required human accessibility review |
 
-Complex or named marked-content property dictionaries and Form XObject content
-produce `NotChecked`, not a guessed pass. Metadata uses a secure XML reader with
-DTD processing disabled. Input, decoded-content, page, traversal, depth and finding
-limits are configurable through `PdfAccessibilityScanOptions`. `MaxNodes` counts
-structure-tree, role-map and number-tree nodes; page content is bounded by
-`MaxDecodedBytes`. Limit exhaustion produces `Incomplete`. Cancellation propagates
-to the caller.
+Starting with 7.13.0-alpha.1, the scanner follows each `Do` that draws a local
+Form XObject. A form can inherit the caller's tag or artifact, or contain its
+own tagged content. The scanner matches each form's IDs to its structure
+references and parent tree. A finding includes the page and resource path,
+for example `/Resources/XObject/Outer/Resources/XObject/Inner`.
+
+The scanner looks up named property lists in the active resources. A legacy
+form that omits its resource dictionary uses the page resources. An unresolved
+property, a recursive form or a complex inline property that the scanner
+cannot interpret produces `NotChecked`. A definite failure elsewhere in the
+document still gives exit code 1.
+
+`PdfAccessibilityScanOptions` sets the scan limits. `MaxDecodedBytes` covers
+metadata, page streams and each form invocation. `MaxDepth` bounds nested
+forms. `MaxNodes` covers the structure tree, role map and number tree. A limit
+produces `Incomplete`. Cancellation propagates to the caller. The metadata
+reader disables XML DTD processing.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
 do not validate Unicode mappings, embedded glyph correctness, all heading/table
@@ -153,11 +163,12 @@ results remain separate from native findings and human review.
 The regression suite includes positive, negative, cyclic, encrypted, malformed,
 resource-limit and original-byte-preservation cases. CLI contracts test exit
 policies, JSON/SARIF structure, HTML escaping and output overwrite protection.
-CI compares four independent synthetic fixture expectations with pinned veraPDF
-1.30.3. Agreement on those fixtures is not a claim of complete rule coverage.
+CI runs the installed CLI on nine synthetic files with veraPDF 1.30.3. The
+adapter tests record each validator's result, including the
+[repeated-form difference](accessibility-verapdf.md#validation).
 
 Future releases can extend the versioned rules with Unicode/glyph validation,
-Form XObject and named-property inspection, complete annotation/form/table rules,
+complete annotation/form/table rules,
 then generation preflight and reviewed remediation. Automatic repair, AI-written
 alternative text, PDF/UA-2 and organizational review sign-off are not part of this
 first implementation.

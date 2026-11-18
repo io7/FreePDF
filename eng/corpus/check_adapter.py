@@ -36,6 +36,10 @@ def main():
         ("missing-language", 1, "Failed", "Failed"),
         ("untagged", 1, "Failed", "Failed"),
         ("incomplete-missing-language", 1, "Incomplete", "Failed"),
+        ("nested-form", 2, "NeedsReview", "MachineChecksPassed"),
+        # 1.30.3 accepts an outer form invoked twice when its inner form owns the MCID.
+        ("reused-tagged-form", 1, "Failed", "MachineChecksPassed"),
+        ("untagged-form-paint", 1, "Failed", "Failed"),
         ("malformed", 3, "Incomplete", "Incomplete"),
     ):
         text, sha = scan(name, expected, "--format", "json")
@@ -43,7 +47,7 @@ def main():
         independent = report["independentValidation"]
         if report["schemaVersion"] != "2.0" or independent["status"] != verdict or independent["validatorVersion"] != "1.30.3":
             raise RuntimeError(f"Incorrect independent verdict or validator version for {name}")
-        if report["status"] != status or report["hasFailures"] != (expected == 1):
+        if report["native"]["status"] != status or report["status"] != status or report["hasFailures"] != (expected == 1):
             raise RuntimeError(f"Incorrect combined status or failure flag for {name}")
         if {report["documentSha256"], report["native"]["documentSha256"], independent["documentSha256"]} != {sha}:
             raise RuntimeError("Native and independent results are not bound to the same bytes")

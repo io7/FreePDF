@@ -36,6 +36,9 @@ $cases = @(
     @{name='untagged'; exit=1; status='Failed'; rule='FPDF-A11Y-TREE'},
     # A detected failure decides the exit code even when the scan is incomplete.
     @{name='incomplete-missing-language'; exit=1; status='Incomplete'; rule='FPDF-A11Y-LANG'},
+    @{name='nested-form'; exit=2; status='NeedsReview'; rule='FPDF-A11Y-REVIEW'},
+    @{name='reused-tagged-form'; exit=1; status='Failed'; rule='FPDF-A11Y-MCID'},
+    @{name='untagged-form-paint'; exit=1; status='Failed'; rule='FPDF-A11Y-CONTENT'},
     @{name='malformed'; exit=3; status='Incomplete'; rule='FPDF-A11Y-READ'}
 )
 foreach ($case in $cases) {
@@ -63,5 +66,5 @@ $sarif = Get-Content "$output/report.sarif" -Raw | ConvertFrom-Json
 if ($sarif.version -cne '2.1.0' -or 'FPDF-A11Y-ALT' -cnotin $sarif.runs[0].results.ruleId) { throw 'Invalid SARIF report.' }
 $receipt = @{ packageId=$id; framework='net10.0'; command='freepdf-a11y'; status='passed'; fixtures=$cases }
 $receipt | ConvertTo-Json -Depth 5 | Set-Content "$output/validation.json" -Encoding utf8
-Write-Host 'PASS: installed accessibility tool, six fixture outcomes, original-byte preservation and all report formats.'
+Write-Host "PASS: installed accessibility tool, $($cases.Count) fixture outcomes, original-byte preservation and all report formats."
 return $receipt

@@ -41,11 +41,11 @@ namespace PdfSharp.UniversalAccessibility
         public int MaxPages { get; set; } = 2000;
         /// <summary>Maximum structure-tree, role-map and number-tree nodes to visit. Page content is bounded by <see cref="MaxDecodedBytes"/>.</summary>
         public int MaxNodes { get; set; } = 100000;
-        /// <summary>Maximum structure-tree, page-tree and marked-content nesting depth.</summary>
+        /// <summary>Maximum structure-tree, page-tree, Form XObject and marked-content nesting depth.</summary>
         public int MaxDepth { get; set; } = 64;
         /// <summary>Maximum findings, including review tasks.</summary>
         public int MaxFindings { get; set; } = 10000;
-        /// <summary>Maximum decoded bytes inspected across metadata and page content.</summary>
+        /// <summary>Maximum decoded bytes inspected across metadata, page content and each invoked form.</summary>
         public int MaxDecodedBytes { get; set; } = 32 * 1024 * 1024;
     }
 
@@ -104,7 +104,7 @@ namespace PdfSharp.UniversalAccessibility
     public sealed class PdfAccessibilityReport
     {
         /// <summary>Version of this bounded preflight rule set.</summary>
-        public string RulesetVersion => "1.0.0";
+        public string RulesetVersion => "1.1.0";
         /// <summary>The intended standard; only the listed checks are implemented.</summary>
         public string Profile => "PDF/UA-1 preflight";
         /// <summary>Always partial: this API is not a complete PDF/UA validator or ADA certification.</summary>
@@ -130,8 +130,8 @@ namespace PdfSharp.UniversalAccessibility
         {
             "This preflight does not establish PDF/UA, WCAG, Section 508 or ADA compliance.",
             "Human review is required for reading order, text alternatives, headings, table meaning, contrast, language and assistive-technology usability.",
-            "Embedded font program presence is checked for fonts that show visible text in page content; glyph/Unicode mapping validity, annotation appearance content, form-field semantics, optional content and the complete PDF/UA rule set are not validated.",
-            "Page marked content is inspected; content inside Form XObjects and named marked-content properties is not validated.",
+            "The font check covers visible text in page content and invoked forms. Glyph and Unicode mapping, annotation appearances, form-field semantics and optional content require further validation.",
+            "The scanner resolves named marked-content properties. Complex inline property dictionaries and external reference XObjects require independent inspection.",
             "PDF/UA-2 is not supported. Use an independent validator and assistive-technology testing before making a conformance claim.",
             "Limits bound this preflight's traversal; they are not a process sandbox. Isolate untrusted PDFs with external memory and time limits."
         });
