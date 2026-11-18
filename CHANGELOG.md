@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## 7.13.0-alpha.1
+## 7.13.0
 
 - The native accessibility scanner follows Form XObjects and resolves named
   marked-content properties. It checks painting, visible fonts and structure

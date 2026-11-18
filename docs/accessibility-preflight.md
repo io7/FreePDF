@@ -51,7 +51,7 @@ found stay `Failed`, and `HasFailures` reports them.
 | ANNOT | Structure object references for links/widgets |
 | REVIEW | Required human accessibility review |
 
-Starting with 7.13.0-alpha.1, the scanner follows each `Do` that draws a local
+Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
 own tagged content. The scanner matches each form's IDs to its structure
 references and parent tree. A finding includes the page and resource path,

@@ -307,6 +307,10 @@ The 7.12.0 CLI can run a separately installed veraPDF validator with its PDF/UA-
 profile. The package checks exercise veraPDF 1.30.3 on Linux and Windows. Use
 `freepdf-a11y --requirements` to see which Matterhorn conditions need human review.
 
+In 7.13.0 the native scanner checks tagged content, painting and fonts for
+visible text inside local Form XObjects, including nested forms. If the scanner
+cannot resolve a named marked-content property, it reports an incomplete scan.
+
 Scanner coverage is partial PDF/UA-1. A completed scan means its implemented
 checks finished; it does not establish ADA, WCAG or full PDF/UA compliance.
 Human review and independent validation remain required. Unsupported content
