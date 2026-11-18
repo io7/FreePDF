@@ -1,5 +1,33 @@
 # FreePDF changelog
 
+## Unreleased
+
+- The accessibility scan reads page and form content one operator at a time
+  instead of building the whole stream as objects first. A 20 KB file whose
+  content decompresses to 20 MB of `q` operators used 2.4 GB and now uses
+  152 MB.
+- Equal consecutive saved graphics states (`q`) share one entry. More than
+  65,536 distinct saved states make the scan incomplete.
+- XMP metadata nested deeper than `MaxDepth` is not checked (`TITLE` and `UAID`
+  are `NotChecked`). Before, each nested `pdfuaid:part` joined the text of all
+  its descendants: a 124 KB file used 382 MB.
+- A failure found in content before a parse error is now kept. Before, the
+  parse error discarded every finding in that stream.
+- New `PdfAccessibilityScanOptions.MaxDuration` (default 2 minutes, `null` for
+  none) ends a scan as incomplete and keeps the failures found so far.
+  `freepdf-a11y --timeout SECONDS` sets it (default 120).
+- A shared whitespace-only `/Alt`, the MCIDs of a form drawn many times and a
+  `/CharProcs` dictionary shared by Type3 fonts are each checked once instead of
+  once per use. Files of about 1.3 MB took 1 to 3 s, and up to an hour within
+  the default limits.
+- The XMP declaration and title checks summarise each element once, so their
+  work no longer depends on the nesting depth. A `pdfuaid:part` still counts
+  when its whole text is exactly `1`, in any of the RDF forms.
+- A scan whose `MaxDuration` ran out is never reported as completed, also when
+  the scan is short.
+- Tests scan nine hostile inputs in a process with a 256 MiB .NET heap limit
+  and a 20-second `MaxDuration`, and check each input's expected outcome.
+
 ## 7.13.0
 
 - The native accessibility scanner follows Form XObjects and resolves named

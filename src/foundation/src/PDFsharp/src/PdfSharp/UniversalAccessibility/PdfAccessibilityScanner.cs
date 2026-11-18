@@ -28,7 +28,8 @@ namespace PdfSharp.UniversalAccessibility
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             options ??= new PdfAccessibilityScanOptions();
-            if (options.MaxFileBytes < 1 || options.MaxPages < 1 || options.MaxNodes < 1 || options.MaxDepth < 1 || options.MaxDepth > 256 || options.MaxFindings < 1 || options.MaxDecodedBytes < 1)
+            if (options.MaxFileBytes < 1 || options.MaxPages < 1 || options.MaxNodes < 1 || options.MaxDepth < 1 || options.MaxDepth > 256 || options.MaxFindings < 1 || options.MaxDecodedBytes < 1
+                || options.MaxDuration <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(options), "All limits must be positive; MaxDepth must not exceed 256.");
             var scan = new AccessibilityScan(options, cancellationToken);
             long? position = stream.CanSeek ? stream.Position : null;
@@ -92,8 +93,24 @@ namespace PdfSharp.UniversalAccessibility
         // Checks whose every occurrence was inspected. After a limit stops the scan, the others are not reported as passed.
         readonly HashSet<string> _finished = new();
         PdfDictionary? _roleMap;
-        int _nodes, _decoded;
+        int _nodes, _decoded, _ticks;
         bool _incomplete;
+        readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+
+        // Called in every loop over document content. Cancellation is checked each time and the clock every 256 calls,
+        // so a slow case that no specific limit covers still ends as an incomplete scan.
+        internal void Tick()
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if ((++_ticks & 255) == 0) CheckDuration();
+        }
+
+        // Also called after each phase of Inspect, so a scan that ran out of time never reports itself as completed.
+        void CheckDuration()
+        {
+            if (_options.MaxDuration is TimeSpan limit && _clock.Elapsed > limit)
+                throw new AccessibilityLimitException("Scan exceeded MaxDuration.");
+        }
         internal bool RepairedByReader;
         const string Technique = "https://www.w3.org/WAI/WCAG22/Techniques/pdf/";
         const string Matterhorn = "https://pdfa.org/resource/the-matterhorn-protocol/";
@@ -125,7 +142,7 @@ namespace PdfSharp.UniversalAccessibility
 
         internal void Record(string id, PdfAccessibilityCheckStatus status, string message = "", int? page = null, string path = "/Root")
         {
-            _cancellation.ThrowIfCancellationRequested();
+            Tick();
             var check = _checks[id];
             check.Occurrences++;
             if (status > check.Status) check.Status = status;
@@ -142,7 +159,7 @@ namespace PdfSharp.UniversalAccessibility
         // counting its operators here made ordinary long or dense documents incomplete.
         void Visit(int depth)
         {
-            _cancellation.ThrowIfCancellationRequested();
+            Tick();
             if (++_nodes > _options.MaxNodes)
                 throw new AccessibilityLimitException("Structure or number-tree traversal exceeded MaxNodes.");
             if (depth > _options.MaxDepth)
@@ -177,6 +194,17 @@ namespace PdfSharp.UniversalAccessibility
         static PdfDictionary? Dict(PdfDictionary? d, string key) => d == null ? null : Resolve(d.Elements[key]) as PdfDictionary;
         static string Text(PdfDictionary? d, string key) => d == null ? "" : Resolve(d.Elements[key]) switch
         { PdfString s => s.Value, PdfStringObject s => s.Value, _ => "" };
+        // Many elements can share one indirect string. Its whitespace check is done once per string object,
+        // so a long shared text costs its length once, not once per element.
+        readonly Dictionary<PdfItem, bool> _blank = new();
+
+        bool Blank(PdfDictionary d, string key)
+        {
+            if (Resolve(d.Elements[key]) is not PdfStringObject shared) return String.IsNullOrWhiteSpace(Text(d, key));
+            if (!_blank.TryGetValue(shared, out var blank)) _blank.Add(shared, blank = String.IsNullOrWhiteSpace(shared.Value));
+            return blank;
+        }
+
         static string Name(PdfDictionary? d, string key) => d == null ? "" : Resolve(d.Elements[key]) switch
         { PdfName n => n.Value, PdfNameObject n => n.Value, _ => "" };
         static int? Integer(PdfItem? item) => Resolve(item) switch { PdfInteger i => i.Value, PdfIntegerObject i => i.Value, _ => null };
@@ -202,6 +230,7 @@ namespace PdfSharp.UniversalAccessibility
             Test("MARKED", True(markInfo, "/Marked"), "MarkInfo/Marked is not true.");
             Test("SUSPECTS", FalseOrAbsent(markInfo, "/Suspects"), "MarkInfo/Suspects is true or is not a boolean; tagging needs review.");
             InspectMetadata(Dict(catalog, "/Metadata"));
+            CheckDuration();
             Finished("LANG", "DISPLAYTITLE", "MARKED", "SUSPECTS", "TITLE", "UAID");
             var root = Dict(catalog, "/StructTreeRoot");
             Test("TREE", root != null && Name(root, "/Type") == "/StructTreeRoot" && Items(root.Elements["/K"]).Any(), "A nonempty StructTreeRoot with the correct Type is required.");
@@ -210,6 +239,7 @@ namespace PdfSharp.UniversalAccessibility
                 _roleMap = Dict(root, "/RoleMap");
                 WalkKids(root.Elements["/K"], root, null, "", "/StructTreeRoot/K", 0);
             }
+            CheckDuration();
             Finished("TREE", "ROLE", "ALT", "NESTING");
             foreach (var page in _pages)
             {
@@ -221,8 +251,10 @@ namespace PdfSharp.UniversalAccessibility
                     if (Name(annotation, "/Subtype") is "/Link" or "/Widget")
                         Test("ANNOT", _objects.Contains(annotation), "Link or widget has no structure OBJR association.", page.Value, "/Annots");
             }
+            CheckDuration();
             Finished("CONTENT", "FONT", "TABS", "ANNOT");
             InspectParentTree(root);
+            CheckDuration();
             Finished("MCID");
             Record("REVIEW", PdfAccessibilityCheckStatus.NeedsReview, _checks["REVIEW"].Guidance);
             Record("READ", RepairedByReader ? PdfAccessibilityCheckStatus.NotChecked : PdfAccessibilityCheckStatus.Passed,
@@ -254,15 +286,62 @@ namespace PdfSharp.UniversalAccessibility
             XDocument? xmp = null;
             if (metadata?.Stream != null)
             {
-                using var bytes = new MemoryStream(Decode(metadata));
-                using var reader = XmlReader.Create(bytes, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = _options.MaxDecodedBytes });
-                try { xmp = XDocument.Load(reader); }
-                catch (XmlException) { Record("TITLE", PdfAccessibilityCheckStatus.NotChecked, "XMP could not be parsed safely."); Record("UAID", PdfAccessibilityCheckStatus.NotChecked, "XMP could not be parsed safely."); return; }
+                var data = Decode(metadata);
+                var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = _options.MaxDecodedBytes };
+                string? problem = null;
+                try
+                {
+                    // Real XMP is a few levels deep. Deeper XMP is not loaded, as for the other nesting limits.
+                    using (var depth = XmlReader.Create(new MemoryStream(data), settings))
+                        while (depth.Read())
+                            if (depth.Depth > _options.MaxDepth) { problem = "XMP nesting exceeds MaxDepth."; break; }
+                    if (problem == null)
+                    {
+                        using var reader = XmlReader.Create(new MemoryStream(data), settings);
+                        xmp = XDocument.Load(reader);
+                    }
+                }
+                catch (XmlException) { problem = "XMP could not be parsed safely."; }
+                if (problem != null)
+                {
+                    Record("TITLE", PdfAccessibilityCheckStatus.NotChecked, problem, path: "/Metadata");
+                    Record("UAID", PdfAccessibilityCheckStatus.NotChecked, problem, path: "/Metadata");
+                    return;
+                }
             }
             XNamespace dc = "http://purl.org/dc/elements/1.1/";
             XNamespace ua = "http://www.aiim.org/pdfua/ns/id/";
-            var declarations = xmp?.Descendants().SelectMany(e => e.Attributes(ua + "part").Select(a => a.Value).Concat(e.Name == ua + "part" ? new[] { e.Value } : Array.Empty<string>())).ToList();
-            Test("TITLE", xmp != null && xmp.Descendants(dc + "title").Any(t => !String.IsNullOrWhiteSpace(t.Value)), "XMP dc:title is missing or empty.", path: "/Metadata");
+            // A declaration counts when an element's whole text (its Value) is exactly "1" or "2", and a title when any
+            // text below it is not blank. Value joins all descendant text again for every nested element, so each element
+            // is summarised once, children before parents: its text cut after two characters, which still tells "1" and
+            // "2" from anything else, and whether it holds non-blank text.
+            static string Take(string value, int count) => value.Length <= count ? value : value.Substring(0, count);
+            var shortText = new Dictionary<XElement, string>();
+            var hasText = new HashSet<XElement>();
+            if (xmp?.Root != null)
+                foreach (var e in xmp.Root.DescendantsAndSelf().Reverse())
+                {
+                    Tick();
+                    string text = "";
+                    bool any = false;
+                    foreach (var node in e.Nodes())
+                    {
+                        if (node is XText t)
+                        {
+                            text += Take(t.Value, 2 - text.Length);
+                            any |= !String.IsNullOrWhiteSpace(t.Value);
+                        }
+                        else if (node is XElement child)
+                        {
+                            text += Take(shortText[child], 2 - text.Length);
+                            any |= hasText.Contains(child);
+                        }
+                    }
+                    shortText.Add(e, text);
+                    if (any) hasText.Add(e);
+                }
+            var declarations = xmp?.Descendants().SelectMany(e => e.Attributes(ua + "part").Select(a => a.Value).Concat(e.Name == ua + "part" ? new[] { shortText[e] } : Array.Empty<string>())).ToList();
+            Test("TITLE", xmp != null && xmp.Descendants(dc + "title").Any(hasText.Contains), "XMP dc:title is missing or empty.", path: "/Metadata");
             if (declarations?.Contains("2") == true) Record("UAID", PdfAccessibilityCheckStatus.NotChecked, "PDF/UA-2 is outside this profile.", path: "/Metadata");
             else Test("UAID", declarations?.Count > 0 && declarations.All(x => x == "1"), "XMP does not unambiguously declare pdfuaid:part=1.", path: "/Metadata");
         }
@@ -320,9 +399,10 @@ namespace PdfSharp.UniversalAccessibility
                 Test("TREE", ReferenceEquals(Dict(d, "/P"), parent), "Structure parent reference does not match the containing element.", number, here);
                 var role = Role(d);
                 Test("ROLE", role.Length > 0, "Structure role is absent, unknown or cyclic.", number, here);
-                var alt = Text(d, "/Alt"); if (String.IsNullOrWhiteSpace(alt)) alt = Text(d, "/ActualText");
+                var source = Blank(d, "/Alt") ? "/ActualText" : "/Alt";
+                var alt = Text(d, source);
                 _order.Add(new PdfAccessibilityStructureEntry(role, number, here, alt));
-                if (role is "/Figure" or "/Formula") Test("ALT", !String.IsNullOrWhiteSpace(alt), "Figure or formula has no Alt or ActualText.", number, here);
+                if (role is "/Figure" or "/Formula") Test("ALT", !Blank(d, source), "Figure or formula has no Alt or ActualText.", number, here);
                 bool valid = role switch { "/LI" => parentRole == "/L", "/Lbl" or "/LBody" => parentRole == "/LI", "/TR" => parentRole is "/Table" or "/THead" or "/TBody" or "/TFoot", "/TH" or "/TD" => parentRole == "/TR", "/THead" or "/TBody" or "/TFoot" => parentRole == "/Table", _ => true };
                 if (role is "/LI" or "/Lbl" or "/LBody" or "/TR" or "/TH" or "/TD" or "/THead" or "/TBody" or "/TFoot") Test("NESTING", valid, "List or table element has an unexpected parent role.", number, here);
                 WalkKids(d.Elements["/K"], d, page, role, here + "/K", depth + 1);

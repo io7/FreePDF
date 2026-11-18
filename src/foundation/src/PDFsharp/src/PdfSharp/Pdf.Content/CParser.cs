@@ -65,6 +65,24 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
+        /// Returns the operators one at a time, with the same operands as <see cref="ReadContent()"/>.
+        /// A caller that inspects each operator once does not hold the whole content stream as objects.
+        /// </summary>
+        internal IEnumerable<COperator> ReadOperators()
+        {
+            var sequence = new CSequence();
+            bool more;
+            do
+            {
+                more = ParseObject(sequence, CSymbol.Eof, stopAfterOperator: true);
+                // At the top level the parser adds only operators to the sequence.
+                for (int i = 0; i < sequence.Count; i++)
+                    yield return (COperator)sequence[i];
+                sequence.Clear();
+            } while (more);
+        }
+
+        /// <summary>
         /// Parses whatever comes until the end of the array is reached.
         /// </summary>
         void ParseArray(CArray array)
@@ -94,14 +112,15 @@ namespace PdfSharp.Pdf.Content
 
         /// <summary>
         /// Parses whatever comes until the specified stop symbol is reached.
+        /// With stopAfterOperator, returns true after each operator; false means the stop symbol or the end was reached.
         /// </summary>
-        void ParseObject(CSequence sequence, CSymbol stop)
+        bool ParseObject(CSequence sequence, CSymbol stop, bool stopAfterOperator = false)
         {
             CSymbol symbol;
             while ((symbol = ScanNextToken()) != CSymbol.Eof)
             {
                 if (symbol == stop)
-                    return;
+                    return false;
 
                 CString s;
                 COperator op;
@@ -136,6 +155,8 @@ namespace PdfSharp.Pdf.Content
                         _operands.Add(s);
                         op = CreateOperator(OpCodeName.Dictionary);
                         sequence.Add(op);
+                        if (stopAfterOperator)
+                            return true;
                         break;
 
                     case CSymbol.Name:
@@ -149,6 +170,8 @@ namespace PdfSharp.Pdf.Content
                     case CSymbol.Operator:
                         op = CreateOperator();
                         sequence.Add(op);
+                        if (stopAfterOperator)
+                            return true;
                         break;
 
                     case CSymbol.BeginArray:
@@ -172,6 +195,7 @@ namespace PdfSharp.Pdf.Content
 #endif
                 }
             }
+            return false;
         }
 
         COperator CreateOperator()
