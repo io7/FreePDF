@@ -89,7 +89,7 @@ namespace PdfSharp.UniversalAccessibility
             using var content = new MemoryStream();
             foreach (var raw in Items(page.Elements["/Contents"]))
             {
-                _cancellation.ThrowIfCancellationRequested();
+                Tick();
                 if (Resolve(raw) is not PdfDictionary { Stream: not null } stream)
                 { Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "Page content is not a stream.", number); return; }
                 var bytes = Decode(stream);
@@ -112,7 +112,7 @@ namespace PdfSharp.UniversalAccessibility
             // Operators are parsed one at a time, so a long stream is not held as millions of objects.
             foreach (var op in new CParser(bytes).ReadOperators())
             {
-                _cancellation.ThrowIfCancellationRequested();
+                Tick();
                 if (op.OpCode.OpCodeName == OpCodeName.Dictionary) { dictionary = op; continue; }
                 var inline = dictionary != null && op.Operands.Count == 0;
                 var operands = inline ? dictionary!.Operands : op.Operands;
@@ -156,11 +156,29 @@ namespace PdfSharp.UniversalAccessibility
                 else if (Painting.Contains(op.Name)) CheckPainting(marking, page.Number, stream.ContentPath, stream.Owner);
             }
             Test("CONTENT", scopes.Count == 0, "Marked-content sequence is not closed.", page.Number, stream.ContentPath);
-            if (allIdsKnown && expected != null)
-                foreach (var entry in expected)
-                    if (entry.Value.Page == page.Number)
-                        Test("MCID", ids.Contains(entry.Key), "Structure MCID does not occur in its content stream.", page.Number, stream.ContentPath);
+            // Every invocation of a form on a page reads the same bytes with the same resources and finds the same IDs,
+            // so the structure's IDs are compared once per stream and page, using only the IDs for that page.
+            if (allIdsKnown && expected != null && _comparedStreams.Add(new FormPage(stream.Owner, page.Number)))
+                foreach (var id in ExpectedOnPage(stream.Owner, expected, page.Number))
+                    Test("MCID", ids.Contains(id), "Structure MCID does not occur in its content stream.", page.Number, stream.ContentPath);
             return ids.Count != 0;
+        }
+
+        readonly HashSet<FormPage> _comparedStreams = new();
+        readonly Dictionary<PdfDictionary, Dictionary<int, List<int>>> _expectedByPage = new();
+
+        IReadOnlyList<int> ExpectedOnPage(PdfDictionary owner, Dictionary<int, ContentReference> expected, int page)
+        {
+            if (!_expectedByPage.TryGetValue(owner, out var pages))
+            {
+                _expectedByPage.Add(owner, pages = new());
+                foreach (var entry in expected)
+                {
+                    if (!pages.TryGetValue(entry.Value.Page, out var ids)) pages.Add(entry.Value.Page, ids = new());
+                    ids.Add(entry.Key);
+                }
+            }
+            return pages.TryGetValue(page, out var onPage) ? onPage : Array.Empty<int>();
         }
 
         TextState InspectText(COperator op, int page, ContentStream stream, SavedStates saved, TextState text)
@@ -275,6 +293,15 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         readonly HashSet<PdfDictionary> _fonts = new();
+        // Type3 fonts can share one glyph dictionary; it is checked once, not once per font.
+        readonly Dictionary<PdfDictionary, bool> _glyphPrograms = new();
+
+        bool HasGlyphPrograms(PdfDictionary glyphs)
+        {
+            if (!_glyphPrograms.TryGetValue(glyphs, out var programs))
+                _glyphPrograms.Add(glyphs, programs = glyphs.Elements.Count > 0 && glyphs.Elements.Values.All(x => Resolve(x) is PdfDictionary { Stream: not null }));
+            return programs;
+        }
 
         void InspectFont(PdfDictionary font, int page, string path)
         {
@@ -293,7 +320,7 @@ namespace PdfSharp.UniversalAccessibility
             if (Name(font, "/Subtype") == "/Type3")
             {
                 var glyphs = Dict(font, "/CharProcs");
-                Test("FONT", glyphs != null && glyphs.Elements.Count > 0 && glyphs.Elements.Values.All(x => Resolve(x) is PdfDictionary { Stream: not null }), "Type3 font does not contain glyph programs.", page, path);
+                Test("FONT", glyphs != null && HasGlyphPrograms(glyphs), "Type3 font does not contain glyph programs.", page, path);
                 return;
             }
             var descriptor = Dict(font, "/FontDescriptor");
@@ -308,7 +335,7 @@ namespace PdfSharp.UniversalAccessibility
             PdfDictionary? node = page;
             while (node != null && seen.Add(node))
             {
-                _cancellation.ThrowIfCancellationRequested();
+                Tick();
                 if (seen.Count > _options.MaxDepth) throw new AccessibilityLimitException("Page tree nesting exceeded MaxDepth.");
                 var resources = Dict(node, "/Resources");
                 if (resources != null) return resources;

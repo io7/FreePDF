@@ -30,9 +30,16 @@ internal static class ProcessProbe
             case "stderr": Console.Error.Write(new string('x', 70 * 1024)); break;
             case "args": Console.Write(System.Text.Json.JsonSerializer.Serialize(args.Skip(1))); break;
             case "scan":
-                // Scan and write the JSON report, as the CLI does, under the caller's heap limit.
-                var report = PdfSharp.UniversalAccessibility.PdfAccessibilityScanner.Scan(args[1]);
-                Console.Write(report.Status + " " + AccessibilityReportWriter.Write(report, "input.pdf", "json").Length);
+                // Scan and write the JSON report, as the CLI does, under the caller's heap and time limits.
+                // Output: scan status | READ outcome | distinct NotChecked messages | JSON length.
+                var options = new PdfSharp.UniversalAccessibility.PdfAccessibilityScanOptions { MaxDuration = TimeSpan.FromSeconds(int.Parse(args[2])) };
+                if (args.Length > 3) options.MaxNodes = int.Parse(args[3]);
+                var report = PdfSharp.UniversalAccessibility.PdfAccessibilityScanner.Scan(args[1], options);
+                var read = report.Checks.Single(c => c.Id == "FPDF-A11Y-READ").Status;
+                var notChecked = String.Join(";", report.Findings
+                    .Where(f => f.Status == PdfSharp.UniversalAccessibility.PdfAccessibilityCheckStatus.NotChecked)
+                    .Select(f => f.Message).Distinct());
+                Console.Write(report.Status + "|" + read + "|" + notChecked + "|" + AccessibilityReportWriter.Write(report, "input.pdf", "json").Length);
                 break;
             case "exit": return 17;
         }

@@ -6,10 +6,36 @@ namespace FreePDF.Accessibility.Tests;
 
 internal static class HostileInputs
 {
-    internal static readonly string[] Names = { "q-flood", "nested-xmp", "long-form-name", "type0-chain", "shared-alt", "form-fan-out" };
+    internal static readonly string[] Names =
+    {
+        "q-flood", "nested-xmp", "long-form-name", "type0-chain", "shared-alt", "form-fan-out",
+        "whitespace-alt", "mcr-form", "type3-shared"
+    };
+
+    // What a correct scan reports for each input: the READ outcome (a limit makes it NotChecked) and, where the
+    // input is meant to reach one particular limit or gap, the message that must appear.
+    internal static (string Read, string? Message) Expected(string name) => name switch
+    {
+        "nested-xmp" => ("Passed", "XMP nesting exceeds MaxDepth."),
+        "long-form-name" => ("Passed", "XObject could not be resolved to a stream."),
+        "form-fan-out" => ("NotChecked", "Decoded content exceeds MaxDecodedBytes."),
+        // The MCRs have no parent tree, so the parent-tree check, which runs after all content, fills MaxFindings.
+        "mcr-form" => ("NotChecked", "MaxFindings reached"),
+        _ => ("Passed", null)
+    };
+
+    // The structure of mcr-form needs more nodes than the default MaxNodes.
+    internal static int? MaxNodes(string name) => name == "mcr-form" ? 250_000 : null;
 
     internal static byte[] Create(string name) => name switch
     {
+        // CPU-time cases: each took more than a minute when the work grew with the square of the input.
+        // One whitespace-only /Alt string shared by every structure element.
+        "whitespace-alt" => WhitespaceAlternativeText(25_000, 4 * 1024 * 1024),
+        // A form drawn N times on page 1, with N MCRs that point to it on page 2.
+        "mcr-form" => McrForm(200_000),
+        // Type3 fonts that share one /CharProcs dictionary.
+        "type3-shared" => Type3Shared(10_000, 400_000),
         // 10 MB of page content after decompression; 7.13.0 held every operator and every saved state.
         "q-flood" => QFlood(5_000_000),
         // Each element's Value joined the text of all its descendants (quadratic).
@@ -91,6 +117,43 @@ internal static class HostileInputs
             var resources = last ? "<< >>" : $"<< /XObject << /N {objects.Count + 2} 0 R >> >>";
             objects.Add(Stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources " + resources, A(last ? "0 0 1 1 re f" : "/N Do /N Do")));
         }
+        return Pdf(objects.ToArray());
+    }
+
+    static byte[] WhitespaceAlternativeText(int elements, int textLength)
+    {
+        var kids = String.Join(" ", Enumerable.Range(7, elements).Select(n => n + " 0 R"));
+        var objects = new List<byte[]> { A("<< /Type /Catalog /Pages 2 0 R /Lang (en) /StructTreeRoot 5 0 R >>"), A(Pages), A(Page()),
+            Stream("", A("")), A("<< /Type /StructTreeRoot /K [" + kids + "] >>"), A("(" + new string(' ', textLength) + ")") };
+        for (int i = 0; i < elements; i++) objects.Add(A("<< /Type /StructElem /S /P /P 5 0 R /Alt 6 0 R >>"));
+        return Pdf(objects.ToArray());
+    }
+
+    static byte[] McrForm(int count)
+    {
+        var mcrs = new StringBuilder();
+        for (int i = 0; i < count; i++) mcrs.Append("<< /Type /MCR /Pg 5 0 R /Stm 6 0 R /MCID ").Append(i).Append(" >> ");
+        return Pdf(A("<< /Type /Catalog /Pages 2 0 R /Lang (en) /StructTreeRoot 7 0 R >>"),
+            A("<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>"),
+            A(Page("/Resources << /XObject << /F 6 0 R >> >>")),
+            Stream("", A("/Artifact BMC " + String.Concat(Enumerable.Repeat("/F Do ", count)) + "EMC")),
+            A("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>"),
+            Stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >>", A("")),
+            A("<< /Type /StructTreeRoot /K 8 0 R >>"),
+            A("<< /Type /StructElem /S /P /P 7 0 R /K [" + mcrs + "] >>"));
+    }
+
+    static byte[] Type3Shared(int fonts, int glyphs)
+    {
+        var names = String.Join(" ", Enumerable.Range(0, fonts).Select(i => "/F" + i + " " + (7 + i) + " 0 R"));
+        var show = String.Concat(Enumerable.Range(0, fonts).Select(i => "/F" + i + " 1 Tf (a) Tj "));
+        var procs = new StringBuilder("<< ");
+        for (int i = 0; i < glyphs; i++) procs.Append("/g").Append(i).Append(" 6 0 R ");
+        var objects = new List<byte[]> { A(Catalog), A(Pages), A(Page("/Resources << /Font << " + names + " >> >>")),
+            Stream("", A("/Artifact BMC BT " + show + "ET EMC")), A(procs.Append(">>").ToString()), Stream("", A("")) };
+        for (int i = 0; i < fonts; i++)
+            objects.Add(A("<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] /FontMatrix [1 0 0 1 0 0] /CharProcs 5 0 R "
+                + "/Encoding << /Differences [97 /g0] >> /FirstChar 97 /LastChar 97 /Widths [1] >>"));
         return Pdf(objects.ToArray());
     }
 

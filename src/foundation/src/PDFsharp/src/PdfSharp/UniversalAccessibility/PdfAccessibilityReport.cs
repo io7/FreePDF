@@ -47,6 +47,11 @@ namespace PdfSharp.UniversalAccessibility
         public int MaxFindings { get; set; } = 10000;
         /// <summary>Maximum decoded bytes inspected across metadata, page content and each invoked form.</summary>
         public int MaxDecodedBytes { get; set; } = 32 * 1024 * 1024;
+        /// <summary>
+        /// Maximum time for one scan, or null for no limit. When it is reached, the scan ends as incomplete and keeps
+        /// the failures found so far. Opening the PDF is not interrupted; use the cancellation token for that.
+        /// </summary>
+        public TimeSpan? MaxDuration { get; set; } = TimeSpan.FromMinutes(2);
     }
 
     /// <summary>A versioned check, its scope and its outcome.</summary>

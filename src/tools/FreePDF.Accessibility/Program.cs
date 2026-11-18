@@ -10,7 +10,8 @@ internal static class Program
     {
         if (args.Length == 0 || args.Contains("--help"))
         {
-            Console.WriteLine("freepdf-a11y INPUT.pdf [--format text|json|sarif|html] [--output PATH] [--policy review|automated] [--password-env NAME]");
+            Console.WriteLine("freepdf-a11y INPUT.pdf [--format text|json|sarif|html] [--output PATH] [--policy review|automated] [--password-env NAME] [--timeout SECONDS]");
+            Console.WriteLine("--timeout ends the native scan as incomplete after SECONDS (1-3600, default 120). Failures found until then are kept.");
             Console.WriteLine("Checks a PDF locally without changing it. The default is a plain-English summary.");
             Console.WriteLine("For a full report you can open in a browser: freepdf-a11y INPUT.pdf --format html --output report.html");
             Console.WriteLine("Optional independent validation: --verapdf PATH [--verapdf-profile ua1] [--verapdf-timeout SECONDS]");
@@ -24,7 +25,7 @@ internal static class Program
             bool inventory = args[0] == "--requirements";
             var input = inventory ? null : Path.GetFullPath(args[0]);
             var format = "text"; var policy = "review"; string? output = null, password = null;
-            string? validator = null; string validatorProfile = "ua1"; int validatorTimeout = 60;
+            string? validator = null; string validatorProfile = "ua1"; int validatorTimeout = 60, scanTimeout = 120;
             var supplied = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
             {
@@ -42,6 +43,10 @@ internal static class Program
                         if (!int.TryParse(args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out validatorTimeout) || validatorTimeout is < 1 or > 600)
                             throw new ArgumentException("Validator timeout must be between 1 and 600 seconds.");
                         break;
+                    case "--timeout":
+                        if (!int.TryParse(args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out scanTimeout) || scanTimeout is < 1 or > 3600)
+                            throw new ArgumentException("Scan timeout must be between 1 and 3600 seconds.");
+                        break;
                     default: throw new ArgumentException("Unknown option.");
                 }
             }
@@ -55,7 +60,7 @@ internal static class Program
             if (validator == null && (supplied.Contains("--verapdf-profile") || supplied.Contains("--verapdf-timeout")))
                 throw new ArgumentException("Validator options require --verapdf PATH.");
             if (output != null && String.Equals(input, output, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new ArgumentException("Report output must differ from the input PDF.");
-            var options = new PdfAccessibilityScanOptions { Password = password };
+            var options = new PdfAccessibilityScanOptions { Password = password, MaxDuration = TimeSpan.FromSeconds(scanTimeout) };
             PdfAccessibilityReport report;
             IndependentValidation? independent = null;
             if (validator == null) report = PdfAccessibilityScanner.Scan(input!, options);

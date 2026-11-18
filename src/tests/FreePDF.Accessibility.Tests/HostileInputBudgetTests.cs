@@ -6,8 +6,11 @@ namespace FreePDF.Accessibility.Tests;
 
 public sealed class HostileInputBudgetTests
 {
-    // Each input is a few hundred kilobytes at most; before the fixes each one needed between 1 and 5 GB.
+    // The inputs are at most a few megabytes. Before the fixes, the first six each needed between 1 and 5 GB and the
+    // last three each needed more than a minute of CPU time.
     const long HeapLimit = 256L * 1024 * 1024;
+    // A scan that reaches this limit reports READ as NotChecked, which fails the expectation below.
+    const int MaxDurationSeconds = 20;
 
     public static TheoryData<string> Inputs => new(HostileInputs.Names);
 
@@ -26,6 +29,8 @@ public sealed class HostileInputBudgetTests
             info.ArgumentList.Add(typeof(ProcessProbe).Assembly.Location);
             info.ArgumentList.Add("scan");
             info.ArgumentList.Add(path);
+            info.ArgumentList.Add(MaxDurationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (HostileInputs.MaxNodes(input) is int nodes) info.ArgumentList.Add(nodes.ToString(System.Globalization.CultureInfo.InvariantCulture));
             // A .NET heap hard limit makes the probe fail with OutOfMemoryException instead of using the machine's memory.
             info.Environment["DOTNET_GCHeapHardLimit"] = HeapLimit.ToString("x");
             using var process = Process.Start(info)!;
@@ -36,7 +41,12 @@ public sealed class HostileInputBudgetTests
             catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
             var error = await errors;
             Assert.True(process.ExitCode == 0, input + " exited with " + process.ExitCode + ": " + error[..Math.Min(error.Length, 2000)]);
-            Assert.Matches("^(Failed|Incomplete|NeedsReview) [0-9]+$", await output);
+            var parts = (await output).Split('|');
+            Assert.Equal(4, parts.Length);
+            Assert.DoesNotContain("MaxDuration", parts[2]);
+            var (read, message) = HostileInputs.Expected(input);
+            Assert.True(read == parts[1], input + ": READ " + parts[1] + "; not checked: " + parts[2]);
+            if (message != null) Assert.Contains(message, parts[2]);
         }
         finally { File.Delete(path); }
     }

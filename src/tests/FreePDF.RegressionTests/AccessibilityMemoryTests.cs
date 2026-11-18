@@ -56,6 +56,60 @@ public partial class AccessibilityScannerTests
     }
 
     [Fact]
+    public void MaxDuration_ends_the_scan_as_incomplete_and_keeps_earlier_failures()
+    {
+        var bytes = Fixture(d => d.Pages[0].Contents.AppendContent().CreateStream(
+            Encoding.ASCII.GetBytes(String.Concat(Enumerable.Repeat("0 0 1 1 re f ", 2000)))));
+        var report = Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = TimeSpan.FromTicks(1) });
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message == "Scan exceeded MaxDuration.");
+        Fails(report, "CONTENT");
+        Assert.Equal(PdfAccessibilityScanStatus.Failed, Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = null }).Status);
+    }
+
+    [Fact]
+    public void MaxDuration_must_be_positive()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Scan(Fixture(), new PdfAccessibilityScanOptions { MaxDuration = TimeSpan.Zero }));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_shared_blank_alt_falls_back_to_actual_text(bool actualText)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var figure = Child(Child(d.Catalog.Elements.GetDictionary("/StructTreeRoot")!));
+            var blank = new PdfStringObject(d, "   ");
+            figure.Elements["/Alt"] = blank.Reference!;
+            if (actualText) figure.Elements.SetString("/ActualText", "A red rectangle");
+        }));
+        Assert.Equal(actualText ? PdfAccessibilityCheckStatus.Passed : PdfAccessibilityCheckStatus.Failed, Outcome(report, "ALT"));
+        Assert.Contains(report.StructureOrder, e => e.Role == "/Figure" && e.AlternativeText == (actualText ? "A red rectangle" : ""));
+    }
+
+    [Theory]
+    [InlineData("<pdfuaid:part>1</pdfuaid:part>")]
+    [InlineData("<pdfuaid:part rdf:parseType=\"Resource\"><rdf:value>1</rdf:value></pdfuaid:part>")]
+    public void The_pdfua_declaration_is_read_from_its_own_text_or_rdf_value(string part)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var xml = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+                + "<rdf:Description rdf:about=\"\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">" + part
+                + "</rdf:Description></rdf:RDF></x:xmpmeta>";
+            var metadata = new PdfDictionary(d);
+            metadata.Elements.SetName("/Type", "/Metadata");
+            metadata.Elements.SetName("/Subtype", "/XML");
+            metadata.CreateStream(Encoding.UTF8.GetBytes(xml));
+            d.Internals.AddObject(metadata);
+            d.Catalog.Elements["/Metadata"] = metadata.Reference!;
+        }));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "UAID"));
+    }
+
+    [Fact]
     public void A_failure_before_a_content_parse_error_is_kept()
     {
         // Operators are inspected as they are parsed, so untagged painting before the error is a definite failure.
