@@ -177,11 +177,18 @@ public sealed class VeraPdfAdapterTests
     }
 
     [Theory]
-    [InlineData("unchanged", true)]
-    [InlineData("change-input", false)]
-    [InlineData("bad-report", false)]
-    public async Task AdapterBindsTheVerdictToUnchangedSnapshotBytes(string content, bool passed)
+    [InlineData("unchanged", "MachineChecksPassed", null)]
+    [InlineData("failing", "Failed", null)]
+    [InlineData("change-input", "Incomplete", "Input bytes changed during independent validation.")]
+    [InlineData("failing-change-input", "Incomplete", "Input bytes changed during independent validation.")]
+    [InlineData("bad-report", "Incomplete", "Validator report was malformed")]
+    [InlineData("stderr-flood", "Incomplete", "Validator output exceeded its size limit.")]
+    [InlineData("failing-unreadable", "Incomplete", "Validator could not run or its input could not be read.")]
+    public async Task AdapterBindsTheVerdictToUnchangedSnapshotBytes(string content, string expected, string? reason)
     {
+        // File permissions cannot remove read access on Windows or for a privileged process.
+        if (content == "failing-unreadable" && (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess)) return;
+        var status = Enum.Parse<IndependentValidationStatus>(expected);
         var input = Path.GetTempFileName();
         try
         {
@@ -189,8 +196,19 @@ public sealed class VeraPdfAdapterTests
             string hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input)));
             string executable = Path.Combine(AppContext.BaseDirectory, "FreePDF.Accessibility.Tests" + (OperatingSystem.IsWindows() ? ".exe" : ""));
             var result = await VeraPdfAdapter.ValidateAsync(executable, input, hash, "ua1", TimeSpan.FromSeconds(15));
-            Assert.Equal(passed ? IndependentValidationStatus.MachineChecksPassed : IndependentValidationStatus.Incomplete, result.Status);
+            Assert.Equal(status, result.Status);
             Assert.Equal(hash, result.DocumentSha256);
+            if (reason == null) Assert.Null(result.IncompleteReason);
+            else Assert.StartsWith(reason, result.IncompleteReason);
+            // An incomplete result carries no verdict or findings that could contradict it.
+            if (status == IndependentValidationStatus.Incomplete)
+            {
+                Assert.Empty(result.Findings);
+                Assert.Null(result.PassedRules);
+                Assert.Null(result.FailedRules);
+                Assert.Null(result.PassedChecks);
+                Assert.Null(result.FailedChecks);
+            }
         }
         finally { File.Delete(input); }
     }

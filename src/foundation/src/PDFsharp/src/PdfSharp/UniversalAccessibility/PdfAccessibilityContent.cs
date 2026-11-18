@@ -33,6 +33,34 @@ namespace PdfSharp.UniversalAccessibility
             internal string ResourcePath => Path + "/Resources";
         }
 
+        // A location repeats the resource names from the page down to the object. A file can give an outer form a
+        // very long name and then record many findings inside it, so each name and each whole location is shortened
+        // before a finding keeps it. Readers can rely on names of up to 127 bytes (ISO 32000-1, Annex C).
+        internal const int MaxLocationNameLength = 127;
+        internal const int MaxLocationLength = 1024;
+        const string Elision = "...";
+
+        static string Location(string parent, string category, string? name = null)
+        {
+            var key = name ?? "";
+            // The name includes its leading slash.
+            if (key.Length > MaxLocationNameLength + 1) key = Head(key, MaxLocationNameLength + 1) + Elision;
+            var location = parent + category + key;
+            if (location.Length <= MaxLocationLength) return location;
+            // Keep the start (where the page invokes the content) and the end (the object with the finding).
+            int head = MaxLocationLength / 4;
+            return Head(location, head) + "/" + Elision + Tail(location, MaxLocationLength - head - Elision.Length - 1);
+        }
+
+        static string Head(string value, int length) =>
+            value.Substring(0, char.IsHighSurrogate(value[length - 1]) ? length - 1 : length);
+
+        static string Tail(string value, int length)
+        {
+            int start = value.Length - length;
+            return value.Substring(char.IsLowSurrogate(value[start]) ? start + 1 : start);
+        }
+
         sealed class FormUse
         {
             internal readonly HashSet<int> Pages = new();
@@ -40,7 +68,13 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         readonly Dictionary<PdfDictionary, FormUse> _formUses = new();
-        readonly HashSet<string> _unknownPainting = new();
+
+        // Repeated findings are reported once per page and object. The key holds the objects and the full names,
+        // never a shortened location, so two different occurrences cannot share an entry.
+        readonly record struct ReportKey(int Page, PdfDictionary? Owner, string Name);
+        readonly HashSet<ReportKey> _unknownPainting = new();
+        readonly HashSet<ReportKey> _textBeforeFont = new();
+        readonly HashSet<ReportKey> _missingFonts = new();
 
         void CheckFormPage(PdfDictionary form, int page)
         {
@@ -119,7 +153,7 @@ namespace PdfSharp.UniversalAccessibility
                 text = InspectText(op, page.Number, stream, saved, text);
                 if (op.Name == "Do")
                     InspectXObject(op.Operands.FirstOrDefault() as CName, page, stream, marking, text);
-                else if (Painting.Contains(op.Name)) CheckPainting(marking, page.Number, stream.ContentPath);
+                else if (Painting.Contains(op.Name)) CheckPainting(marking, page.Number, stream.ContentPath, stream.Owner);
             }
             Test("CONTENT", scopes.Count == 0, "Marked-content sequence is not closed.", page.Number, stream.ContentPath);
             if (allIdsKnown && expected != null)
@@ -136,24 +170,29 @@ namespace PdfSharp.UniversalAccessibility
             else if (op.Name == "Q" && saved.Count > 0) return saved.Pop();
             else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) return text with { Mode = mode.Value };
             else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
-                return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), stream.ResourcePath + "/Font" + fontName.Name, true, text.Mode);
+                return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), Location(stream.ResourcePath, "/Font", fontName.Name), true, text.Mode,
+                    new ReportKey(page, stream.Resources, "/Font" + fontName.Name));
             else if (op.Name == "gs" && op.Operands.FirstOrDefault() is CName stateName
                 && Resolve(Dict(Dict(stream.Resources, "/ExtGState"), stateName.Name)?.Elements["/Font"]) is PdfArray { Elements.Count: > 0 } stateFont)
-                return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary, stream.ResourcePath + "/ExtGState" + stateName.Name + "/Font", true, text.Mode);
+                return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary,
+                    Location(Location(stream.ResourcePath, "/ExtGState", stateName.Name), "/Font"), true, text.Mode,
+                    new ReportKey(page, stream.Resources, "/ExtGState" + stateName.Name));
             else if (ShowText.Contains(op.Name) && text.Mode != 3)
             {
-                if (text.Selected) InspectFont(text.Font, page, text.Path);
-                else if (_reportedFonts.Add(page + ":" + stream.ContentPath))
+                if (text.Font != null) InspectFont(text.Font, page, text.Path);
+                else if (text.Selected && _missingFonts.Add(text.Key))
+                    Test("FONT", false, "Font used for text is missing from the active resources.", page, text.Path);
+                else if (!text.Selected && _textBeforeFont.Add(new ReportKey(page, stream.Owner, "")))
                     Record("FONT", PdfAccessibilityCheckStatus.NotChecked, "Text is shown before a font is selected.", page, stream.ContentPath);
             }
             return text;
         }
 
-        void CheckPainting(Marking marking, int page, string path)
+        void CheckPainting(Marking marking, int page, string path, PdfDictionary owner)
         {
             if (marking == Marking.Unknown)
             {
-                if (_unknownPainting.Add(page + ":" + path))
+                if (_unknownPainting.Add(new ReportKey(page, owner, "")))
                     Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "The markings for this painting operation could not be resolved.", page, path);
             }
             else
@@ -166,7 +205,7 @@ namespace PdfSharp.UniversalAccessibility
             var path = stream.ContentPath;
             if (operand is CName name)
             {
-                path = stream.ResourcePath + "/Properties" + name.Name;
+                path = Location(stream.ResourcePath, "/Properties", name.Name);
                 var properties = Dict(Dict(stream.Resources, "/Properties"), name.Name);
                 if (properties != null && properties.Stream == null)
                 {
@@ -192,14 +231,14 @@ namespace PdfSharp.UniversalAccessibility
 
         void InspectXObject(CName? name, PageContent page, ContentStream caller, Marking marking, TextState text)
         {
-            var path = caller.ResourcePath + "/XObject" + name?.Name;
+            var path = Location(caller.ResourcePath, "/XObject", name?.Name);
             var obj = name == null ? null : Dict(Dict(caller.Resources, "/XObject"), name.Name);
             if (obj?.Stream == null)
             {
                 Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "XObject could not be resolved to a stream.", page.Number, path);
                 return;
             }
-            if (Name(obj, "/Subtype") == "/Image") { CheckPainting(marking, page.Number, path); return; }
+            if (Name(obj, "/Subtype") == "/Image") { CheckPainting(marking, page.Number, path, obj); return; }
             if (Name(obj, "/Subtype") != "/Form" || obj.Elements.ContainsKey("/Ref") || obj.Elements.ContainsKey("/F"))
             {
                 Record("CONTENT", PdfAccessibilityCheckStatus.NotChecked, "This XObject's content cannot be inspected as a local form or image.", page.Number, path);
@@ -236,22 +275,19 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         readonly HashSet<PdfDictionary> _fonts = new();
-        // Text shows repeat per string; report a missing or unknown font once per page and resource name.
-        readonly HashSet<string> _reportedFonts = new();
 
-        void InspectFont(PdfDictionary? font, int page, string path)
+        void InspectFont(PdfDictionary font, int page, string path)
         {
-            if (font == null)
-            {
-                if (_reportedFonts.Add(page + ":" + path)) Test("FONT", false, "Font used for text is missing from the active resources.", page, path);
-                return;
-            }
             if (!_fonts.Add(font)) return;
             if (Name(font, "/Subtype") == "/Type0")
             {
                 var children = Items(font.Elements["/DescendantFonts"]).Select(Resolve).OfType<PdfDictionary>().ToList();
                 Test("FONT", children.Count == 1 && Name(children[0], "/Subtype") is "/CIDFontType0" or "/CIDFontType2", "Type0 font must identify a CID descendant font.", page, path);
-                foreach (var child in children) InspectFont(child, page, path + "/DescendantFonts");
+                // Only a CIDFont can be a descendant. Following another Type0 font would let a chain of them nest the
+                // inspection, and its location, once per font; the check above already fails such a chain.
+                foreach (var child in children)
+                    if (Name(child, "/Subtype") is "/CIDFontType0" or "/CIDFontType2")
+                        InspectFont(child, page, Location(path, "/DescendantFonts"));
                 return;
             }
             if (Name(font, "/Subtype") == "/Type3")
@@ -281,6 +317,7 @@ namespace PdfSharp.UniversalAccessibility
             return null;
         }
 
-        readonly record struct TextState(PdfDictionary? Font, string Path, bool Selected, int Mode);
+        // Key identifies the selected font reference (resources and full name) for reporting a missing font once per page.
+        readonly record struct TextState(PdfDictionary? Font, string Path, bool Selected, int Mode, ReportKey Key = default);
     }
 }

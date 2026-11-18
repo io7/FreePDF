@@ -55,7 +55,9 @@ Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
 own tagged content. The scanner matches each form's IDs to its structure
 references and parent tree. A finding includes the page and resource path,
-for example `/Resources/XObject/Outer/Resources/XObject/Inner`.
+for example `/Resources/XObject/Outer/Resources/XObject/Inner`. A resource name
+longer than 127 bytes is cut and ends with `...`. A location longer than 1,024
+characters keeps its start and its end, joined by `/...`.
 
 The scanner looks up named property lists in the active resources. A legacy
 form that omits its resource dictionary uses the page resources. An unresolved
@@ -79,7 +81,9 @@ assistive-technology testing before making a conformance claim. The HTML structu
 listing is a review aid, not a screen-reader transcript.
 
 The library's limits are not a security sandbox. Process untrusted files in an
-isolated worker with external time/memory limits. The corpus runner demonstrates
+isolated worker with external time/memory limits. The limits bound memory use,
+but not tightly: in a 7.13.0 test, a 20 KB file whose page content decompresses
+to 20 MB used 2.4 GB. A later release will reduce this. The corpus runner demonstrates
 per-file process isolation, timeouts and a .NET GC heap limit; its inputs are
 synthetic, and a GC heap limit is not a total process-memory limit.
 
@@ -112,6 +116,9 @@ It escapes terminal control characters from filenames and document text. Use
 HTML or JSON for all findings. HTML escapes
 document strings and loads no external resources. SARIF includes rule IDs,
 guidance, document hashes, page/path locations, review tasks and coverage metadata.
+JSON and HTML reports cut alternative text in the structure order after 1,000
+characters and end it with `...`, because many elements can share one long text.
+`PdfAccessibilityStructureEntry.AlternativeText` in the API keeps the whole text.
 Output paths must be new files: the CLI refuses to overwrite an existing report or
 PDF. Use `--password-env NAME` for an environment variable containing the password.
 The password is never included in the report.

@@ -24,20 +24,30 @@ internal static class VeraPdfAdapter
             // Detect a validator that changed the snapshot, or a concurrent writer.
             using var stream = File.OpenRead(input);
             if (!String.Equals(Convert.ToHexStringLower(SHA256.HashData(stream)), documentSha256, StringComparison.Ordinal))
-                return result with { Status = IndependentValidationStatus.Incomplete, IncompleteReason = "Input bytes changed during independent validation." };
+                return Unverified(result, "Input bytes changed during independent validation.");
             return result;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or TimeoutException or ArgumentException)
+        // InvalidDataException is not an IOException. ValidatorProcess throws it when the validator's output exceeds its limit.
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or Win32Exception or TimeoutException or ArgumentException)
         {
             // Do not include process stderr: it may contain passwords or document text.
-            return result with { Status = IndependentValidationStatus.Incomplete, IncompleteReason = ex switch
+            return Unverified(result, ex switch
             {
                 TimeoutException => "Validator exceeded its time limit.",
                 InvalidDataException => "Validator output exceeded its size limit.",
                 _ => "Validator could not run or its input could not be read. Check the executable path and local installation."
-            } };
+            });
         }
     }
+
+    // A verdict that cannot be bound to the snapshot bytes describes unknown input. Keep the validator's identity
+    // for diagnostics, but drop its counts and findings so they cannot sit beside an incomplete status.
+    static IndependentValidation Unverified(IndependentValidation result, string reason) => result with
+    {
+        Status = IndependentValidationStatus.Incomplete, IncompleteReason = reason,
+        PassedRules = null, FailedRules = null, PassedChecks = null, FailedChecks = null,
+        Findings = Array.Empty<IndependentFinding>()
+    };
 
     internal static IndependentValidation Parse(byte[] xml, int exitCode, string input, long inputLength, string hash)
     {

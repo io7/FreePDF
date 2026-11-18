@@ -53,6 +53,65 @@ public sealed class InventoryAndReportTests
         return PdfAccessibilityScanner.Scan(stream);
     }
 
+    // Every Figure element points to the same indirect /Alt string.
+    static PdfAccessibilityReport SharedAlternativeText(int elements, int length)
+    {
+        using var document = new PdfDocument();
+        document.AddPage();
+        // The constructor registers the indirect string with the document.
+        var alt = new PdfStringObject(document, new string('a', length));
+        var root = new PdfDictionary(document);
+        root.Elements.SetName("/Type", "/StructTreeRoot");
+        document.Internals.AddObject(root);
+        var kids = new PdfArray(document);
+        for (int i = 0; i < elements; i++)
+        {
+            var figure = new PdfDictionary(document);
+            figure.Elements.SetName("/Type", "/StructElem");
+            figure.Elements.SetName("/S", "/Figure");
+            figure.Elements["/P"] = root.Reference!;
+            figure.Elements["/Alt"] = alt.Reference!;
+            document.Internals.AddObject(figure);
+            kids.Elements.Add(figure.Reference!);
+        }
+        root.Elements["/K"] = kids;
+        document.Catalog.Elements["/StructTreeRoot"] = root.Reference!;
+        using var stream = new MemoryStream();
+        document.Save(stream, closeStream: false);
+        stream.Position = 0;
+        return PdfAccessibilityScanner.Scan(stream);
+    }
+
+    [Fact]
+    public void SharedAlternativeTextIsCutInWrittenReportsButNotInTheApi()
+    {
+        var native = SharedAlternativeText(elements: 200, length: 5000);
+        Assert.Equal(200, native.StructureOrder.Count);
+        Assert.All(native.StructureOrder, e => Assert.Equal(5000, e.AlternativeText.Length));
+        var expected = new string('a', AccessibilityReportWriter.MaxAlternativeTextLength) + "...";
+        using var json = JsonDocument.Parse(AccessibilityReportWriter.Write(native, "a.pdf", "json"));
+        Assert.All(json.RootElement.GetProperty("structureOrder").EnumerateArray(),
+            e => Assert.Equal(expected, e.GetProperty("alternativeText").GetString()));
+        using var combined = JsonDocument.Parse(IndependentReportWriter.Write(native, new IndependentValidation(), "a.pdf", "json"));
+        Assert.All(combined.RootElement.GetProperty("native").GetProperty("structureOrder").EnumerateArray(),
+            e => Assert.Equal(expected, e.GetProperty("alternativeText").GetString()));
+        var html = AccessibilityReportWriter.Write(native, "a.pdf", "html");
+        Assert.Contains(expected, html);
+        Assert.DoesNotContain(new string('a', AccessibilityReportWriter.MaxAlternativeTextLength + 1), html);
+    }
+
+    [Fact]
+    public void StructureEntriesKeepTheirJsonShape()
+    {
+        var native = SharedAlternativeText(elements: 2, length: 12);
+        var plain = new JsonSerializerOptions
+        {
+            WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+        };
+        Assert.Equal(JsonSerializer.Serialize(native, plain), AccessibilityReportWriter.Write(native, "a.pdf", "json"));
+    }
+
     [Fact]
     public void IndependentPassCannotClearNativeFailures()
     {
