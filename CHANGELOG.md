@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.14.0
 
 - The accessibility scan reads page and form content one operator at a time
   instead of building the whole stream as objects first. A 20 KB file whose
@@ -13,6 +13,8 @@
   its descendants: a 124 KB file used 382 MB.
 - A failure found in content before a parse error is now kept. Before, the
   parse error discarded every finding in that stream.
+- A form drawn several times on one page is compared with the structure's
+  MCIDs once per page, so a missing MCID is reported once, not once per drawing.
 - New `PdfAccessibilityScanOptions.MaxDuration` (default 2 minutes, `null` for
   none) ends a scan as incomplete and keeps the failures found so far.
   `freepdf-a11y --timeout SECONDS` sets it (default 120).

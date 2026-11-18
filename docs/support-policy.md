@@ -311,6 +311,11 @@ In 7.13.0 the native scanner checks tagged content, painting and fonts for
 visible text inside local Form XObjects, including nested forms. If the scanner
 cannot resolve a named marked-content property, it reports an incomplete scan.
 
+In 7.14.0 the scanner reads content one operator at a time and has a time limit,
+`MaxDuration` (default 2 minutes; `freepdf-a11y --timeout`). Tests scan nine
+hostile inputs within a 256 MiB .NET heap. The limits are still not a sandbox:
+scan untrusted PDFs in a separate process with memory and time limits.
+
 Scanner coverage is partial PDF/UA-1. A completed scan means its implemented
 checks finished; it does not establish ADA, WCAG or full PDF/UA compliance.
 Human review and independent validation remain required. Unsupported content

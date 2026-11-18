@@ -509,7 +509,7 @@ adapter's handling of validator output limits, and a changed or unreadable
 snapshot that keeps no validator verdict. No validator or later PDFsharp
 implementation was consulted.
 
-## Bounded memory and time in the accessibility scan (unreleased)
+## Bounded memory and time in the accessibility scan (7.14.0)
 
 The streaming operator reader added to the inherited MIT `CParser` (`ReadOperators`,
 with `ParseObject` returning after each operator on request), the run-length store
