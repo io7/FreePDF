@@ -104,15 +104,15 @@ namespace PdfSharp.UniversalAccessibility
         bool InspectOperators(PageContent page, ContentStream stream, byte[] bytes, Marking inherited, TextState text)
         {
             var scopes = new Stack<Marking>();
-            var saved = new Stack<TextState>();
+            var saved = new SavedStates();
             var ids = new HashSet<int>();
             _mcids.TryGetValue(stream.Owner, out var expected);
             COperator? dictionary = null;
             bool allIdsKnown = true;
-            foreach (var item in ContentReader.ReadContent(bytes))
+            // Operators are parsed one at a time, so a long stream is not held as millions of objects.
+            foreach (var op in new CParser(bytes).ReadOperators())
             {
                 _cancellation.ThrowIfCancellationRequested();
-                if (item is not COperator op) continue;
                 if (op.OpCode.OpCodeName == OpCodeName.Dictionary) { dictionary = op; continue; }
                 var inline = dictionary != null && op.Operands.Count == 0;
                 var operands = inline ? dictionary!.Operands : op.Operands;
@@ -163,11 +163,11 @@ namespace PdfSharp.UniversalAccessibility
             return ids.Count != 0;
         }
 
-        TextState InspectText(COperator op, int page, ContentStream stream, Stack<TextState> saved, TextState text)
+        TextState InspectText(COperator op, int page, ContentStream stream, SavedStates saved, TextState text)
         {
             // A form inherits its caller's graphics state and restores it on return (ISO 32000-1 8.10.2).
             if (op.Name == "q") saved.Push(text);
-            else if (op.Name == "Q" && saved.Count > 0) return saved.Pop();
+            else if (op.Name == "Q" && saved.TryPop(out var restored)) return restored;
             else if (op.Name == "Tr" && op.Operands.FirstOrDefault() is CInteger mode) return text with { Mode = mode.Value };
             else if (op.Name == "Tf" && op.Operands.FirstOrDefault() is CName fontName)
                 return new TextState(Dict(Dict(stream.Resources, "/Font"), fontName.Name), Location(stream.ResourcePath, "/Font", fontName.Name), true, text.Mode,
@@ -319,5 +319,35 @@ namespace PdfSharp.UniversalAccessibility
 
         // Key identifies the selected font reference (resources and full name) for reporting a missing font once per page.
         readonly record struct TextState(PdfDictionary? Font, string Path, bool Selected, int Mode, ReportKey Key = default);
+
+        // ISO 32000-1 Annex C allows 28 nested q, but files often leave q unclosed. Equal consecutive states share one
+        // entry, so a run of q without a state change costs nothing. Distinct saved states are capped.
+        internal const int MaxSavedStates = 65536;
+
+        sealed class SavedStates
+        {
+            readonly List<(TextState State, int Count)> _entries = new();
+
+            internal void Push(TextState state)
+            {
+                int last = _entries.Count - 1;
+                if (last >= 0 && _entries[last].State.Equals(state))
+                    _entries[last] = (state, _entries[last].Count + 1);
+                else if (_entries.Count < MaxSavedStates)
+                    _entries.Add((state, 1));
+                else
+                    throw new AccessibilityLimitException("Graphics state nesting exceeds " + MaxSavedStates + " distinct saved states.");
+            }
+
+            internal bool TryPop(out TextState state)
+            {
+                int last = _entries.Count - 1;
+                if (last < 0) { state = default; return false; }
+                state = _entries[last].State;
+                if (_entries[last].Count == 1) _entries.RemoveAt(last);
+                else _entries[last] = (state, _entries[last].Count - 1);
+                return true;
+            }
+        }
     }
 }

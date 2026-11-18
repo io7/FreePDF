@@ -29,6 +29,11 @@ internal static class ProcessProbe
             case "output": Console.Write(new string('x', 9 * 1024 * 1024)); break;
             case "stderr": Console.Error.Write(new string('x', 70 * 1024)); break;
             case "args": Console.Write(System.Text.Json.JsonSerializer.Serialize(args.Skip(1))); break;
+            case "scan":
+                // Scan and write the JSON report, as the CLI does, under the caller's heap limit.
+                var report = PdfSharp.UniversalAccessibility.PdfAccessibilityScanner.Scan(args[1]);
+                Console.Write(report.Status + " " + AccessibilityReportWriter.Write(report, "input.pdf", "json").Length);
+                break;
             case "exit": return 17;
         }
         return 0;

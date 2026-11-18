@@ -67,9 +67,15 @@ document still gives exit code 1.
 
 `PdfAccessibilityScanOptions` sets the scan limits. `MaxDecodedBytes` covers
 metadata, page streams and each form invocation. `MaxDepth` bounds nested
-forms. `MaxNodes` covers the structure tree, role map and number tree. A limit
-produces `Incomplete`. Cancellation propagates to the caller. The metadata
-reader disables XML DTD processing.
+forms and XMP elements. `MaxNodes` covers the structure tree, role map and number
+tree. Equal consecutive saved graphics states share one entry, and more than
+65,536 distinct saved states stop the scan. A limit produces `Incomplete`.
+Cancellation propagates to the caller. The metadata reader disables XML DTD
+processing.
+
+The scanner reads content one operator at a time. If a stream cannot be parsed
+to its end, failures found before the error remain in the report, and the scan
+is `Incomplete`.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
 do not validate Unicode mappings, embedded glyph correctness, all heading/table
@@ -81,9 +87,10 @@ assistive-technology testing before making a conformance claim. The HTML structu
 listing is a review aid, not a screen-reader transcript.
 
 The library's limits are not a security sandbox. Process untrusted files in an
-isolated worker with external time/memory limits. The limits bound memory use,
-but not tightly: in a 7.13.0 test, a 20 KB file whose page content decompresses
-to 20 MB used 2.4 GB. A later release will reduce this. The corpus runner demonstrates
+isolated worker with external time/memory limits. The regression tests scan six
+hostile inputs that each once needed between 1 and 5 GB; each must now finish
+within a 256 MiB .NET heap. That covers known cases, not every possible file.
+The corpus runner demonstrates
 per-file process isolation, timeouts and a .NET GC heap limit; its inputs are
 synthetic, and a GC heap limit is not a total process-memory limit.
 

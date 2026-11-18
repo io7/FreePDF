@@ -1,5 +1,20 @@
 # FreePDF changelog
 
+## Unreleased
+
+- The accessibility scan reads page and form content one operator at a time
+  instead of building the whole stream as objects first. A 20 KB file whose
+  content decompresses to 20 MB of `q` operators used 2.4 GB and now uses
+  152 MB.
+- Equal consecutive saved graphics states (`q`) share one entry. More than
+  65,536 distinct saved states make the scan incomplete.
+- XMP metadata nested deeper than `MaxDepth` is not checked (`TITLE` and `UAID`
+  are `NotChecked`). Before, each nested `pdfuaid:part` joined the text of all
+  its descendants: a 124 KB file used 382 MB.
+- A failure found in content before a parse error is now kept. Before, the
+  parse error discarded every finding in that stream.
+- Tests scan six hostile inputs in a process with a 256 MiB .NET heap limit.
+
 ## 7.13.0
 
 - The native accessibility scanner follows Form XObjects and resolves named

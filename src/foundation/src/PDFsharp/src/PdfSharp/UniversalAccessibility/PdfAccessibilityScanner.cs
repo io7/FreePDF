@@ -254,10 +254,29 @@ namespace PdfSharp.UniversalAccessibility
             XDocument? xmp = null;
             if (metadata?.Stream != null)
             {
-                using var bytes = new MemoryStream(Decode(metadata));
-                using var reader = XmlReader.Create(bytes, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = _options.MaxDecodedBytes });
-                try { xmp = XDocument.Load(reader); }
-                catch (XmlException) { Record("TITLE", PdfAccessibilityCheckStatus.NotChecked, "XMP could not be parsed safely."); Record("UAID", PdfAccessibilityCheckStatus.NotChecked, "XMP could not be parsed safely."); return; }
+                var data = Decode(metadata);
+                var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = _options.MaxDecodedBytes };
+                string? problem = null;
+                try
+                {
+                    // An element's Value joins the text of all its descendants. Reading the declarations and titles
+                    // stays linear only while the nesting is bounded, so deeper XMP is not loaded.
+                    using (var depth = XmlReader.Create(new MemoryStream(data), settings))
+                        while (depth.Read())
+                            if (depth.Depth > _options.MaxDepth) { problem = "XMP nesting exceeds MaxDepth."; break; }
+                    if (problem == null)
+                    {
+                        using var reader = XmlReader.Create(new MemoryStream(data), settings);
+                        xmp = XDocument.Load(reader);
+                    }
+                }
+                catch (XmlException) { problem = "XMP could not be parsed safely."; }
+                if (problem != null)
+                {
+                    Record("TITLE", PdfAccessibilityCheckStatus.NotChecked, problem, path: "/Metadata");
+                    Record("UAID", PdfAccessibilityCheckStatus.NotChecked, problem, path: "/Metadata");
+                    return;
+                }
             }
             XNamespace dc = "http://purl.org/dc/elements/1.1/";
             XNamespace ua = "http://www.aiim.org/pdfua/ns/id/";
