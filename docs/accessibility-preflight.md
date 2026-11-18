@@ -114,6 +114,9 @@ It escapes terminal control characters from filenames and document text. Use
 HTML or JSON for all findings. HTML escapes
 document strings and loads no external resources. SARIF includes rule IDs,
 guidance, document hashes, page/path locations, review tasks and coverage metadata.
+JSON and HTML reports cut alternative text in the structure order after 1,000
+characters and end it with `...`, because many elements can share one long text.
+`PdfAccessibilityStructureEntry.AlternativeText` in the API keeps the whole text.
 Output paths must be new files: the CLI refuses to overwrite an existing report or
 PDF. Use `--password-env NAME` for an environment variable containing the password.
 The password is never included in the report.

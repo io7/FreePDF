@@ -503,6 +503,8 @@ Specification: https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF
 A review of the 7.12.0 and 7.13.0 changes found the defects corrected here. The
 fixes and their tests are original FreePDF code, written from original synthetic
 reproducers: bounded finding locations (the 127-byte name limit of ISO 32000-1
-Annex C), Type0 descendant fonts limited to CIDFonts (ISO 32000-1 9.7.6), the
-adapter's handling of validator output limits, and a changed snapshot that keeps
-no validator verdict. No validator or later PDFsharp implementation was consulted.
+Annex C), deduplication by page and PDF object, Type0 descendant fonts limited to
+CIDFonts (ISO 32000-1 9.7.6), alternative text cut in written reports, the
+adapter's handling of validator output limits, and a changed or unreadable
+snapshot that keeps no validator verdict. No validator or later PDFsharp
+implementation was consulted.

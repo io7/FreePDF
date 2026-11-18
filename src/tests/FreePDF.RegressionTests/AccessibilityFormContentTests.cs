@@ -254,6 +254,17 @@ public partial class AccessibilityScannerTests
     }
 
     [Fact]
+    public void Missing_fonts_with_the_same_shortened_location_are_reported_separately()
+    {
+        var prefix = "/" + new string('F', 127);
+        var report = Scan(Fixture(d => d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(
+            "/Artifact BMC BT " + prefix + "1 10 Tf (a) Tj " + prefix + "2 10 Tf (b) Tj ET EMC"))));
+        var missing = report.Findings.Where(f => f.RuleId == "FPDF-A11Y-FONT" && f.Status == PdfAccessibilityCheckStatus.Failed).ToList();
+        Assert.Equal(2, missing.Count);
+        Assert.All(missing, f => Assert.Equal("/Resources/Font" + prefix + "...", f.Location));
+    }
+
+    [Fact]
     public void A_chain_of_type0_fonts_fails_once_and_is_not_followed()
     {
         var report = Scan(Fixture(d =>

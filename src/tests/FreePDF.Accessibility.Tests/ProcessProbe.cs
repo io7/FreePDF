@@ -18,6 +18,8 @@ internal static class ProcessProbe
             // Keep the length, so only the hash comparison can detect the change.
             if (mode.EndsWith("change-input", StringComparison.Ordinal)) File.WriteAllText(input, mode.ToUpperInvariant());
             if (mode == "stderr-flood") Console.Error.Write(new string('x', 70 * 1024));
+            // The adapter can still read the length, but not the bytes for its hash check.
+            if (mode == "failing-unreadable" && !OperatingSystem.IsWindows()) File.SetUnixFileMode(input, UnixFileMode.UserWrite);
             Console.Write(report.ToString());
             return failing ? 1 : 0;
         }

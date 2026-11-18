@@ -14,8 +14,41 @@ internal static class AccessibilityReportWriter
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new JsonStringEnumConverter(), new StructureEntryConverter() }
     };
+
+    // Many structure elements can share one indirect /Alt string. The scan keeps one copy, but every written
+    // entry would repeat it, so a small file could produce a report of many gigabytes. Written reports cut the
+    // text; PdfAccessibilityStructureEntry.AlternativeText keeps it whole.
+    internal const int MaxAlternativeTextLength = 1000;
+
+    internal static string ReportedAlternativeText(string text)
+    {
+        if (text.Length <= MaxAlternativeTextLength) return text;
+        int length = char.IsHighSurrogate(text[MaxAlternativeTextLength - 1]) ? MaxAlternativeTextLength - 1 : MaxAlternativeTextLength;
+        return text.Substring(0, length) + "...";
+    }
+
+    // Writes the properties the default serializer writes, in the same order, with the alternative text cut.
+    sealed class StructureEntryConverter : JsonConverter<PdfAccessibilityStructureEntry>
+    {
+        public override PdfAccessibilityStructureEntry Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            throw new NotSupportedException("Accessibility reports are written, not read.");
+
+        public override void Write(Utf8JsonWriter writer, PdfAccessibilityStructureEntry value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString(Name(options, nameof(value.Role)), value.Role);
+            writer.WritePropertyName(Name(options, nameof(value.Page)));
+            if (value.Page is int page) writer.WriteNumberValue(page);
+            else writer.WriteNullValue();
+            writer.WriteString(Name(options, nameof(value.Path)), value.Path);
+            writer.WriteString(Name(options, nameof(value.AlternativeText)), ReportedAlternativeText(value.AlternativeText));
+            writer.WriteEndObject();
+        }
+
+        static string Name(JsonSerializerOptions options, string name) => options.PropertyNamingPolicy?.ConvertName(name) ?? name;
+    }
 
     internal static string Write(PdfAccessibilityReport report, string name, string format) => format switch
     {
@@ -134,7 +167,7 @@ internal static class AccessibilityReportWriter
         html.Append("<h2 id=\"checks\">Check coverage</h2><div class=\"table\"><table><caption>Implemented checks only</caption><thead><tr><th scope=\"col\">Rule</th><th scope=\"col\">Check</th><th scope=\"col\">Outcome</th><th scope=\"col\">Occurrences</th></tr></thead><tbody>");
         foreach (var c in report.Checks) html.Append("<tr><th scope=\"row\">").Append(E(c.Id)).Append("</th><td><a href=\"").Append(E(c.Reference)).Append("\">").Append(E(c.Title)).Append("</a></td><td>").Append(E(c.Status)).Append("</td><td>").Append(E(c.Occurrences)).Append("</td></tr>");
         html.Append("</tbody></table></div><h2 id=\"order\">Structure order</h2><p>This is the tag-tree traversal order, not a screen-reader transcript. Compare it with the visible content and test with assistive technology.</p><ol>");
-        foreach (var e in report.StructureOrder) html.Append("<li><strong>").Append(E(e.Role)).Append("</strong> · page ").Append(E(e.Page)).Append(" · ").Append(E(e.AlternativeText)).Append(" <code>").Append(E(e.Path)).Append("</code></li>");
+        foreach (var e in report.StructureOrder) html.Append("<li><strong>").Append(E(e.Role)).Append("</strong> · page ").Append(E(e.Page)).Append(" · ").Append(E(ReportedAlternativeText(e.AlternativeText))).Append(" <code>").Append(E(e.Path)).Append("</code></li>");
         html.Append("</ol><h2 id=\"limits\">Limitations</h2><ul>");
         foreach (var limitation in report.Limitations) html.Append("<li>").Append(E(limitation)).Append("</li>");
         return html.Append("</ul></main></body></html>").ToString();
