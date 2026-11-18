@@ -306,7 +306,8 @@ check accepts. 7.11.0 adds accessibility checking through a native API and the
 regression corpus. In 7.12.0 the CLI lists the Matterhorn 1.1 requirements and
 can run veraPDF as an independent PDF/UA-1 check. In 7.13.0 the native scanner
 checks content inside nested Form XObjects and resolves named marked-content
-properties. See the release notes for [7.13.0](docs/releases/7.13.0.md),
+properties. 7.14.0 bounds the scan's memory and time on hostile files and adds
+a scan time limit. See the release notes for [7.14.0](docs/releases/7.14.0.md), [7.13.0](docs/releases/7.13.0.md),
 [7.12.0](docs/releases/7.12.0.md), [7.11.0](docs/releases/7.11.0.md), [7.10.2](docs/releases/7.10.2.md), [7.10.1](docs/releases/7.10.1.md), [7.10.0](docs/releases/7.10.0.md), [7.9.0](docs/releases/7.9.0.md), [7.8.0](docs/releases/7.8.0.md), [7.7.0](docs/releases/7.7.0.md), [7.6.1](docs/releases/7.6.1.md), [7.6.0](docs/releases/7.6.0.md), [7.5.2](docs/releases/7.5.2.md), [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
