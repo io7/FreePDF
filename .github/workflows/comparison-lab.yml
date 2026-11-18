@@ -33,18 +33,24 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       # The Ubuntu mirror on hosted runners can deliver under 100 KB/s, which let this job hit its time limit.
-      # The downloaded packages are kept in the Actions cache per runner image, so the mirror only serves
-      # package lists. veraPDF uses the Java that the runner images already include.
+      # The downloaded packages are kept in the Actions cache, so the mirror only serves package lists.
+      # The key uses the image date: GitHub runs several builds of one image (in Azure and AWS) at once.
+      # A new image date starts from the previous cache; apt downloads only packages whose version changed.
+      # veraPDF uses the Java that the runner images already include.
       - name: Identify the Linux runner image
         if: runner.os == 'Linux'
         id: image
-        run: echo "key=linux-renderer-debs-$ImageOS-$ImageVersion-mupdf-tools-qpdf-poppler-utils" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="linux-renderer-debs-$ImageOS-mupdf-tools-qpdf-poppler-utils-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=$prefix${ImageVersion%%.*}" >> "$GITHUB_OUTPUT"
       - name: Restore Linux renderer packages
         if: runner.os == 'Linux'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/apt-archives
           key: ${{ steps.image.outputs.key }}
+          restore-keys: ${{ steps.image.outputs.prefix }}
       - name: Install Linux renderer
         if: runner.os == 'Linux'
         run: |
