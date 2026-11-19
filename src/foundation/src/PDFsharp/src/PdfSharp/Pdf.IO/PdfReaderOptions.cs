@@ -110,5 +110,11 @@ namespace PdfSharp.Pdf.IO
         /// The default behaviour is to reset the encryption, so that it’s on the user to set an encryption before saving.
         /// </summary>
         public bool DoNotResetEncryption { get; set; }
+
+        /// <summary>
+        /// Stops the reader while it opens the file (FreePDF). The accessibility scanner uses it for cancellation and
+        /// its time limit.
+        /// </summary>
+        internal ReadInterrupt? Interrupt { get; set; }
     }
 }

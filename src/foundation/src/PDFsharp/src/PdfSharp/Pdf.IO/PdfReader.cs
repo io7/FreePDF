@@ -282,6 +282,7 @@ namespace PdfSharp.Pdf.IO
         PdfDocument OpenFromStream(Stream stream, string? password, PdfDocumentOpenMode openMode,
             PdfPasswordProvider? passwordProvider) // MaOs4StLa Review: Removed options parameter. The parameter was not used and there is already an _options field.
         {
+            Lexer? lexer = null;
             try
             {
                 if (!stream.CanRead)
@@ -289,7 +290,8 @@ namespace PdfSharp.Pdf.IO
                 if (!stream.CanSeek)
                     throw new PdfReaderException("PdfReader needs a stream that supports seeking.");
 
-                var lexer = new Lexer(stream, _logger);
+                // The interrupt applies while the file is opened; the document keeps this lexer afterwards.
+                lexer = new Lexer(stream, _logger) { Interrupt = _options.Interrupt };
                 _document = new PdfDocument(lexer);
                 _document.State |= DocumentState.Imported;
                 _document.OpenMode = openMode;
@@ -603,6 +605,11 @@ namespace PdfSharp.Pdf.IO
                 _logger.LogError(ex, "Reading PDF document failed.");
                 throw;
             }
+            finally
+            {
+                if (lexer != null)
+                    lexer.Interrupt = null;
+            }
             return _document;
         }
 
@@ -615,6 +622,7 @@ namespace PdfSharp.Pdf.IO
 
             foreach (var iref in _document.IrefTable.AllReferences)
             {
+                _options.Interrupt?.Check();
                 var pdfObject = iref.Value;
 
                 Debug.Assert(pdfObject != null,
@@ -718,6 +726,7 @@ namespace PdfSharp.Pdf.IO
         {
             foreach (var pdfReference in _document.IrefTable.Values)
             {
+                _options.Interrupt?.Check();
                 var pdfObject = pdfReference.Value;
                 RereadUnicodeStrings(pdfObject);
             }

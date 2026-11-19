@@ -16,6 +16,8 @@ namespace PdfSharp.UniversalAccessibility
     /// <summary>Read-only, native PDF/UA-1 accessibility preflight with explicitly partial coverage.</summary>
     public static class PdfAccessibilityScanner
     {
+        internal const string MaxDurationMessage = "Scan exceeded MaxDuration.";
+
         /// <summary>Scans the original file without modifying it. I/O and cancellation exceptions propagate.</summary>
         public static PdfAccessibilityReport Scan(string path, PdfAccessibilityScanOptions? options = null, CancellationToken cancellationToken = default)
         {
@@ -49,9 +51,11 @@ namespace PdfSharp.UniversalAccessibility
                 using (var hash = SHA256.Create())
                     scan.Report.DocumentSha256 = BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
                 input.Position = 0;
+                // Cancellation and MaxDuration also stop the reader while it opens the file.
+                var interrupt = new ReadInterrupt(() => cancellationToken.IsCancellationRequested || scan.DurationExceeded);
                 try
                 {
-                    using var document = PdfReader.Open(input, options.Password, PdfDocumentOpenMode.Import);
+                    using var document = PdfReader.Open(input, options.Password, PdfDocumentOpenMode.Import, new PdfReaderOptions { Interrupt = interrupt });
                     // The reader repairs damaged cross-reference data and stream lengths silently. Such a scan
                     // describes the repaired file, which independent validators may reject.
                     scan.RepairedByReader = document.RepairedWhileReading;
@@ -60,6 +64,11 @@ namespace PdfSharp.UniversalAccessibility
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException && ex is not IOException)
                 {
+                    if (interrupt.Stopped)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return scan.Unreadable(MaxDurationMessage);
+                    }
                     // Do not expose parser messages, passwords or document contents in diagnostics.
                     return scan.Unreadable(ex is AccessibilityLimitException ? ex.Message : "PDF could not be fully inspected (malformed, unsupported or password required). Exception type: " + ex.GetType().Name);
                 }
@@ -108,9 +117,11 @@ namespace PdfSharp.UniversalAccessibility
         // Also called after each phase of Inspect, so a scan that ran out of time never reports itself as completed.
         void CheckDuration()
         {
-            if (_options.MaxDuration is TimeSpan limit && _clock.Elapsed > limit)
-                throw new AccessibilityLimitException("Scan exceeded MaxDuration.");
+            if (DurationExceeded)
+                throw new AccessibilityLimitException(PdfAccessibilityScanner.MaxDurationMessage);
         }
+
+        internal bool DurationExceeded => _options.MaxDuration is TimeSpan limit && _clock.Elapsed > limit;
         internal bool RepairedByReader;
         const string Technique = "https://www.w3.org/WAI/WCAG22/Techniques/pdf/";
         const string Matterhorn = "https://pdfa.org/resource/the-matterhorn-protocol/";

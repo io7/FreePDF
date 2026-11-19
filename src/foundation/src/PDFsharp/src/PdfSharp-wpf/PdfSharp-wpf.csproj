@@ -338,6 +338,7 @@
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReader.cs" Link="Pdf.IO\PdfReader.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReaderException.cs" Link="Pdf.IO\PdfReaderException.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfReaderOptions.cs" Link="Pdf.IO\PdfReaderOptions.cs" />
+    <Compile Include="..\PdfSharp\Pdf.IO\ReadInterrupt.cs" Link="Pdf.IO\ReadInterrupt.cs" />
     <Compile Include="..\PdfSharp\Pdf.IO\PdfWriter.cs" Link="Pdf.IO\PdfWriter.cs" />
     <Compile Include="..\PdfSharp\Pdf.Metadata\enums\DocumentMetadataStrategy.cs" Link="Pdf.Metadata\enums\DocumentMetadataStrategy.cs" />
     <Compile Include="..\PdfSharp\Pdf.Metadata\DocumentMetadataInfo.cs" Link="Pdf.Metadata\DocumentMetadataInfo.cs" />

@@ -71,8 +71,8 @@ forms and XMP elements. `MaxNodes` covers the structure tree, role map and numbe
 tree. Equal consecutive saved graphics states share one entry, and more than
 65,536 distinct saved states stop the scan. `MaxDuration` (default 2 minutes,
 `null` for no limit) ends a scan that takes longer; the failures found until then
-stay in the report. Opening the PDF is not interrupted by `MaxDuration`; use the
-cancellation token for that. A limit produces `Incomplete`. Cancellation
+stay in the report. `MaxDuration` and the cancellation token also stop the
+reader while it opens the PDF. A limit produces `Incomplete`. Cancellation
 propagates to the caller. The metadata reader disables XML DTD processing.
 
 The scanner reads content one operator at a time. If a stream cannot be parsed
@@ -92,6 +92,10 @@ The library's limits are not a security sandbox. Process untrusted files in an
 isolated worker with external time/memory limits. The regression tests scan six
 hostile inputs that each once needed between 1 and 5 GB; each must now finish
 within a 256 MiB .NET heap. That covers known cases, not every possible file.
+Opening a PDF keeps all its objects in memory, about 500 bytes each. A file
+within `MaxFileBytes` that packs millions of small objects into compressed
+object streams can therefore need several GB: 19 MiB with 3 million objects
+used 1.5 GB and opened in 6 s, well within the default `MaxDuration`.
 The corpus runner demonstrates
 per-file process isolation, timeouts and a .NET GC heap limit; its inputs are
 synthetic, and a GC heap limit is not a total process-memory limit.

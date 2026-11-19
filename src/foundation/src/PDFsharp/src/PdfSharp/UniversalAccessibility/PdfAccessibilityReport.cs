@@ -49,7 +49,7 @@ namespace PdfSharp.UniversalAccessibility
         public int MaxDecodedBytes { get; set; } = 32 * 1024 * 1024;
         /// <summary>
         /// Maximum time for one scan, or null for no limit. When it is reached, the scan ends as incomplete and keeps
-        /// the failures found so far. Opening the PDF is not interrupted; use the cancellation token for that.
+        /// the failures found so far. The limit also applies while the PDF is opened, as the cancellation token does.
         /// </summary>
         public TimeSpan? MaxDuration { get; set; } = TimeSpan.FromMinutes(2);
     }

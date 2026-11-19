@@ -520,3 +520,12 @@ original FreePDF code. Inputs were the reviewed FreePDF source, ISO 32000-1 Anne
 (implementation limits) and 8.4.2 (the graphics state stack), and original synthetic
 reproducers found by the 7.13.0 review. `ReadContent` keeps its behaviour. No other
 parser, validator or later PDFsharp implementation was consulted.
+
+## Interruptible reading in the accessibility scan (unreleased)
+
+`ReadInterrupt`, its checks in the inherited MIT `Lexer`, `Parser` and `PdfReader`,
+and the tests that stop the reader by `MaxDuration` and by cancellation are original
+FreePDF code. Inputs were the reviewed FreePDF source and original synthetic
+reproducers (many small objects, with and without a cross-reference table, in object
+streams, as pages and as incremental updates). No other parser or later PDFsharp
+implementation was consulted.
