@@ -43,8 +43,12 @@ public sealed class LinkSamples : SampleTest
         var webLink = links.Single(link => link.Elements.GetDictionary("/A")?.Elements.GetName("/S") == "/URI");
         Assert.Equal("https://example.com/", webLink.Elements.GetDictionary("/A")!.Elements.GetString("/URI"));
         AssertNear(MediaSize("links.pdf").Height - 50, webLink.Elements.GetRectangle("/Rect")!.Y2);
+        var pageLink = links.Single(link => link != webLink);
+        Assert.Equal(1, DestinationPageIndex(saved, pageLink));                   // "Go to page 2"
         Assert.Equal(1, saved.Outlines.Count);
         Assert.Equal("Chapter 1", saved.Outlines[0].Title);
+        Assert.Equal(0, DestinationPageIndex(saved, saved.Outlines[0]));
         Assert.Equal("Section 1.1", saved.Outlines[0].Outlines[0].Title);
+        Assert.Equal(1, DestinationPageIndex(saved, saved.Outlines[0].Outlines[0]));
     }
 }

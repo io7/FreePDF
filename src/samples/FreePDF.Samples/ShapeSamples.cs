@@ -1,6 +1,7 @@
 // Examples for docs/guide/shapes.md. MIT; see LICENSE.
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
 using Xunit;
 
 namespace FreePDF.Samples;
@@ -40,6 +41,15 @@ public sealed class ShapeSamples : SampleTest
         Assert.Contains(segments, s => Near(top - 40, s.Y1) && Near(top - 40, s.Y2) && Near(545, Math.Max(s.X1, s.X2)));
         // The triangle's base.
         Assert.Contains(segments, s => Near(top - 320, s.Y1) && Near(top - 320, s.Y2) && Near(100, Math.Min(s.X1, s.X2)));
+
+        var content = Content("shapes.pdf");
+        Assert.Matches(@"\[[\d. ]+\]\s*[\d.]+ d", content);                          // a dash pattern, "[1.5 .5]0 d"
+        Assert.Matches(@"(-?[\d.]+ ){6}c\b", content);                                // the ellipse's curves
+        Assert.Contains("1 0 0 rg", content);                                         // the red fill
+        using var saved = PdfReader.Open("shapes.pdf", PdfDocumentOpenMode.Import);
+        var states = saved.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/ExtGState")!;
+        var fillAlphas = states.Elements.Keys.Select(key => states.Elements.GetDictionary(key)!.Elements.GetReal("/ca"));
+        Assert.Contains(fillAlphas, alpha => Near(128 / 255.0, alpha, 0.01));         // half transparent
     }
 
     [Fact]

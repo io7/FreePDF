@@ -1,6 +1,9 @@
 // Base class of the guide's examples: each test runs in its own empty folder, with fresh font settings, and reads
 // back the PDF its example wrote. MIT; see LICENSE.
+using System.Text;
 using PdfSharp.Fonts;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.Content.Text;
 using PdfSharp.Pdf.IO;
 using Xunit;
@@ -76,6 +79,33 @@ public abstract class SampleTest : IDisposable
             names.Add(baseFont.Substring(baseFont.IndexOf('+') + 1));
         }
         return names;
+    }
+
+    /// <summary>The page's content streams, decoded and joined.</summary>
+    protected static string Content(string path, int page = 0)
+    {
+        using var document = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        var contents = document.Pages[page].Contents;
+        var parts = new List<string>();
+        for (int i = 0; i < contents.Elements.Count; i++)
+            parts.Add(Encoding.ASCII.GetString(contents.Elements.GetDictionary(i)!.Stream!.UnfilteredValue));
+        return string.Join("\n", parts);
+    }
+
+    /// <summary>
+    /// The index of the page that a link annotation or a bookmark goes to: the first element of its /Dest array, or of
+    /// the /D array of its GoTo action.
+    /// </summary>
+    protected static int DestinationPageIndex(PdfDocument document, PdfDictionary item)
+    {
+        var destination = item.Elements.GetArray("/Dest") ?? item.Elements.GetDictionary("/A")?.Elements.GetArray("/D");
+        var target = Assert.IsType<PdfReference>(destination?.Elements[0]);
+        for (int i = 0; i < document.PageCount; i++)
+        {
+            if (document.Pages[i].Reference?.ObjectID == target.ObjectID)
+                return i;
+        }
+        return -1;
     }
 
     protected static bool Near(double expected, double actual, double tolerance = 0.5)

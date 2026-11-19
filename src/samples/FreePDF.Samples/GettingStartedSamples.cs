@@ -45,6 +45,7 @@ public sealed class GettingStartedSamples : SampleTest
         byte[] pdf = stream.ToArray();  // in ASP.NET Core: return File(pdf, "application/pdf", "invoice.pdf");
         // end-snippet
 
+        Assert.True(stream.CanWrite);   // Save left the stream open
         Assert.Equal("%PDF-", Encoding.ASCII.GetString(pdf, 0, 5));
         using var reopened = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
         Assert.Equal("Invoice 2026-118", PdfTextExtractor.GetText(reopened.Pages[0]).Trim());

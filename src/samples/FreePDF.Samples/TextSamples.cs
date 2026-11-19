@@ -48,7 +48,7 @@ public sealed class TextSamples : SampleTest
         {
             var font = new XFont("Arial", 16);
             const string title = "Quarterly report";
-            XSize size = gfx.MeasureString(title, font);   // width, and the line height of the font, in points
+            XSize size = gfx.MeasureString(title, font);   // width, and height from ascent to descent, in points
 
             gfx.DrawString(title, font, XBrushes.Black, 50, 80);
             gfx.DrawLine(new XPen(XColors.SteelBlue, 1.5), 50, 84, 50 + size.Width, 84);   // as wide as the text
@@ -85,9 +85,32 @@ public sealed class TextSamples : SampleTest
         // end-snippet
 
         var runs = Runs("paragraph.pdf");
-        Assert.True(runs.Select(r => Math.Round(r.Y)).Distinct().Count() >= 4);   // wrapped onto several lines
         Assert.All(runs, r => Assert.InRange(r.EndX, 50, 250.5));
         Assert.Equal(Words(text), Words(Text("paragraph.pdf")));
+        // Justified: every line but the last ends at the right edge of the box (x 250); the last one does not.
+        var lineEnds = runs.GroupBy(r => Math.Round(r.Y)).OrderByDescending(line => line.Key)
+            .Select(line => line.Max(r => r.EndX)).ToList();
+        Assert.True(lineEnds.Count >= 4);
+        Assert.All(lineEnds.Take(lineEnds.Count - 1), end => AssertNear(250, end));
+        Assert.True(lineEnds[^1] < 240);
+    }
+
+    [Fact]
+    public void ParagraphFirstLineIsAlwaysDrawn()
+    {
+        // Checks the guide's statement that the first line is drawn even when the box is lower than one line.
+        using (var document = new PdfDocument())
+        {
+            var page = document.AddPage();
+            using (var gfx = XGraphics.FromPdfPage(page))
+            {
+                new XTextFormatter(gfx).DrawString("first line second line third line", new XFont("Arial", 11),
+                    XBrushes.Black, new XRect(50, 50, 60, 1), XStringFormats.TopLeft);
+            }
+            document.Save("first-line.pdf");
+        }
+
+        Assert.Single(Runs("first-line.pdf").Select(r => Math.Round(r.Y)).Distinct());
     }
 
     [Fact]

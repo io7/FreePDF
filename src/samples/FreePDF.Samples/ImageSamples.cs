@@ -37,5 +37,7 @@ public sealed class ImageSamples : SampleTest
         Assert.Equal("/Image", stored.Elements.GetName("/Subtype"));
         Assert.Equal(40, stored.Elements.GetInteger("/Width"));
         Assert.Equal(20, stored.Elements.GetInteger("/Height"));
+        // Drawn 150 × 75 points: the image matrix before "Do" scales by 150 and 75 (y may be mirrored).
+        Assert.Matches(@"150 0 0 -?75 -?[\d.]+ -?[\d.]+ cm\s*/\w+ Do", Content("image.pdf"));
     }
 }

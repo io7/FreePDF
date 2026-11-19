@@ -42,7 +42,7 @@ public sealed class ExistingPdfSamples : SampleTest
     [Fact]
     public void CombineFiles()
     {
-        CreateReport("a.pdf", 2);
+        CreateReport("a.pdf", 2, bookmarkOnLastPage: "Summary of a");
         CreateReport("b.pdf", 3);
 
         // begin-snippet: import-pages
@@ -64,9 +64,13 @@ public sealed class ExistingPdfSamples : SampleTest
         Assert.Contains("Report page 2", Text("combined.pdf", 1));
         Assert.Contains("Report page 3", Text("combined.pdf", 4));
         Assert.Contains("Report page 1", Text("combined.pdf", 5));
+        // AppendPages kept a.pdf's bookmark, and it still leads to a.pdf's second page (AddPage alone drops it).
+        var bookmark = Assert.Single(Enumerable.Range(0, saved.Outlines.Count).Select(i => saved.Outlines[i]));
+        Assert.Equal("Summary of a", bookmark.Title);
+        Assert.Equal(1, DestinationPageIndex(saved, bookmark));
     }
 
-    static void CreateReport(string path, int pages)
+    static void CreateReport(string path, int pages, string? bookmarkOnLastPage = null)
     {
         using var document = new PdfDocument();
         for (int i = 1; i <= pages; i++)
@@ -75,6 +79,8 @@ public sealed class ExistingPdfSamples : SampleTest
             using var gfx = XGraphics.FromPdfPage(page);
             gfx.DrawString($"Report page {i}", new XFont("Arial", 14), XBrushes.Black, 50, 50);
         }
+        if (bookmarkOnLastPage != null)
+            document.Outlines.Add(bookmarkOnLastPage, document.Pages[pages - 1]);
         document.Save(path);
     }
 }
