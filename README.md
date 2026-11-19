@@ -160,6 +160,17 @@ buttons and bookmarks lead to the pages in the new file, and a split file does
 not carry hidden copies of the pages it left out. `AddPage(page)` keeps PDFsharp 6.2.4's
 behaviour; see [Merging and splitting](docs/migrating-to-7.md#merging-and-splitting).
 
+## Extract text
+
+```csharp
+using var document = PdfReader.Open("invoice.pdf", PdfDocumentOpenMode.Import);
+string text = PdfTextExtractor.GetText(document.Pages[0]);
+var runs = PdfTextExtractor.GetTextRuns(document.Pages[0]);   // text, baseline position, size, font
+```
+
+ToUnicode, the standard encodings and the Adobe Glyph List decode the text; see
+[text extraction](docs/text-extraction.md) for what is covered.
+
 ## Fill in or sign a signed PDF without breaking its signatures
 
 ```csharp

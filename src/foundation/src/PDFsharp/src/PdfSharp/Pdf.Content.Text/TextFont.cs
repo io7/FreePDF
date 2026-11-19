@@ -1,0 +1,320 @@
+// Original FreePDF implementation. See LICENSE and PROVENANCE.md.
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using PdfSharp.Pdf.Forms;
+
+namespace PdfSharp.Pdf.Content.Text
+{
+    /// <summary>
+    /// One font dictionary as text extraction reads it: how to split a string into codes, the Unicode text of each
+    /// code and its advance width in text space (ISO 32000-1 9.10.2 for the Unicode order, 9.2.4 and 9.7.4.3 for
+    /// widths).
+    /// </summary>
+    sealed class TextFont
+    {
+        const string Replacement = "�";
+        // An advance for codes without any known width, so that runs still move along the line.
+        const double FallbackWidth = 0.5;
+        // Embedded CMaps followed through /UseCMap.
+        const int MaxCMapChain = 8;
+
+        // One /W entry: "first last width", or "first [widths]" kept as the array itself, so fonts that share one /W
+        // array do not each copy its widths.
+        sealed class CidWidth
+        {
+            internal int First, Last;
+            internal double Width;
+            internal PdfArray? List;
+        }
+
+        // Overlapping /W entries are an error; looking back this far still finds a containing earlier entry.
+        const int MaxOverlapSteps = 64;
+
+        internal string Name { get; private set; } = "";
+        bool _composite, _identity;
+        CodeMap? _encoding, _toUnicode;
+        string?[] _texts = new string?[256];
+        readonly double[] _widths = new double[256];
+        double _defaultWidth = 1;
+        readonly List<CidWidth> _cidRanges = new();
+
+        internal static TextFont Load(PdfDictionary font, TextBudget budget)
+        {
+            budget.Spend(TextBudget.FontBytes);
+            var result = new TextFont { Name = PostScriptName(TextItems.NameOf(font, "/BaseFont")) };
+            if (TextItems.Resolve(font.Elements["/ToUnicode"]) is PdfDictionary { Stream: not null } toUnicode)
+                result._toUnicode = LoadCMap(toUnicode, budget);
+            if (TextItems.NameOf(font, "/Subtype") == "/Type0")
+                result.LoadComposite(font, budget);
+            else
+                result.LoadSimple(font);
+            return result;
+        }
+
+        // An embedded CMap may name another CMap stream as its base (ISO 32000-1 9.7.5.3, /UseCMap). The base is read
+        // first; the CMap's own mappings come before the base's. A base named by a predefined CMap name is not read.
+        static CodeMap LoadCMap(PdfDictionary stream, TextBudget budget)
+        {
+            var chain = new List<PdfDictionary>();
+            var seen = new HashSet<PdfDictionary>();
+            for (PdfDictionary? item = stream; item?.Stream != null && chain.Count < MaxCMapChain && seen.Add(item);
+                 item = TextItems.Resolve(item.Elements["/UseCMap"]) as PdfDictionary)
+                chain.Add(item);
+            CodeMap? map = null;
+            for (int i = chain.Count - 1; i >= 0; i--)
+            {
+                budget.Spend(TextBudget.CMapBytes);
+                var derived = CMapParser.Parse(budget.Decode(chain[i]));
+                if (map != null)
+                    derived.Inherit(map);
+                map = derived;
+            }
+            return map!;
+        }
+
+        // "/ABCDEF+Helvetica" -> "Helvetica" (ISO 32000-1 9.6.4: a subset tag is six uppercase letters and '+').
+        static string PostScriptName(string name)
+        {
+            if (name.StartsWith("/", StringComparison.Ordinal))
+                name = name.Substring(1);
+            if (name.Length > 7 && name[6] == '+' && name.Substring(0, 6).All(c => c >= 'A' && c <= 'Z'))
+                name = name.Substring(7);
+            return name;
+        }
+
+        /// <summary>
+        /// Reads one code at <paramref name="offset"/> and returns its length in bytes (at least 1). The width is in
+        /// text space units per unit of font size; <paramref name="wordSpace"/> is true for the single-byte code 32, the
+        /// one code word spacing applies to (ISO 32000-1 9.3.3).
+        /// </summary>
+        internal int Read(byte[] bytes, int offset, out string text, out double width, out bool wordSpace)
+        {
+            if (!_composite)
+            {
+                int code = bytes[offset];
+                text = _toUnicode?.Text(1, (uint)code) ?? _texts[code] ?? Replacement;
+                width = _widths[code];
+                wordSpace = code == 32;
+                return 1;
+            }
+            int length = _encoding!.ReadCode(bytes, offset, out uint value);
+            text = _toUnicode?.Text(length, value) ?? Replacement;
+            int cid = (int)value;
+            if (!_identity)
+                cid = _encoding.Cid(length, value) ?? 0;
+            width = WidthOf(cid);
+            wordSpace = length == 1 && value == 32;
+            return length;
+        }
+
+        void LoadSimple(PdfDictionary font)
+        {
+            double scale = 0.001;
+            if (TextItems.NameOf(font, "/Subtype") == "/Type3")
+            {
+                var matrix = TextItems.Matrix(font.Elements["/FontMatrix"]);
+                if (matrix != null)
+                    scale = matrix.Value.A;
+            }
+            _texts = BaseEncoding(font);
+            ApplyDifferences(font);
+
+            var widths = TextItems.Resolve(font.Elements["/Widths"]) as PdfArray;
+            int first = TextItems.Integer(font.Elements["/FirstChar"]) ?? 0;
+            double? missing = TextItems.Number(TextItems.Dict(font, "/FontDescriptor")?.Elements["/MissingWidth"]) * scale;
+            short[]? standard = null;
+            if (widths == null)
+                standard = StandardFontWidths.Get(Name);
+            for (int code = 0; code < 256; code++)
+            {
+                double? width = null;
+                if (widths != null)
+                {
+                    int index = code - first;
+                    if (index >= 0 && index < widths.Elements.Count)
+                        width = TextItems.Number(widths.Elements[index]) * scale;
+                }
+                else if (standard != null && _texts[code] != null && Name.StartsWith("Courier", StringComparison.Ordinal))
+                {
+                    // Every glyph of the four Courier fonts is 600/1000 em, also those outside WinAnsiEncoding.
+                    width = 0.6;
+                }
+                else if (standard != null && _texts[code] is string glyph && WinAnsiCodes.TryGetValue(glyph, out int index))
+                {
+                    // The width of the glyph the encoding selects (ISO 32000-1 9.6.6), found by its character.
+                    width = standard[index - 32] / 1000.0;
+                }
+                _widths[code] = width ?? missing ?? FallbackWidth;
+            }
+        }
+
+        // The WinAnsiEncoding code of each character: StandardFontWidths is indexed by it. The unused codes, which
+        // Annex D maps to the bullet too, are left out, so the bullet finds its own code.
+        static readonly Dictionary<string, int> WinAnsiCodes = BuildWinAnsiCodes();
+
+        static Dictionary<string, int> BuildWinAnsiCodes()
+        {
+            var codes = new Dictionary<string, int>();
+            for (int code = 32; code < 256; code++)
+            {
+                if (code is 0x7F or 0x81 or 0x8D or 0x8F or 0x90 or 0x9D)
+                    continue;
+                var text = GlyphTables.WinAnsiEncoding[code].ToString();
+                if (!codes.ContainsKey(text))
+                    codes.Add(text, code);
+            }
+            return codes;
+        }
+
+        string?[] BaseEncoding(PdfDictionary font)
+        {
+            var encoding = TextItems.Resolve(font.Elements["/Encoding"]);
+            string? name = TextItems.NameValue(encoding);
+            if (encoding is PdfDictionary dictionary)
+                name = TextItems.NameOf(dictionary, "/BaseEncoding");
+            string?[]? table = null;
+            if (name != null)
+                table = SimpleEncodings.Named(name);
+            if (table != null)
+                return table;
+            // The font's built-in encoding. Only the standard fonts' are known without reading the font program.
+            switch (Name)
+            {
+                case "Symbol":
+                    return SimpleEncodings.Symbol();
+                case "ZapfDingbats":
+                    return SimpleEncodings.ZapfDingbats();
+                default:
+                    return SimpleEncodings.Standard();
+            }
+        }
+
+        void ApplyDifferences(PdfDictionary font)
+        {
+            if (TextItems.Resolve(font.Elements["/Encoding"]) is not PdfDictionary encoding)
+                return;
+            if (TextItems.Resolve(encoding.Elements["/Differences"]) is not PdfArray differences)
+                return;
+            bool zapfDingbats = Name == "ZapfDingbats";
+            int code = -1;
+            foreach (var item in differences.Elements)
+            {
+                var number = TextItems.Integer(item);
+                if (number.HasValue)
+                {
+                    code = number.Value;
+                    continue;
+                }
+                var glyph = TextItems.NameValue(item);
+                if (glyph == null)
+                    continue;
+                if (code >= 0 && code < 256)
+                    _texts[code] = GlyphNames.ToUnicode(glyph, zapfDingbats);
+                code++;
+            }
+        }
+
+        void LoadComposite(PdfDictionary font, TextBudget budget)
+        {
+            _composite = true;
+            var encoding = TextItems.Resolve(font.Elements["/Encoding"]);
+            if (encoding is PdfDictionary { Stream: not null } stream)
+            {
+                _encoding = LoadCMap(stream, budget);
+            }
+            else
+            {
+                var name = TextItems.NameValue(encoding);
+                _identity = name == "/Identity-H" || name == "/Identity-V";
+                _encoding = new CodeMap();
+            }
+            if (!_encoding.HasSpaces)
+                _encoding.AddSpace(new byte[] { 0, 0 }, new byte[] { 0xFF, 0xFF });
+
+            var descendant = Descendant(font);
+            _defaultWidth = (TextItems.Number(descendant?.Elements["/DW"]) ?? 1000) / 1000;
+            if (descendant != null && TextItems.Resolve(descendant.Elements["/W"]) is PdfArray widths)
+                ReadWidths(widths, budget);
+        }
+
+        static PdfDictionary? Descendant(PdfDictionary font)
+        {
+            if (TextItems.Resolve(font.Elements["/DescendantFonts"]) is not PdfArray fonts || fonts.Elements.Count == 0)
+                return null;
+            return TextItems.Resolve(fonts.Elements[0]) as PdfDictionary;
+        }
+
+        // ISO 32000-1 9.7.4.3: "c [w1 w2 ...]" or "cfirst clast w".
+        void ReadWidths(PdfArray array, TextBudget budget)
+        {
+            var items = array.Elements;
+            int i = 0;
+            while (i < items.Count)
+            {
+                var first = TextItems.Integer(items[i]);
+                if (first == null)
+                {
+                    i++;
+                    continue;
+                }
+                if (i + 1 < items.Count && TextItems.Resolve(items[i + 1]) is PdfArray list)
+                {
+                    if (list.Elements.Count > 0)
+                        AddWidths(budget, new CidWidth { First = first.Value, Last = (int)Math.Min((long)first.Value + list.Elements.Count - 1, int.MaxValue), List = list });
+                    i += 2;
+                }
+                else if (i + 2 < items.Count)
+                {
+                    var last = TextItems.Integer(items[i + 1]);
+                    var width = TextItems.Number(items[i + 2]);
+                    if (last.HasValue && width.HasValue && last.Value >= first.Value)
+                        AddWidths(budget, new CidWidth { First = first.Value, Last = last.Value, Width = width.Value / 1000 });
+                    i += 3;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            _cidRanges.Sort((a, b) => a.First.CompareTo(b.First));
+        }
+
+        void AddWidths(TextBudget budget, CidWidth entry)
+        {
+            budget.Spend(TextBudget.WidthEntryBytes);
+            _cidRanges.Add(entry);
+        }
+
+        double WidthOf(int cid)
+        {
+            // The last entry that starts at or before the CID, then back over earlier entries that may contain it.
+            int low = 0, high = _cidRanges.Count - 1, last = -1;
+            while (low <= high)
+            {
+                int middle = low + (high - low) / 2;
+                if (_cidRanges[middle].First <= cid)
+                {
+                    last = middle;
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle - 1;
+                }
+            }
+            for (int i = last, steps = 0; i >= 0 && steps < MaxOverlapSteps; i--, steps++)
+            {
+                var entry = _cidRanges[i];
+                if (cid > entry.Last)
+                    continue;
+                if (entry.List == null)
+                    return entry.Width;
+                var width = TextItems.Number(entry.List.Elements[cid - entry.First]);
+                if (width.HasValue)
+                    return width.Value / 1000;
+            }
+            return _defaultWidth;
+        }
+    }
+}

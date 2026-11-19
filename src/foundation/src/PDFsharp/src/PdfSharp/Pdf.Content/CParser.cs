@@ -37,6 +37,18 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
+        /// A parser for text extraction: strings keep their raw bytes, and an operator this parser does not know
+        /// is skipped with its operands (ISO 32000-1 7.8.2 allows them between BX and EX).
+        /// </summary>
+        internal CParser(byte[] content, bool extracting)
+        {
+            _lexer = new CLexer(content) { Extracting = extracting };
+            _skipUnknownOperators = extracting;
+        }
+
+        readonly bool _skipUnknownOperators;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="CParser"/> class.
         /// </summary>
         /// <param name="content">The content stream.</param>
@@ -168,8 +180,10 @@ namespace PdfSharp.Pdf.Content
                         break;
 
                     case CSymbol.Operator:
-                        op = CreateOperator();
-                        sequence.Add(op);
+                        var known = CreateOperator();
+                        if (known == null)
+                            break;
+                        sequence.Add(known);
                         if (stopAfterOperator)
                             return true;
                         break;
@@ -198,9 +212,14 @@ namespace PdfSharp.Pdf.Content
             return false;
         }
 
-        COperator CreateOperator()
+        COperator? CreateOperator()
         {
             string name = _lexer.Token;
+            if (_skipUnknownOperators && !OpCodes.IsKnown(name))
+            {
+                _operands.Clear();
+                return null;
+            }
             COperator op = OpCodes.OperatorFromName(name);
             return CreateOperator(op);
         }

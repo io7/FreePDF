@@ -24,6 +24,7 @@
     <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="/" />
     <None Include="$(MSBuildThisFileDirectory)ICC-sRGB2014.txt" Pack="true" PackagePath="THIRD-PARTY/ICC-sRGB2014.txt" />
     <None Include="$(MSBuildThisFileDirectory)Adobe-Core14-AFM.txt" Pack="true" PackagePath="THIRD-PARTY/Adobe-Core14-AFM.txt" />
+    <None Include="$(MSBuildThisFileDirectory)Adobe-Glyph-Tables.txt" Pack="true" PackagePath="THIRD-PARTY/Adobe-Glyph-Tables.txt" />
     <None Include="$(MSBuildThisFileDirectory)../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
   </ItemGroup>
   <Target Name="FreePDFPackageFiles">

@@ -272,6 +272,23 @@
     <Compile Include="..\PdfSharp\Pdf.Content\ContentReaderException.cs" Link="Pdf.Content\ContentReaderException.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content\ContentWriter.cs" Link="Pdf.Content\ContentWriter.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content\CParser.cs" Link="Pdf.Content\CParser.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\GlyphTables.g.cs" Link="Pdf.Content.Text\GlyphTables.g.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\CMapParser.cs" Link="Pdf.Content.Text\CMapParser.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\CodeMap.cs" Link="Pdf.Content.Text\CodeMap.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\GlyphNames.cs" Link="Pdf.Content.Text\GlyphNames.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfLineSegment.cs" Link="Pdf.Content.Text\PdfLineSegment.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfLineExtractor.cs" Link="Pdf.Content.Text\PdfLineExtractor.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextExtractionOptions.cs" Link="Pdf.Content.Text\PdfTextExtractionOptions.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextExtractor.cs" Link="Pdf.Content.Text\PdfTextExtractor.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextRun.cs" Link="Pdf.Content.Text\PdfTextRun.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\SimpleEncodings.cs" Link="Pdf.Content.Text\SimpleEncodings.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextBudget.cs" Link="Pdf.Content.Text\TextBudget.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextContentReader.cs" Link="Pdf.Content.Text\TextContentReader.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextFont.cs" Link="Pdf.Content.Text\TextFont.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextItems.cs" Link="Pdf.Content.Text\TextItems.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextLayout.cs" Link="Pdf.Content.Text\TextLayout.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\TextMatrix.cs" Link="Pdf.Content.Text\TextMatrix.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\enums\PdfTextOrder.cs" Link="Pdf.Content.Text\enums\PdfTextOrder.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content\enums\Symbol.cs" Link="Pdf.Content\enums\Symbol.cs" />
     <Compile Include="..\PdfSharp\Pdf.Filters\ASCII85Decode.cs" Link="Pdf.Filters\ASCII85Decode.cs" />
     <Compile Include="..\PdfSharp\Pdf.Filters\ASCIIHexDecode.cs" Link="Pdf.Filters\ASCIIHexDecode.cs" />

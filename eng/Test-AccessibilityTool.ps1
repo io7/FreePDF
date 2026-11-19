@@ -13,7 +13,7 @@ $output = (Resolve-Path $OutputDirectory).Path
 $id = 'io7.FreePDF.Accessibility.Tool'
 $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $packages "$id.$Version.nupkg"))
 try {
-    foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','icon.png','THIRD-PARTY/Matterhorn-NOTICE.txt','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
+    foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','icon.png','THIRD-PARTY/Matterhorn-NOTICE.txt','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/Adobe-Glyph-Tables.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
         'THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/Microsoft.Extensions.Logging.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/System.Security.Cryptography.Pkcs/THIRD-PARTY-NOTICES.TXT')) {
         if (!$archive.GetEntry($notice)) { throw "Missing tool notice: $notice" }
     }

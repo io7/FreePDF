@@ -44,7 +44,7 @@ foreach ($package in $receipt.packages) {
             try { [xml]$toolSettings = $reader.ReadToEnd() } finally { $reader.Dispose() }
             $commands = @($toolSettings.DotNetCliTool.Commands.Command)
             if ($commands.Count -ne 1 -or $commands[0].Name -cne 'freepdf-a11y' -or $commands[0].EntryPoint -cne 'FreePDF.Accessibility.dll' -or $commands[0].Runner -cne 'dotnet') { throw 'Invalid accessibility tool command.' }
-            foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/Matterhorn-NOTICE.txt','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
+            foreach ($notice in @('LICENSE','PROVENANCE.md','README.md','THIRD-PARTY/Matterhorn-NOTICE.txt','THIRD-PARTY/BigGustave/LICENSE','THIRD-PARTY/ICC-sRGB2014.txt','THIRD-PARTY/Adobe-Core14-AFM.txt','THIRD-PARTY/Adobe-Glyph-Tables.txt','THIRD-PARTY/DotNet-MIT-LICENSE.txt',
                 'THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/Microsoft.Extensions.Logging.Abstractions/THIRD-PARTY-NOTICES.TXT','THIRD-PARTY/System.Security.Cryptography.Pkcs/THIRD-PARTY-NOTICES.TXT')) {
                 if (!$archive.GetEntry($notice)) { throw "Missing tool notice: $notice" }
             }

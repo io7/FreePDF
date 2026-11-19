@@ -1,5 +1,16 @@
 # FreePDF changelog
 
+## Unreleased
+
+- New `PdfTextExtractor` reads the text a page draws: `GetText` gives the page or document text in reading
+  or content order, `GetTextRuns` each run with its baseline position, font size and font name. It decodes
+  ToUnicode CMaps, StandardEncoding, WinAnsiEncoding, MacRomanEncoding, the Symbol and ZapfDingbats
+  encodings and `/Differences` through the Adobe Glyph List, and Type0 fonts with Identity or embedded CMaps.
+  Form XObjects are read; `PdfTextExtractionOptions` bounds decoded bytes, form nesting and results.
+- New `PdfLineExtractor.GetLineSegments` gives the straight segments of painted paths.
+- Every package carries `THIRD-PARTY/Adobe-Glyph-Tables.txt`, the notices of the glyph lists and AFM data the
+  text extraction tables come from.
+
 ## 7.14.1
 
 - `MaxDuration` and the cancellation token of the accessibility scan now also

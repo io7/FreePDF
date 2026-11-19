@@ -30,6 +30,7 @@
     <None Include="../../../PROVENANCE.md" Pack="true" PackagePath="/" />
     <None Include="../../packages/ICC-sRGB2014.txt" Pack="true" PackagePath="THIRD-PARTY/" />
     <None Include="../../packages/Adobe-Core14-AFM.txt" Pack="true" PackagePath="THIRD-PARTY/" />
+    <None Include="../../packages/Adobe-Glyph-Tables.txt" Pack="true" PackagePath="THIRD-PARTY/" />
     <None Include="../../packages/DotNet-MIT-LICENSE.txt" Pack="true" PackagePath="THIRD-PARTY/" />
     <None Include="../../foundation/src/shared/src/PdfSharp.Imaging/Png/BigGustave/LICENSE" Pack="true" PackagePath="THIRD-PARTY/BigGustave/" />
     <None Include="$(PkgMicrosoft_Extensions_DependencyInjection_Abstractions)/THIRD-PARTY-NOTICES.TXT" Pack="true" PackagePath="THIRD-PARTY/Microsoft.Extensions.DependencyInjection.Abstractions/" />

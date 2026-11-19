@@ -117,6 +117,11 @@ def check_one(case, producer, output, timeout, render_every, keep_pdfs):
         saved_text = command(["pdftotext", "-enc", "UTF-8", saved, "-"], timeout)
         assert_semantics(case, original_text)
         assert_semantics(case, saved_text)
+        freepdf_text = json.loads(command(["dotnet", CHECKER, "check-text", source], timeout))["text"]
+        try:
+            assert_semantics(case, freepdf_text)
+        except ValueError as error:
+            raise ValueError(f"FreePDF text extraction: {error}") from error
         if normalized(original_text) != normalized(saved_text):
             raise ValueError("Extracted text changed on round trip")
         result["semanticSha256"] = hashlib.sha256(json.dumps(case["lines"], ensure_ascii=False).encode()).hexdigest()
