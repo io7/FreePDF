@@ -12,6 +12,14 @@ The starting point is empira's MIT-licensed `v6.2.4` release. FreePDF preserves
 that source history and attribution. It is maintained independently by io7
 and is not an official empira release.
 
+## Documentation
+
+- [Guide](https://io7.github.io/FreePDF/guide/): making and changing PDF files with the drawing API, from
+  the first page to fonts, images, tables over several pages, links and passwords. No MigraDoc needed.
+  Every example is a test ([src/samples/FreePDF.Samples](src/samples/FreePDF.Samples)).
+- [API reference](https://io7.github.io/FreePDF/reference.html): every public type and member.
+- The sections below show the features FreePDF added to PDFsharp.
+
 ## Coming from PDFsharp 6.2.4 or 6.5?
 
 PDFsharp 6.5.0 and 7.0.0 Preview 2 (October 2026) are licensed under the AGPL or
