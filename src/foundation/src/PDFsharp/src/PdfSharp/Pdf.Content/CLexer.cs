@@ -47,6 +47,12 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
+        /// Keeps every string byte as one character. Without it, a string that starts with FE FF is read as UTF-16BE
+        /// text and one that starts with FF FE ends the token; in a content stream both are character codes.
+        /// </summary>
+        internal bool RawStrings { get; set; }
+
+        /// <summary>
         /// Reads the next token and returns its type.
         /// </summary>
         public CSymbol ScanNextToken()
@@ -525,7 +531,7 @@ namespace PdfSharp.Pdf.Content
             int parenLevel = 0;
             char ch = ScanNextChar();
             // Test UNICODE string
-            if (ch == '\xFE' && _nextChar == '\xFF')
+            if (!RawStrings && ch == '\xFE' && _nextChar == '\xFF')
             {
                 // I’m not sure if the code is correct in any case.
                 // ? Can a UNICODE character not start with ')' as hibyte
@@ -639,7 +645,7 @@ namespace PdfSharp.Pdf.Content
                     ch = (char)((chHi << 8) + chLo);
                 }
             }
-            else if (ch == '\xFF' && _nextChar == '\xFE')  // Little endian?
+            else if (!RawStrings && ch == '\xFF' && _nextChar == '\xFE')  // Little endian?
             {
                 // Is this possible?
                 Debug.Assert(false, "Found UTF-16LE string. Please send us the PDF file and we will fix it (issues (at) pdfsharp.net).");
@@ -797,7 +803,7 @@ namespace PdfSharp.Pdf.Content
             string chars = _token.ToString();
             int count = chars.Length;
             // Check for UTF-16BE encoding.
-            if (count > 2 && chars[0] == '\xFE' && chars[1] == '\xFF')
+            if (!RawStrings && count > 2 && chars[0] == '\xFE' && chars[1] == '\xFF')
             {
                 Debug.Assert(count % 2 == 0); // #PRD runtime check
                 _token.Length = 0;

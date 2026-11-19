@@ -66,6 +66,11 @@ namespace PdfSharp.Pdf.Content.Objects
     public static class OpCodes
     {
         /// <summary>
+        /// Whether a content-stream operator of this name exists.
+        /// </summary>
+        internal static bool IsKnown(string name) => StringToOpCode.ContainsKey(name);
+
+        /// <summary>
         /// Operators from name.
         /// </summary>
         /// <param name="name">The name.</param>
