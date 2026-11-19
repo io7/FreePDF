@@ -277,6 +277,7 @@
     <Compile Include="..\PdfSharp\Pdf.Content.Text\CodeMap.cs" Link="Pdf.Content.Text\CodeMap.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\GlyphNames.cs" Link="Pdf.Content.Text\GlyphNames.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfLineSegment.cs" Link="Pdf.Content.Text\PdfLineSegment.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfLineExtractor.cs" Link="Pdf.Content.Text\PdfLineExtractor.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextExtractionOptions.cs" Link="Pdf.Content.Text\PdfTextExtractionOptions.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextExtractor.cs" Link="Pdf.Content.Text\PdfTextExtractor.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfTextRun.cs" Link="Pdf.Content.Text\PdfTextRun.cs" />
