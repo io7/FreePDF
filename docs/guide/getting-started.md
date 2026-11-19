@@ -11,7 +11,8 @@ through its .NET Standard 2.0 build. On Windows, `io7.FreePDF.Gdi` and `io7.Free
 or WPF instead. The code in this guide is the same for all three packages, except where [Fonts](fonts.md)
 says otherwise.
 
-The namespaces are the ones PDFsharp uses. The examples need these:
+The namespaces are the ones PDFsharp uses. Every example needs these, and a page says when an example
+needs another one:
 
 ```csharp
 using PdfSharp.Drawing;

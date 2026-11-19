@@ -29,6 +29,9 @@ document.Save("alignment.pdf");
 
 ## Measuring text
 
+`MeasureString` returns the width of the text and its height from the font's ascent to its descent. The
+distance from one baseline to the next is `font.GetHeight()`, which can be larger.
+
 <!-- snippet: measure-text -->
 ```csharp
 using var document = new PdfDocument();
@@ -38,7 +41,7 @@ using (var gfx = XGraphics.FromPdfPage(page))
 {
     var font = new XFont("Arial", 16);
     const string title = "Quarterly report";
-    XSize size = gfx.MeasureString(title, font);   // width, and the line height of the font, in points
+    XSize size = gfx.MeasureString(title, font);   // width, and height from ascent to descent, in points
 
     gfx.DrawString(title, font, XBrushes.Black, 50, 80);
     gfx.DrawLine(new XPen(XColors.SteelBlue, 1.5), 50, 84, 50 + size.Width, 84);   // as wide as the text
@@ -74,7 +77,9 @@ document.Save("paragraph.pdf");
 - It breaks lines at spaces and at the line breaks in the text.
 - `Alignment` is `Left` (the default), `Center`, `Right` or `Justify`.
 - The format must be `XStringFormats.TopLeft`; other formats throw `ArgumentException`.
-- Lines that do not fit the rectangle's height are not drawn. Measure first, or split the text over pages
-  yourself; see [Documents with many pages](multi-page.md).
+- Lines below the rectangle's height are not drawn. The first line always is, even in a rectangle lower
+  than one line. Measure first, or split the text over pages yourself; see
+  [Documents with many pages](multi-page.md).
+- A word wider than the rectangle is not broken: it runs past the right edge.
 - One call uses one font. For paragraphs with mixed fonts, lists and tables, MigraDoc
   (`io7.FreePDF.Layout`) lays out the text for you.

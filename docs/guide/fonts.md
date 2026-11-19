@@ -31,7 +31,8 @@ skips font collections (`.ttc`) and `.otf` fonts with CFF outlines.
 
 ## Fonts you ship with the application
 
-Add their folder at startup:
+`GlobalFontSettings`, `IFontResolver` and `FontResolverInfo` are in the namespace `PdfSharp.Fonts`. Add the
+folder of your fonts at startup:
 
 <!-- snippet: font-directory -->
 ```csharp

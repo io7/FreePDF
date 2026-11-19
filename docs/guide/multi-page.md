@@ -2,7 +2,8 @@
 
 `XGraphics` draws on one page and does not know when the page is full. Your code decides when to start the
 next page. This example writes a price list as a table and repeats the header on each page; `items` is a
-list of name and price pairs:
+list of name and price pairs. It formats the prices with `CultureInfo.InvariantCulture` (namespace
+`System.Globalization`), so they look the same on every machine:
 
 <!-- snippet: table-pages -->
 ```csharp

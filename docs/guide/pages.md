@@ -4,7 +4,7 @@
 
 A new page is A4 (595 × 842 points) when the machine's region uses metric units, and US Letter
 (612 × 792 points) otherwise. So the same program can make different pages on two servers. Set the size
-when it matters:
+when it matters (`PageSize` and `PageOrientation` are in the namespace `PdfSharp`):
 
 <!-- snippet: page-sizes -->
 ```csharp
@@ -24,8 +24,9 @@ label.Height = XUnit.FromMillimeter(50);
 document.Save("sizes.pdf");
 ```
 
-Set `Size` first: it always gives a portrait page. `PageSize` has the ISO A and B sizes, Letter, Legal,
-Ledger, Tabloid and others.
+`Size` sets the size as listed, so set `Orientation` after it. Ledger (1224 × 792 points) and Crown are
+landscape; all other sizes are portrait. `PageSize` has the ISO A and B sizes, Letter, Legal, Ledger,
+Tabloid and others.
 
 ## Units
 
