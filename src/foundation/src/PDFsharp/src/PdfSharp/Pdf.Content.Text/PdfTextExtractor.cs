@@ -8,6 +8,8 @@ namespace PdfSharp.Pdf.Content.Text
     /// <summary>
     /// Extracts the text that a page's content draws (ISO 32000-1 9.10). The text of annotations and form fields is
     /// not included: flatten the form first to extract it. See docs/text-extraction.md for what is decoded.
+    /// A limit of <see cref="PdfTextExtractionOptions"/> throws <see cref="PdfSharp.Pdf.IO.PdfReaderException"/>; a
+    /// stream with a filter FreePDF does not implement throws <see cref="System.NotImplementedException"/>.
     /// </summary>
     public static class PdfTextExtractor
     {

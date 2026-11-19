@@ -341,7 +341,10 @@ namespace PdfSharp.Pdf.Content.Text
                 }
                 _tm = TextMatrix.Translation(-adjustment / 1000 * _state.FontSize * _state.Scale, 0).Then(_tm);
                 if (run != null && -adjustment / 1000 > TjSpace && run.Text.Length > 0 && run.Text[run.Text.Length - 1] != ' ')
+                {
+                    _budget.Spend(2);
                     run.Text.Append(' ');
+                }
             }
             if (run != null)
                 EndRun(run);
@@ -490,7 +493,9 @@ namespace PdfSharp.Pdf.Content.Text
         {
             if (_open && (_currentX != _startX || _currentY != _startY))
             {
-                CheckSegmentLimit();
+                // A closing edge counts as a result only when a fill paints it; until then it is bounded on its own.
+                if (_closures.Count >= _options.MaxResults)
+                    throw SegmentLimit();
                 _closures.Add(new PdfLineSegment(_currentX, _currentY, _startX, _startY, false));
             }
             _open = false;
@@ -516,15 +521,12 @@ namespace PdfSharp.Pdf.Content.Text
 
         void AddSegment(double x1, double y1, double x2, double y2)
         {
-            CheckSegmentLimit();
+            if (_lines.Count + _path.Count >= _options.MaxResults)
+                throw SegmentLimit();
             _path.Add(new PdfLineSegment(x1, y1, x2, y2, false));
         }
 
-        void CheckSegmentLimit()
-        {
-            if (_lines.Count + _path.Count + _closures.Count >= _options.MaxResults)
-                throw Parser.LimitExceeded("Text extraction found more than MaxResults line segments on the page.");
-        }
+        static PdfReaderException SegmentLimit() => Parser.LimitExceeded("Text extraction found more than MaxResults line segments on the page.");
 
         void Paint(bool stroked, bool filled)
         {
@@ -534,7 +536,11 @@ namespace PdfSharp.Pdf.Content.Text
                 _lines.Add(new PdfLineSegment(segment.X1, segment.Y1, segment.X2, segment.Y2, stroked));
             // An implicit closing edge is filled, never stroked.
             if (filled)
+            {
+                if (_lines.Count + _closures.Count > _options.MaxResults)
+                    throw SegmentLimit();
                 _lines.AddRange(_closures);
+            }
             ClearPath();
         }
 

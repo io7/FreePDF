@@ -20,6 +20,7 @@ static class TextProbe
                 "shared-w" => SharedWidths(),
                 "code-spaces" => ManyCodeSpaces(),
                 "expansion" => Expansion(),
+                "shared-cidfont" => SharedCidFont(),
                 _ => throw new ArgumentException("Unknown scenario " + scenario),
             };
             using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
@@ -61,6 +62,37 @@ static class TextProbe
         return TextPdf.Page(codes.ToString(), TextPdf.Composite("", d => TextPdf.Stream(d, encoding)));
     }
 
+    // 1,000 Type0 fonts share one CIDFont whose /W has 50,000 entries: 50 million widths if each font copies them.
+    static byte[] SharedCidFont()
+    {
+        PdfDictionary? cidFont = null;
+        PdfDictionary Make(PdfDocument d)
+        {
+            if (cidFont == null)
+            {
+                cidFont = TextPdf.Font(d, "/CIDFontType2", "/ABCDEF+Synthetic");
+                var list = TextPdf.Numbers(d, 500);
+                d.Internals.AddObject(list);
+                var w = new PdfArray(d);
+                for (int i = 0; i < 50_000; i++)
+                {
+                    w.Elements.Add(new PdfInteger(i));
+                    w.Elements.Add(list.Reference!);
+                }
+                cidFont.Elements["/W"] = w;
+                TextPdf.Indirect(d, cidFont);
+            }
+            var font = TextPdf.Font(d, "/Type0", "/ABCDEF+Synthetic", new PdfName("/Identity-H"));
+            font.Elements["/DescendantFonts"] = TextPdf.Items(d, cidFont.Reference!);
+            return font;
+        }
+        var content = new StringBuilder("BT ");
+        for (int i = 0; i < 1000; i++)
+            content.Append("/F").Append(i).Append(" 10 Tf ");
+        content.Append("0 0 Td <0001> Tj ET");
+        return TextPdf.Page(content.ToString(), Enumerable.Range(0, 1000).Select(i => ("/F" + i, (Func<PdfDocument, PdfDictionary>)Make)).ToArray());
+    }
+
     // A ToUnicode CMap that maps one byte to 8,192 characters, shown 100,000 times: 1.6 GB of text.
     static byte[] Expansion()
     {
@@ -81,6 +113,7 @@ public partial class TextExtractionTests
     [InlineData("shared-w", 0, "EXTRACTED")]
     [InlineData("code-spaces", 0, "EXTRACTED")]
     [InlineData("expansion", 11, "MaxDecodedBytes")]
+    [InlineData("shared-cidfont", 11, "MaxDecodedBytes")]
     public async Task Hostile_fonts_stay_within_the_process_budget(string scenario, int exitCode, string message)
     {
         var result = await ReaderRobustnessTests.Probe(scenario, "--text-probe");

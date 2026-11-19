@@ -122,4 +122,85 @@ public partial class TextExtractionTests
 
         Assert.Equal(2, Segments("0 0 m 10 0 l 10 10 l S").Count);
     }
+
+    // Round 2.
+
+    [Fact]
+    public void A_stream_that_cannot_be_decoded_costs_its_size_each_time()
+    {
+        var document = TextPdf.Document(Show("Hello"), WinAnsiHelvetica());
+        var contents = document.Pages[0].Contents;
+        var broken = contents.AppendContent();
+        broken.CreateStream(TextPdf.Bytes(new string('!', 1000) + "~x"));
+        broken.Elements.SetName("/Filter", "/ASCII85Decode");
+        for (int i = 0; i < 199; i++)
+            contents.Elements.Add(broken.Reference!);
+        var pdf = TextPdf.Save(document);
+        Assert.Contains("MaxDecodedBytes", Assert.Throws<PdfReaderException>(() => Extract(pdf, new PdfTextExtractionOptions { MaxDecodedBytes = 100_000 })).Message);
+    }
+
+    [Fact]
+    public void A_filter_FreePDF_does_not_implement_is_reported()
+    {
+        var document = TextPdf.Document("", WinAnsiHelvetica());
+        var content = document.Pages[0].Contents.AppendContent();
+        var data = "BT /F1 12 Tf (kept) Tj ET";
+        content.CreateStream(TextPdf.Bytes((char)(data.Length - 1) + data + "\u0080"));
+        content.Elements.SetName("/Filter", "/RunLengthDecode");
+        Assert.Throws<NotImplementedException>(() => TextPdf.Text(TextPdf.Save(document)));
+    }
+
+    [Fact]
+    public void Many_code_space_ranges_of_one_and_two_bytes_are_all_kept()
+    {
+        var spaces = "100 begincodespacerange\n" + String.Concat(Enumerable.Range(0, 100).Select(i => $"<{i:X2}> <{i:X2}>\n"))
+            + "endcodespacerange\n1 begincodespacerange <8100> <81FF> endcodespacerange";
+        var pdf = TextPdf.Page("BT /F1 10 Tf 0 0 Td <8141> Tj ET", TextPdf.Composite("1 beginbfchar <8141> <0041> endbfchar",
+            d => TextPdf.Stream(d, TextPdf.CMap("1 begincidchar <8141> 1 endcidchar", spaces))));
+        Assert.Equal("A", TextPdf.Text(pdf));
+    }
+
+    [Fact]
+    public void More_than_100_code_space_ranges_of_three_or_four_bytes_are_refused()
+    {
+        var spaces = "101 begincodespacerange\n" + String.Concat(Enumerable.Range(0, 101).Select(i => $"<00{i:X2}00> <00{i:X2}FF>\n")) + "endcodespacerange";
+        var pdf = TextPdf.Page("BT /F1 10 Tf 0 0 Td <000041> Tj ET", TextPdf.Composite("", d => TextPdf.Stream(d, TextPdf.CMap("", spaces))));
+        Assert.Contains("code space", Assert.Throws<PdfReaderException>(() => TextPdf.Text(pdf)).Message);
+    }
+
+    [Fact]
+    public void Closing_edges_that_are_not_painted_do_not_count_against_MaxResults()
+    {
+        using var document = PdfReader.Open(new MemoryStream(TextPdf.Page("0 0 m 10 0 l 20 0 m 30 0 l S")), PdfDocumentOpenMode.Import);
+        Assert.Equal(2, PdfLineExtractor.GetLineSegments(document.Pages[0], new PdfTextExtractionOptions { MaxResults = 2 }).Count);
+    }
+
+    [Fact]
+    public void Courier_glyphs_outside_WinAnsi_are_600_wide()
+    {
+        // StandardEncoding code AE is "fi" (U+FB01), not in WinAnsiEncoding.
+        var runs = TextPdf.Runs(TextPdf.Page("BT /F1 10 Tf 0 0 Td <AE> Tj (B) Tj ET", TextPdf.Standard("/Courier")));
+        Assert.Equal("ﬁ", runs[0].Text);
+        Assert.Equal(6, runs[1].X, 6);
+    }
+
+    [Fact]
+    public void An_inline_image_whose_data_starts_with_I_is_skipped()
+        => Assert.Equal("kept", TextPdf.Text(TextPdf.Page(
+            "BI /W 1 /H 1 /BPC 8 /CS /RGB ID I(A EI\nBT /F1 12 Tf 72 700 Td (kept) Tj ET", WinAnsiHelvetica())));
+
+    [Fact]
+    public void Dictionary_delimiters_inside_a_string_do_not_end_the_dictionary()
+        => Assert.Equal("kept", TextPdf.Text(TextPdf.Page(
+            "/Span << /ActualText (a>>b) /Alt (x<<y) >> BDC BT /F1 12 Tf 72 700 Td (kept) Tj ET EMC", WinAnsiHelvetica())));
+
+    [Fact]
+    public void Spaces_from_TJ_adjustments_count_against_MaxDecodedBytes()
+    {
+        // 10,000 glyphs, each followed by a space: 40,000 bytes of text. Without the spaces the text costs 20,000.
+        var content = "BT /F1 10 Tf [" + String.Concat(Enumerable.Repeat("(A) -300 ", 10_000)) + "] TJ ET";
+        var pdf = TextPdf.Page(content, WinAnsiHelvetica());
+        var options = new PdfTextExtractionOptions { MaxDecodedBytes = content.Length + 16_384 + 30_000 };
+        Assert.Contains("MaxDecodedBytes", Assert.Throws<PdfReaderException>(() => Extract(pdf, options)).Message);
+    }
 }

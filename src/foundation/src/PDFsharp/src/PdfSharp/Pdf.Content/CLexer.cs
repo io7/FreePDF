@@ -136,8 +136,13 @@ namespace PdfSharp.Pdf.Content
         /// </summary>
         public CSymbol ScanBeginImage()
         {
+            // The backward searches for B, I and E can stop at a byte the lexer has already looked ahead into, such
+            // as image data that starts with I. Extraction mode uses the positions where the operators started.
             int biIndex = _charIndex;
-            AdjustBackwards(ref biIndex, 'B');
+            if (Extracting)
+                biIndex = _tokenStart;
+            else
+                AdjustBackwards(ref biIndex, 'B');
             biIndex += 3;
 
             bool ascii85 = false;
@@ -152,8 +157,13 @@ namespace PdfSharp.Pdf.Content
             } while (Symbol != CSymbol.Operator || Token != "ID");
 
             Debug.Assert(Token == "ID");
-            AdjustBackwards(ref _charIndex, 'I');
+            if (Extracting)
+                _charIndex = _tokenStart;
+            else
+                AdjustBackwards(ref _charIndex, 'I');
             int idIndex = _charIndex - 1;
+            if (Extracting)
+                idIndex = Math.Max(idIndex, biIndex);
             SetPosition(_charIndex);
 
             var biBytes = _content[biIndex..idIndex];
@@ -171,18 +181,25 @@ namespace PdfSharp.Pdf.Content
         public CSymbol ScanImageData()
         {
             int idIndex = _charIndex;
-            AdjustBackwards(ref idIndex, 'I');
+            if (Extracting)
+                idIndex = _tokenStart;
+            else
+                AdjustBackwards(ref idIndex, 'I');
             idIndex += 3;
 
             // Look for '<ws>EI<ws>', as 'EI' may be part of the binary image data here too.
+            int eiIndex = -1;
             while (_currChar != Chars.EOF)
             {
                 if (IsWhiteSpace(_currChar))
                 {
                     if (ScanNextChar() == 'E')
+                    {
+                        eiIndex = CurrentIndex;
                         if (ScanNextChar() == 'I')
                             if (IsWhiteSpace(ScanNextChar()))
                                 break;
+                    }
                 }
                 else
                     ScanNextChar();
@@ -190,8 +207,13 @@ namespace PdfSharp.Pdf.Content
             if (_currChar == Chars.EOF)
                 ContentReaderDiagnostics.HandleUnexpectedCharacter(_currChar);
 
-            AdjustBackwards(ref _charIndex, 'E');
+            if (Extracting)
+                _charIndex = eiIndex;
+            else
+                AdjustBackwards(ref _charIndex, 'E');
             int endIndex = _charIndex - 1;
+            if (Extracting)
+                endIndex = Math.Max(endIndex, idIndex);
             SetPosition(_charIndex);
 
             var idBytes = _content[idIndex..endIndex];
@@ -282,6 +304,21 @@ namespace PdfSharp.Pdf.Content
             {
                 char ch;
                 _token.Append(ch = ScanNextChar());
+                if (Extracting && inString)
+                {
+                    // Inside a literal string only parentheses and escapes count, not << or >> (ISO 32000-1 7.3.4.2).
+                    if (ch == '\\')
+                        _token.Append(ScanNextChar());
+                    else if (ch == '(')
+                        ++nestedStringParen;
+                    else if (ch == ')' && nestedStringParen > 0)
+                        --nestedStringParen;
+                    else if (ch == ')')
+                        inString = false;
+                    else if (ch == Chars.EOF)
+                        ContentReaderDiagnostics.HandleUnexpectedCharacter(ch);
+                    continue;
+                }
                 if (ch == '<')
                 {
                     if (_nextChar == '<')
@@ -523,6 +560,7 @@ namespace PdfSharp.Pdf.Content
         public CSymbol ScanOperator()
         {
             ClearToken();
+            _tokenStart = CurrentIndex;
             char ch = _currChar;
             // Scan token.
             while (Extracting ? IsRegular(ch) : IsOperatorChar(ch))
@@ -1004,6 +1042,12 @@ namespace PdfSharp.Pdf.Content
                 _ => false
             };
         }
+
+        // The content index of _currChar: _nextChar is the byte before _charIndex, unless the content has ended.
+        int CurrentIndex => _nextChar == Chars.EOF ? _charIndex - 1 : _charIndex - 2;
+
+        // Where the last operator started (ScanOperator).
+        int _tokenStart;
 
         static bool IsOctal(char ch) => ch is >= '0' and <= '7';
 

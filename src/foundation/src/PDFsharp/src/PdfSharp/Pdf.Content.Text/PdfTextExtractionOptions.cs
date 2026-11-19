@@ -7,8 +7,9 @@ namespace PdfSharp.Pdf.Content.Text
     public sealed class PdfTextExtractionOptions
     {
         /// <summary>
-        /// The bytes that decoding the page's content, its forms and its CMaps may produce, with the extracted text
-        /// counted at two bytes per character. Default 64 MiB.
+        /// The bytes one page may cost: the data and decoded bytes of its content, forms and CMaps each time they are
+        /// read, the extracted text at two bytes per character, and the tables built for its fonts (16 KiB per font,
+        /// 8 KiB per CMap, 32 bytes per /W entry). Default 64 MiB.
         /// </summary>
         public long MaxDecodedBytes { get; set; } = 64L * 1024 * 1024;
 

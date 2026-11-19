@@ -16,16 +16,20 @@ namespace PdfSharp.Pdf.Content.Text
         const string Replacement = "�";
         // An advance for codes without any known width, so that runs still move along the line.
         const double FallbackWidth = 0.5;
-        // ISO 32000-1 Annex C: the largest CID. A valid /W array has no more list entries than there are CIDs.
-        const int MaxCid = 65535;
         // Embedded CMaps followed through /UseCMap.
         const int MaxCMapChain = 8;
 
+        // One /W entry: "first last width", or "first [widths]" kept as the array itself, so fonts that share one /W
+        // array do not each copy its widths.
         sealed class CidWidth
         {
             internal int First, Last;
             internal double Width;
+            internal PdfArray? List;
         }
+
+        // Overlapping /W entries are an error; looking back this far still finds a containing earlier entry.
+        const int MaxOverlapSteps = 64;
 
         internal string Name { get; private set; } = "";
         bool _composite, _identity;
@@ -33,11 +37,11 @@ namespace PdfSharp.Pdf.Content.Text
         string?[] _texts = new string?[256];
         readonly double[] _widths = new double[256];
         double _defaultWidth = 1;
-        readonly Dictionary<int, double> _cidWidths = new();
         readonly List<CidWidth> _cidRanges = new();
 
         internal static TextFont Load(PdfDictionary font, TextBudget budget)
         {
+            budget.Spend(TextBudget.FontBytes);
             var result = new TextFont { Name = PostScriptName(TextItems.NameOf(font, "/BaseFont")) };
             if (TextItems.Resolve(font.Elements["/ToUnicode"]) is PdfDictionary { Stream: not null } toUnicode)
                 result._toUnicode = LoadCMap(toUnicode, budget);
@@ -60,6 +64,7 @@ namespace PdfSharp.Pdf.Content.Text
             CodeMap? map = null;
             for (int i = chain.Count - 1; i >= 0; i--)
             {
+                budget.Spend(TextBudget.CMapBytes);
                 var derived = CMapParser.Parse(budget.Decode(chain[i]));
                 if (map != null)
                     derived.Inherit(map);
@@ -129,6 +134,11 @@ namespace PdfSharp.Pdf.Content.Text
                     int index = code - first;
                     if (index >= 0 && index < widths.Elements.Count)
                         width = TextItems.Number(widths.Elements[index]) * scale;
+                }
+                else if (standard != null && _texts[code] != null && Name.StartsWith("Courier", StringComparison.Ordinal))
+                {
+                    // Every glyph of the four Courier fonts is 600/1000 em, also those outside WinAnsiEncoding.
+                    width = 0.6;
                 }
                 else if (standard != null && _texts[code] is string glyph && WinAnsiCodes.TryGetValue(glyph, out int index))
                 {
@@ -225,7 +235,7 @@ namespace PdfSharp.Pdf.Content.Text
             var descendant = Descendant(font);
             _defaultWidth = (TextItems.Number(descendant?.Elements["/DW"]) ?? 1000) / 1000;
             if (descendant != null && TextItems.Resolve(descendant.Elements["/W"]) is PdfArray widths)
-                ReadWidths(widths);
+                ReadWidths(widths, budget);
         }
 
         static PdfDictionary? Descendant(PdfDictionary font)
@@ -236,12 +246,10 @@ namespace PdfSharp.Pdf.Content.Text
         }
 
         // ISO 32000-1 9.7.4.3: "c [w1 w2 ...]" or "cfirst clast w".
-        void ReadWidths(PdfArray array)
+        void ReadWidths(PdfArray array, TextBudget budget)
         {
             var items = array.Elements;
             int i = 0;
-            // List entries left to read. A hostile array can name one long list many times.
-            int entries = MaxCid + 1;
             while (i < items.Count)
             {
                 var first = TextItems.Integer(items[i]);
@@ -252,14 +260,8 @@ namespace PdfSharp.Pdf.Content.Text
                 }
                 if (i + 1 < items.Count && TextItems.Resolve(items[i + 1]) is PdfArray list)
                 {
-                    int count = Math.Min(list.Elements.Count, entries);
-                    entries -= count;
-                    for (int k = 0; k < count && first.Value + k <= MaxCid; k++)
-                    {
-                        var width = TextItems.Number(list.Elements[k]);
-                        if (width.HasValue && first.Value + k >= 0)
-                            _cidWidths[first.Value + k] = width.Value / 1000;
-                    }
+                    if (list.Elements.Count > 0)
+                        AddWidths(budget, new CidWidth { First = first.Value, Last = (int)Math.Min((long)first.Value + list.Elements.Count - 1, int.MaxValue), List = list });
                     i += 2;
                 }
                 else if (i + 2 < items.Count)
@@ -267,7 +269,7 @@ namespace PdfSharp.Pdf.Content.Text
                     var last = TextItems.Integer(items[i + 1]);
                     var width = TextItems.Number(items[i + 2]);
                     if (last.HasValue && width.HasValue && last.Value >= first.Value)
-                        _cidRanges.Add(new CidWidth { First = first.Value, Last = last.Value, Width = width.Value / 1000 });
+                        AddWidths(budget, new CidWidth { First = first.Value, Last = last.Value, Width = width.Value / 1000 });
                     i += 3;
                 }
                 else
@@ -278,21 +280,39 @@ namespace PdfSharp.Pdf.Content.Text
             _cidRanges.Sort((a, b) => a.First.CompareTo(b.First));
         }
 
+        void AddWidths(TextBudget budget, CidWidth entry)
+        {
+            budget.Spend(TextBudget.WidthEntryBytes);
+            _cidRanges.Add(entry);
+        }
+
         double WidthOf(int cid)
         {
-            if (_cidWidths.TryGetValue(cid, out var width))
-                return width;
-            int low = 0, high = _cidRanges.Count - 1;
+            // The last entry that starts at or before the CID, then back over earlier entries that may contain it.
+            int low = 0, high = _cidRanges.Count - 1, last = -1;
             while (low <= high)
             {
                 int middle = low + (high - low) / 2;
-                var range = _cidRanges[middle];
-                if (cid < range.First)
-                    high = middle - 1;
-                else if (cid > range.Last)
+                if (_cidRanges[middle].First <= cid)
+                {
+                    last = middle;
                     low = middle + 1;
+                }
                 else
-                    return range.Width;
+                {
+                    high = middle - 1;
+                }
+            }
+            for (int i = last, steps = 0; i >= 0 && steps < MaxOverlapSteps; i--, steps++)
+            {
+                var entry = _cidRanges[i];
+                if (cid > entry.Last)
+                    continue;
+                if (entry.List == null)
+                    return entry.Width;
+                var width = TextItems.Number(entry.List.Elements[cid - entry.First]);
+                if (width.HasValue)
+                    return width.Value / 1000;
             }
             return _defaultWidth;
         }

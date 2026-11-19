@@ -38,17 +38,23 @@ written as a space.
 
 ## Limits
 
-`PdfTextExtractionOptions` bounds one page: `MaxDecodedBytes` (64 MiB, the extracted text counted at two bytes
-per character), `MaxFormDepth` (32) and `MaxResults` (1,000,000 runs or segments). Reaching one throws
-`PdfReaderException`. A form that draws itself is read once; a syntax error, such as a number that is not
-finite, ends that content stream and keeps the text before it. A stream whose filters fail on its data draws
-nothing. Fixed bounds keep hostile fonts cheap: 100 code space ranges per CMap, 65,536 `/W` list entries, 8
-CMaps in a `/UseCMap` chain.
+`PdfTextExtractionOptions` bounds one page: `MaxDecodedBytes` (64 MiB), `MaxFormDepth` (32) and `MaxResults`
+(1,000,000 runs or segments). Reaching one throws `PdfReaderException`. `MaxDecodedBytes` counts each stream's
+data and decoded bytes every time it is read, the extracted text at two bytes per character, and the tables
+built for fonts: 16 KiB per font, 8 KiB per CMap stream, 32 bytes per `/W` entry. So a page can use about
+4,000 fonts. A CMap with more than 100 code space ranges of three or four bytes is refused the same way; one-
+and two-byte ranges have no limit. A `/UseCMap` chain is followed for 8 CMaps.
+
+A form that draws itself is read once; a syntax error, such as a number that is not finite, ends that content
+stream and keeps the text before it. A stream whose filters fail on its data draws nothing. A stream with a
+filter FreePDF does not implement (RunLengthDecode, CCITTFaxDecode, JBIG2Decode, JPXDecode, the TIFF
+predictor) throws `NotImplementedException`, so text is never lost without notice.
 
 ## Not yet supported
 
 - Predefined CJK CMaps other than Identity (also as a `/UseCMap` base), and Unicode for CIDs without ToUnicode.
-- Widths of standard-font glyphs outside WinAnsiEncoding (for example `fi`) when the font has no `/Widths`.
+- Widths of Helvetica and Times glyphs outside WinAnsiEncoding (for example `fi`) when the font has no
+  `/Widths`; Courier glyphs are all 600/1000 em.
 - Unicode from embedded font programs (a symbolic TrueType font or an embedded Type1 font without ToUnicode
   or a known encoding is read with StandardEncoding).
 - MacExpertEncoding, vertical writing positions, `/ActualText`.

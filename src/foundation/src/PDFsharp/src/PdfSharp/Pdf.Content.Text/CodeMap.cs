@@ -1,6 +1,7 @@
 // Original FreePDF implementation. See LICENSE and PROVENANCE.md.
 using System;
 using System.Collections.Generic;
+using PdfSharp.Pdf.IO;
 
 namespace PdfSharp.Pdf.Content.Text
 {
@@ -27,32 +28,61 @@ namespace PdfSharp.Pdf.Content.Text
 
         // Overlapping ranges are an error in a CMap; looking back this far still finds a containing earlier range.
         const int MaxOverlapSteps = 64;
-        // TN #5099 allows 100 entries in one codespacerange block, and real CMaps use a handful. Further ranges are
-        // ignored, so reading one code costs at most this many range tests.
-        const int MaxSpaces = 100;
+        // Real CMaps have one or two code space ranges of three or four bytes. Reading one code tests at most this
+        // many; a CMap with more is refused.
+        const int MaxLongSpaces = 100;
 
-        // Code space ranges by code length 1 to 4.
-        readonly List<Space>[] _spaces = { new(), new(), new(), new() };
+        // One- and two-byte code space ranges as bit sets, so any number of them costs one test per code: bit b of
+        // _one, and for two bytes bit b2 of row b1 (four 64-bit words per row).
+        ulong[]? _one, _two;
+        readonly List<Space> _long = new();
         readonly Dictionary<long, string> _texts = new();
         readonly Dictionary<long, int> _cids = new();
         readonly List<Range> _textRanges = new();
         readonly List<Range> _cidRanges = new();
-        bool _sorted = true;
-        int _spaceCount, _shortest = 4;
+        bool _sorted = true, _hasSpaces;
+        int _shortest = 4;
         CodeMap? _base;
 
         internal bool Vertical { get; set; }
 
-        internal bool HasSpaces => _spaceCount > 0;
+        internal bool HasSpaces => _hasSpaces;
 
         internal void AddSpace(byte[] low, byte[] high)
         {
-            if (_spaceCount >= MaxSpaces)
-                return;
-            _spaces[low.Length - 1].Add(new Space { Low = low, High = high });
-            _spaceCount++;
+            switch (low.Length)
+            {
+                case 1:
+                    _one ??= new ulong[4];
+                    SetBits(_one, 0, low[0], high[0]);
+                    break;
+                case 2:
+                    _two ??= new ulong[256 * 4];
+                    for (int first = low[0]; first <= high[0]; first++)
+                        SetBits(_two, first * 4, low[1], high[1]);
+                    break;
+                default:
+                    if (_long.Count >= MaxLongSpaces)
+                        throw Parser.LimitExceeded("A CMap has more than 100 code space ranges of three or four bytes.");
+                    _long.Add(new Space { Low = low, High = high });
+                    break;
+            }
+            _hasSpaces = true;
             _shortest = Math.Min(_shortest, low.Length);
         }
+
+        // Sets bits low to high (0-255) of the 256-bit row that starts at word `row`, one word at a time.
+        static void SetBits(ulong[] bits, int row, int low, int high)
+        {
+            for (int word = low >> 6; word <= high >> 6; word++)
+            {
+                int from = Math.Max(low, word * 64) - word * 64, to = Math.Min(high, word * 64 + 63) - word * 64;
+                ulong upTo = to == 63 ? ulong.MaxValue : (1UL << (to + 1)) - 1;
+                bits[row + word] |= upTo & (ulong.MaxValue << from);
+            }
+        }
+
+        static bool HasBit(ulong[] bits, int row, int value) => ((bits[row + (value >> 6)] >> (value & 63)) & 1) != 0;
 
         /// <summary>
         /// Makes <paramref name="map"/> the base of this CMap (/UseCMap): its code space ranges are added, and its
@@ -60,10 +90,24 @@ namespace PdfSharp.Pdf.Content.Text
         /// </summary>
         internal void Inherit(CodeMap map)
         {
-            foreach (var spaces in map._spaces)
+            if (map._one != null)
             {
-                foreach (var space in spaces)
-                    AddSpace(space.Low, space.High);
+                _one ??= new ulong[4];
+                for (int i = 0; i < _one.Length; i++)
+                    _one[i] |= map._one[i];
+            }
+            if (map._two != null)
+            {
+                _two ??= new ulong[256 * 4];
+                for (int i = 0; i < _two.Length; i++)
+                    _two[i] |= map._two[i];
+            }
+            foreach (var space in map._long)
+                AddSpace(space.Low, space.High);
+            if (map._hasSpaces)
+            {
+                _hasSpaces = true;
+                _shortest = Math.Min(_shortest, map._shortest);
             }
             _base = map;
         }
@@ -110,18 +154,28 @@ namespace PdfSharp.Pdf.Content.Text
         /// </summary>
         internal int ReadCode(byte[] bytes, int offset, out uint code)
         {
-            for (int length = 1; length <= 4 && offset + length <= bytes.Length; length++)
+            if (_one != null && HasBit(_one, 0, bytes[offset]))
             {
-                foreach (var space in _spaces[length - 1])
+                code = bytes[offset];
+                return 1;
+            }
+            if (_two != null && offset + 1 < bytes.Length && HasBit(_two, bytes[offset] * 4, bytes[offset + 1]))
+            {
+                code = Value(bytes, offset, 2);
+                return 2;
+            }
+            for (int length = 3; length <= 4 && offset + length <= bytes.Length; length++)
+            {
+                foreach (var space in _long)
                 {
-                    if (Contains(space, bytes, offset))
+                    if (space.Low.Length == length && Contains(space, bytes, offset))
                     {
                         code = Value(bytes, offset, length);
                         return length;
                     }
                 }
             }
-            int fallback = Math.Min(_spaceCount == 0 ? 1 : _shortest, bytes.Length - offset);
+            int fallback = Math.Min(_hasSpaces ? _shortest : 1, bytes.Length - offset);
             code = Value(bytes, offset, fallback);
             return fallback;
         }
