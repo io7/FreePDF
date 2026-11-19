@@ -32,9 +32,35 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.x'
+      # The Ubuntu mirror on hosted runners can deliver under 100 KB/s, which let this job hit its time limit.
+      # The downloaded packages are kept in the Actions cache, so the mirror only serves package lists.
+      # The key uses the image date: GitHub runs several builds of one image (in Azure and AWS) at once.
+      # A new image date starts from the previous cache; apt downloads only packages whose version changed.
+      # veraPDF uses the Java that the runner images already include.
+      - name: Identify the Linux runner image
+        if: runner.os == 'Linux'
+        id: image
+        run: |
+          prefix="linux-renderer-debs-$ImageOS-mupdf-tools-qpdf-poppler-utils-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=$prefix${ImageVersion%%.*}" >> "$GITHUB_OUTPUT"
+      - name: Restore Linux renderer packages
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.image.outputs.key }}
+          restore-keys: ${{ steps.image.outputs.prefix }}
       - name: Install Linux renderer
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y mupdf-tools qpdf poppler-utils default-jre-headless
+        run: |
+          mkdir -p ~/apt-archives/partial
+          sudo apt-get update -qq
+          sudo apt-get install -y -o Dir::Cache::Archives="$HOME/apt-archives" -o APT::Keep-Downloaded-Packages=true mupdf-tools qpdf poppler-utils
+          # The cache is saved by the runner user after the job.
+          sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
+          echo "Cached packages: $(ls ~/apt-archives/*.deb | wc -l)"
       - name: Install pinned Windows renderer
         if: runner.os == 'Windows'
         shell: pwsh
