@@ -40,8 +40,8 @@ namespace PdfSharp.Pdf.IO
         /// The PDF stream is completely read into memory and can be modified, and saving the document writes an
         /// incremental update: the original bytes are kept unchanged and only new and changed objects are appended.
         /// Existing digital signatures therefore stay valid, and a further signature can be added. Object numbers
-        /// and the page tree are kept. Encrypted documents are not supported, and pages cannot be inserted,
-        /// removed or moved when the document has a nested page tree.
+        /// and the page tree are kept. An encrypted document keeps its encryption, which cannot be changed or
+        /// removed in this mode, and an unencrypted document cannot be encrypted.
         /// </summary>
         Append,
     }

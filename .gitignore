@@ -54,3 +54,8 @@ node_modules
 #*tempfile.*
 launchsettings.json
 testEnvironments.json
+
+# docfx (docs/docfx.json)
+docs/_site/
+docs/api/
+docs/obj/

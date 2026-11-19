@@ -27,6 +27,8 @@ https://github.com/io7/FreePDF/blob/main/docs/support-policy.md
 Use the published NuGet packages or the packages attached to an official GitHub
 release. CI rehearsal artifacts and a plain version label alone are not release evidence.
 
+Guide and API reference: https://io7.github.io/FreePDF/
+
 The portable packages target .NET 8, 9, 10 and .NET Standard 2.0; Framework
 consumers use the Standard assets, and install tests cover .NET Framework 4.6.2
 and 4.7.2 on Windows. The GDI and WPF packages target Windows .NET 8, 9, 10 and

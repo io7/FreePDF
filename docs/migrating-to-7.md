@@ -48,7 +48,7 @@ value as UTC; preserve the application's intended timezone.
 ## What real 6.2.4 applications hit
 
 FreePDF compiled 26 public projects that use PDFsharp or PDFsharp-MigraDoc 6.2.4
-against FreePDF 7 (method and results: [consumer survey](research/consumer-survey/README.md)).
+against FreePDF 7 (method and results: [consumer survey](https://github.com/io7/FreePDF/blob/main/docs/research/consumer-survey/README.md)).
 23 compiled with no new error. The breaks in the other three, and what to do:
 
 | 6.2.4 code | With FreePDF |
@@ -309,7 +309,7 @@ between threads is unsupported. Retest pagination and font selection when
 upgrading: reference output containing a known defect is not the correct output.
 
 Documents name FreePDF, not PDFsharp, as their Producer and Creator (since
-7.3.0; see the [changelog](../CHANGELOG.md)). Code or tests that
+7.3.0; see the [changelog](https://github.com/io7/FreePDF/blob/main/CHANGELOG.md)). Code or tests that
 recognise their own output by a Producer starting with "PDFsharp", or that compare
 it with `PdfSharpProductVersionInformation.Title`, should expect "FreePDF".
 

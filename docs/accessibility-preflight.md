@@ -176,8 +176,8 @@ The report can include document content, so handle it with the same care as the 
 
 ## Validation and next coverage
 
-FreePDF 7.12.0 adds an optional [veraPDF adapter](accessibility-verapdf.md)
-and a [complete Matterhorn inventory](accessibility/README.md). Use
+FreePDF 7.12.0 adds an optional [veraPDF adapter](https://github.com/io7/FreePDF/blob/main/docs/accessibility-verapdf.md)
+and a [complete Matterhorn inventory](https://github.com/io7/FreePDF/blob/main/docs/accessibility/README.md). Use
 `freepdf-a11y --requirements` to inspect the inventory. Independent machine
 results remain separate from native findings and human review.
 
@@ -186,7 +186,7 @@ resource-limit and original-byte-preservation cases. CLI contracts test exit
 policies, JSON/SARIF structure, HTML escaping and output overwrite protection.
 CI runs the installed CLI on nine synthetic files with veraPDF 1.30.3. The
 adapter tests record each validator's result, including the
-[repeated-form difference](accessibility-verapdf.md#validation).
+[repeated-form difference](https://github.com/io7/FreePDF/blob/main/docs/accessibility-verapdf.md#validation).
 
 Future releases can extend the versioned rules with Unicode/glyph validation,
 complete annotation/form/table rules,
@@ -194,7 +194,7 @@ then generation preflight and reviewed remediation. Automatic repair, AI-written
 alternative text, PDF/UA-2 and organizational review sign-off are not part of this
 first implementation.
 
-See the [accessibility roadmap](accessibility-roadmap.md) for the proposed path
+See the [accessibility roadmap](https://github.com/io7/FreePDF/blob/main/docs/accessibility-roadmap.md) for the proposed path
 to complete automated coverage and a documented human review process.
 
 References: [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/),
