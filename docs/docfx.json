@@ -12,7 +12,8 @@
             "PDFsharp/src/PdfSharp.Cryptography/PdfSharp.Cryptography.csproj",
             "MigraDoc/src/MigraDoc.DocumentObjectModel/MigraDoc.DocumentObjectModel.csproj",
             "MigraDoc/src/MigraDoc.Rendering/MigraDoc.Rendering.csproj",
-            "MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfRendering.csproj"
+            "MigraDoc/src/MigraDoc.RtfRendering/MigraDoc.RtfRendering.csproj",
+            "shared/src/PdfSharp.System/PdfSharp.System.csproj"
           ]
         }
       ],
