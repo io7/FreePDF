@@ -13,7 +13,7 @@ It does not establish ADA compliance.
 | [7.12.0](releases/7.12.0.md) | Account for all Matterhorn 1.1 conditions and add optional veraPDF validation. | Released 2026-11-17. |
 | [7.13.0](releases/7.13.0.md) | Inspect local Form XObjects, including nested forms, and resolve named marked-content properties. | Released 2026-11-18. |
 | [7.14.0](releases/7.14.0.md) | Bound the scan's memory and time on hostile files and add the `MaxDuration` limit. | Released 2026-11-18. |
-| [7.14.1](releases/7.14.1.md) | Stop the reading of the PDF at `MaxDuration` and on cancellation. | Prepared for stable publication. |
+| [7.14.1](releases/7.14.1.md) | Stop the reading of the PDF at `MaxDuration` and on cancellation. | Released 2026-11-19. |
 | Following releases | Extend native inspection to Unicode, form fields and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
 
 The 7.12.0 acceptance gate is a traceable requirement list plus positive and

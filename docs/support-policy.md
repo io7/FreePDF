@@ -290,6 +290,12 @@ next CRL. With `PdfRevocationCheck.Online`, the CRL is asked when an OCSP
 answer does not settle the status, and a time-stamp authority's chain is asked
 about when the DSS's data for it has run out.
 
+Text extraction (7.15.0) is covered by regression tests on hand-made fonts and CMaps and on FreePDF's own
+output, and the corpus checks it against the intended text of FreePDF, ReportLab and Chromium files. It reads
+the font's ToUnicode CMap or its encoding; [text extraction](text-extraction.md) lists what it does not read.
+`PdfTextExtractionOptions` bounds each page, but there is no time limit: extract text from untrusted PDFs in a
+separate process with memory and time limits.
+
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
 layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.10. Placeholder inherited types are not
