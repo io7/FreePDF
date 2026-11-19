@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The guide's examples (docs/guide). Each example is the body of a test, between "// begin-snippet: <name>" and
+       "// end-snippet"; eng/sync_doc_snippets.py keeps the guide's code blocks equal to that code. MIT; see LICENSE. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" PrivateAssets="all" />
+    <PackageReference Include="xunit.core" />
+    <PackageReference Include="xunit.assert" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../lab/Shared/PalettePng.cs" Link="Fixtures/PalettePng.cs" />
+    <!-- Generated stand-in (one glyph for all ASCII), family "Liberation Sans"; see FontSamples.cs. -->
+    <None Include="../../tests/FreePDF.RegressionTests/Assets/SystemFonts/liberation-sans-stand-in.ttf"
+          Link="fonts/LiberationSans-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
+  </ItemGroup>
+</Project>
