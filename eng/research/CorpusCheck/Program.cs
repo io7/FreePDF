@@ -11,6 +11,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Content.Text;
 using PdfSharp.Pdf.IO;
 using PdfSharp.UniversalAccessibility;
 
@@ -18,6 +19,7 @@ return args.FirstOrDefault() switch
 {
     "check" when args.Length == 3 => Child.Check(args[1], args[2]),
     "check-a11y" when args.Length == 3 => Child.Check(args[1], args[2], audit: true),
+    "check-text" when args.Length == 2 => TextCheck.Run(args[1]),
     "run" when args.Length >= 3 => Parent.Run(args[1], args[2], args.Skip(3).ToArray()),
     "fuzz" when args.Length >= 3 => Fuzzer.Run(args[1], args[2], args.Skip(3).ToArray()),
     _ => Usage(),
@@ -237,4 +239,15 @@ static class Parent
     }
 
     static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "...";
+}
+
+static class TextCheck
+{
+    // Writes {"text": "..."} with every page followed by a form feed, as pdftotext writes pages.
+    public static int Run(string path)
+    {
+        using var document = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        Console.Out.Write(JsonSerializer.Serialize(new { text = PdfTextExtractor.GetText(document) }));
+        return 0;
+    }
 }
