@@ -19,6 +19,9 @@ namespace PdfSharp.Pdf.IO
     /// </summary>
     class Lexer
     {
+        /// <summary>Checked for each token while the reader opens a file (FreePDF); null afterwards.</summary>
+        internal ReadInterrupt? Interrupt;
+
         /// <summary>
         /// Initializes a new instance of the Lexer class.
         /// </summary>
@@ -82,6 +85,7 @@ namespace PdfSharp.Pdf.IO
         public Symbol ScanNextToken(bool testForObjectReference)
         {
         TryAgain:
+            Interrupt?.Check();
             ClearToken();
 
             char ch = MoveToNonWhiteSpace();

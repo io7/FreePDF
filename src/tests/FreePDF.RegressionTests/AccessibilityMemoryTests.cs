@@ -1,4 +1,5 @@
 // Original synthetic checks for the accessibility scan's memory bounds. MIT.
+using System.Globalization;
 using System.Text;
 using PdfSharp.Pdf;
 using PdfSharp.UniversalAccessibility;
@@ -157,5 +158,70 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
         Assert.True(report.HasFailures);
         Fails(report, "CONTENT");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MaxDuration_also_stops_the_reader_while_it_opens_the_file(bool crossReferenceTable)
+    {
+        // Opening this file reads all its objects and only then fails for the missing page tree. A reader that ignored
+        // the limit would report that failure instead.
+        var bytes = ManyObjectsWithoutPageTree(crossReferenceTable);
+        var report = Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = TimeSpan.FromTicks(1) });
+        Assert.Equal(PdfAccessibilityScanStatus.Incomplete, report.Status);
+        Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message == "Scan exceeded MaxDuration.");
+        var unlimited = Scan(bytes, new PdfAccessibilityScanOptions { MaxDuration = null });
+        Assert.Contains(unlimited.Findings, f => f.RuleId == "FPDF-A11Y-READ" && f.Message.StartsWith("PDF could not be fully inspected", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Cancellation_also_stops_the_reader_while_it_opens_the_file(bool crossReferenceTable)
+    {
+        // The token is cancelled once the scanner has copied the input, so only the reader can notice it.
+        using var cancellation = new CancellationTokenSource();
+        using var input = new CancelAtEnd(ManyObjectsWithoutPageTree(crossReferenceTable), cancellation);
+        Assert.ThrowsAny<OperationCanceledException>(() => PdfAccessibilityScanner.Scan(input, null, cancellation.Token));
+    }
+
+    // A catalog without a page tree and 2,000 integer objects, with a cross-reference table or without one (then the
+    // reader rebuilds it). The reader fails only after it has read every object.
+    static byte[] ManyObjectsWithoutPageTree(bool crossReferenceTable)
+    {
+        var pdf = new StringBuilder("%PDF-1.7\n");
+        var offsets = new List<int>();
+        void Add(string body)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append(offsets.Count.ToString(CultureInfo.InvariantCulture)).Append(" 0 obj\n").Append(body).Append("\nendobj\n");
+        }
+        Add("<< /Type /Catalog >>");
+        for (int i = 0; i < 2000; i++)
+            Add("0");
+        if (crossReferenceTable)
+        {
+            int xref = pdf.Length;
+            string size = (offsets.Count + 1).ToString(CultureInfo.InvariantCulture);
+            pdf.Append("xref\n0 ").Append(size).Append("\n0000000000 65535 f \n");
+            foreach (var offset in offsets)
+                pdf.Append(offset.ToString("D10", CultureInfo.InvariantCulture)).Append(" 00000 n \n");
+            pdf.Append("trailer\n<< /Size ").Append(size).Append(" /Root 1 0 R >>\nstartxref\n")
+                .Append(xref.ToString(CultureInfo.InvariantCulture)).Append("\n%%EOF\n");
+        }
+        return Encoding.ASCII.GetBytes(pdf.ToString());
+    }
+
+    // Cancels the token when a read reaches the end of the data.
+    sealed class CancelAtEnd(byte[] data, CancellationTokenSource cancellation) : MemoryStream(data)
+    {
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int read = base.Read(buffer, offset, count);
+            if (read == 0)
+                cancellation.Cancel();
+            return read;
+        }
     }
 }

@@ -1,5 +1,17 @@
 # FreePDF changelog
 
+## Unreleased
+
+- `MaxDuration` and the cancellation token of the accessibility scan now also
+  stop the reader while it opens the PDF; `freepdf-a11y --timeout` covers that
+  step too. Before, neither did, although the 7.14.0 documentation said the
+  token did: a 60 MiB file of 1.5 million objects took 13 s to cancel after a
+  200 ms token and 10 s to end under `--timeout 1`. Both now stop less than
+  0.4 s after the limit.
+- The preflight guide states how much memory opening a PDF takes: about 500
+  bytes per object, so millions of small objects in compressed object streams
+  can need several GB within the default `MaxFileBytes`.
+
 ## 7.14.0
 
 - The accessibility scan reads page and form content one operator at a time

@@ -49,7 +49,7 @@ namespace PdfSharp.Pdf.IO
         {
             _document = document!; // NRT HACK_OLD
             _options = documentParser._options;
-            _lexer = new Lexer(objectStream, documentParser._logger);
+            _lexer = new Lexer(objectStream, documentParser._logger) { Interrupt = documentParser._lexer.Interrupt };
             _documentParser = documentParser;
             _logger = documentParser._logger ?? PdfSharpLogHost.PdfReadingLogger;
         }
@@ -1348,6 +1348,7 @@ namespace PdfSharp.Pdf.IO
                     // Save all ObjectIDs with the parser of its ObjectStream and its offset.
                     foreach (var selectedObject in selectedObjects)
                     {
+                        _lexer.Interrupt?.Check();
                         var objectID = selectedObject.Key;
                         var offset = objectStream.GetObjectOffset(objectID, selectedObject.Value);
 
@@ -1512,7 +1513,7 @@ namespace PdfSharp.Pdf.IO
             _document.Trailer = null!;
 
             var text = _lexer.ScanRawString(0, (int)length);
-            var found = FindObjects(text, out _, out var objectSpans, out var weakPositions);
+            var found = FindObjects(text, _lexer.Interrupt, out _, out var objectSpans, out var weakPositions);
             if (found.Count == 0)
                 throw new PdfReaderException("The file holds no objects.");
 
@@ -1610,7 +1611,7 @@ namespace PdfSharp.Pdf.IO
         // Stream data is skipped, so that bytes inside it are not taken for objects, and so are strings and comments.
         // Every search is bounded by the next object header, so the work grows with the file size only. The spans of
         // objects that end with 'endobj' or a stream are returned too.
-        static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text,
+        static List<(int Number, int Generation, SizeType Position, string Kind)> FindObjects(string text, ReadInterrupt? interrupt,
             out List<(int Start, int End)> streamRanges, out List<(int Start, int End)> objectSpans, out HashSet<SizeType> weakPositions)
         {
             var result = new List<(int, int, SizeType, string)>();
@@ -1623,6 +1624,7 @@ namespace PdfSharp.Pdf.IO
             var integers = new Dictionary<int, List<int>>();
             for (var integer = IntegerObjectPattern.Match(text); integer.Success; integer = integer.NextMatch())
             {
+                interrupt?.Check();
                 if (int.TryParse(integer.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
                     && int.TryParse(integer.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
                 {
@@ -1640,6 +1642,7 @@ namespace PdfSharp.Pdf.IO
             int noEndStreamFrom = Int32.MaxValue;
             while (match.Success)
             {
+                interrupt?.Check();
                 int body = match.Index + match.Length;
                 if (lineStart.Success && lineStart.Index < body)
                     lineStart = ObjectHeaderPattern.Match(text, body);
@@ -2081,7 +2084,7 @@ namespace PdfSharp.Pdf.IO
                 if (ReadIndirectObject(reference, null, true) is not PdfDictionary objectStream || objectStream.Stream == null)
                     return;
                 int count = objectStream.Elements.GetInteger("/N");
-                var lexer = new Lexer(new MemoryStream(StructuralData(objectStream)), _logger);
+                var lexer = new Lexer(new MemoryStream(StructuralData(objectStream)), _logger) { Interrupt = _lexer.Interrupt };
                 for (int index = 0; index < count; index++)
                 {
                     if (lexer.ScanNextToken(false) != Symbol.Integer)
@@ -2574,6 +2577,7 @@ namespace PdfSharp.Pdf.IO
                 int abc = subsections[ssc][1];
                 for (int idx = 0; idx < abc; idx++)
                 {
+                    _lexer.Interrupt?.Check();
                     index2++;
 
                     // Fits in int: wsum * entries is at most bytes.Length, checked above.
