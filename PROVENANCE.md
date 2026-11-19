@@ -530,7 +530,7 @@ reproducers (many small objects, with and without a cross-reference table, in ob
 streams, as pages and as incremental updates). No other parser or later PDFsharp
 implementation was consulted.
 
-## Text extraction (2026-11)
+## Text extraction (7.15.0)
 
 `Pdf.Content.Text/*.cs` (except the generated `GlyphTables.g.cs`), the `Extracting` mode of `CLexer`, the
 extraction mode of `CParser` and `OpCodes.IsKnown` are original FreePDF code. Their inputs were ISO 32000-1

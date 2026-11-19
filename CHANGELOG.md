@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.15.0
 
 - New `PdfTextExtractor` reads the text a page draws: `GetText` gives the page or document text in reading
   or content order, `GetTextRuns` each run with its baseline position, font size and font name. It decodes
