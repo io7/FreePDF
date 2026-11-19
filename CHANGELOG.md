@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.14.1
 
 - `MaxDuration` and the cancellation token of the accessibility scan now also
   stop the reader while it opens the PDF; `freepdf-a11y --timeout` covers that
