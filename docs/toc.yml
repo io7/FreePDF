@@ -1,0 +1,13 @@
+- name: Guide
+  href: guide/
+- name: API reference
+  href: api/
+  topicHref: reference.md
+- name: Text extraction
+  href: text-extraction.md
+- name: Accessibility scanner
+  href: accessibility-preflight.md
+- name: Migrating from 6.2.4
+  href: migrating-to-7.md
+- name: Support
+  href: support-policy.md

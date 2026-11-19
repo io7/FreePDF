@@ -1,0 +1,11 @@
+# Namespaces that are public only for the libraries' own use or tests; not shown in the API reference.
+apiRules:
+- exclude:
+    uidRegex: ^PdfSharp\.Internal$
+    type: Namespace
+- exclude:
+    uidRegex: ^PdfSharp\.Pdf\.Internal$
+    type: Namespace
+- exclude:
+    uidRegex: ^MigraDoc\.Rendering\.UnitTest$
+    type: Namespace
