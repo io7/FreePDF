@@ -1,4 +1,6 @@
 // Examples for docs/guide/shapes.md. MIT; see LICENSE.
+using System.Globalization;
+using System.Text.RegularExpressions;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -42,15 +44,22 @@ public sealed class ShapeSamples : SampleTest
         // The triangle's base.
         Assert.Contains(segments, s => Near(top - 320, s.Y1) && Near(top - 320, s.Y2) && Near(100, Math.Min(s.X1, s.X2)));
 
+        // FreePDF writes one operator per line. The styles must belong to their shapes, not just occur in the page.
         var content = Content("shapes.pdf");
-        Assert.Matches(@"\[[\d. ]+\]\s*[\d.]+ d", content);                          // a dash pattern, "[1.5 .5]0 d"
-        Assert.Matches(@"(-?[\d.]+ ){6}c\b", content);                                // the ellipse's curves
-        Assert.Contains("1 0 0 rg", content);                                         // the red fill
+        string y40 = Pt(top - 40), y150 = Pt(top - 150);
+        // The horizontal line is stroked while a dash pattern ("[1.5 .5]0 d") is set: no other "d" operator, whose
+        // array starts with "[", comes between the pattern and the line.
+        Assert.Matches($@"\[[\d. ]+\]\s*[\d.]+ d\n[^\[]*\n50 {y40} m\n545 {y40} l\nS\n", content);
+        // The ellipse (four curves from its right end) is filled red through a graphics state with 50% fill alpha.
+        var ellipse = Regex.Match(content, $@"1 0 0 rg\n/(\w+) gs\n300 {y150} m\n(?:[-\d. ]+ c\n){{4}}h f\n");
+        Assert.True(ellipse.Success, content);
         using var saved = PdfReader.Open("shapes.pdf", PdfDocumentOpenMode.Import);
         var states = saved.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/ExtGState")!;
-        var fillAlphas = states.Elements.Keys.Select(key => states.Elements.GetDictionary(key)!.Elements.GetReal("/ca"));
-        Assert.Contains(fillAlphas, alpha => Near(128 / 255.0, alpha, 0.01));         // half transparent
+        AssertNear(128 / 255.0, states.Elements.GetDictionary("/" + ellipse.Groups[1].Value)!.Elements.GetReal("/ca"), 0.01);
     }
+
+    /// <summary>A coordinate as FreePDF writes it in content streams.</summary>
+    static string Pt(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     [Fact]
     public void RotatedText()
