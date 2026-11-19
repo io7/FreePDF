@@ -27,19 +27,46 @@ namespace PdfSharp.Pdf.Content.Text
 
         // Overlapping ranges are an error in a CMap; looking back this far still finds a containing earlier range.
         const int MaxOverlapSteps = 64;
+        // TN #5099 allows 100 entries in one codespacerange block, and real CMaps use a handful. Further ranges are
+        // ignored, so reading one code costs at most this many range tests.
+        const int MaxSpaces = 100;
 
-        readonly List<Space> _spaces = new();
+        // Code space ranges by code length 1 to 4.
+        readonly List<Space>[] _spaces = { new(), new(), new(), new() };
         readonly Dictionary<long, string> _texts = new();
         readonly Dictionary<long, int> _cids = new();
         readonly List<Range> _textRanges = new();
         readonly List<Range> _cidRanges = new();
         bool _sorted = true;
+        int _spaceCount, _shortest = 4;
+        CodeMap? _base;
 
         internal bool Vertical { get; set; }
 
-        internal bool HasSpaces => _spaces.Count > 0;
+        internal bool HasSpaces => _spaceCount > 0;
 
-        internal void AddSpace(byte[] low, byte[] high) => _spaces.Add(new Space { Low = low, High = high });
+        internal void AddSpace(byte[] low, byte[] high)
+        {
+            if (_spaceCount >= MaxSpaces)
+                return;
+            _spaces[low.Length - 1].Add(new Space { Low = low, High = high });
+            _spaceCount++;
+            _shortest = Math.Min(_shortest, low.Length);
+        }
+
+        /// <summary>
+        /// Makes <paramref name="map"/> the base of this CMap (/UseCMap): its code space ranges are added, and its
+        /// mappings apply to the codes this CMap does not map itself.
+        /// </summary>
+        internal void Inherit(CodeMap map)
+        {
+            foreach (var spaces in map._spaces)
+            {
+                foreach (var space in spaces)
+                    AddSpace(space.Low, space.High);
+            }
+            _base = map;
+        }
 
         internal void AddText(int length, uint code, string text) => _texts[Key(length, code)] = text;
 
@@ -85,19 +112,16 @@ namespace PdfSharp.Pdf.Content.Text
         {
             for (int length = 1; length <= 4 && offset + length <= bytes.Length; length++)
             {
-                foreach (var space in _spaces)
+                foreach (var space in _spaces[length - 1])
                 {
-                    if (space.Low.Length == length && Contains(space, bytes, offset))
+                    if (Contains(space, bytes, offset))
                     {
                         code = Value(bytes, offset, length);
                         return length;
                     }
                 }
             }
-            int shortest = _spaces.Count == 0 ? 1 : 4;
-            foreach (var space in _spaces)
-                shortest = Math.Min(shortest, space.Low.Length);
-            int fallback = Math.Min(shortest, bytes.Length - offset);
+            int fallback = Math.Min(_spaceCount == 0 ? 1 : _shortest, bytes.Length - offset);
             code = Value(bytes, offset, fallback);
             return fallback;
         }
@@ -112,7 +136,11 @@ namespace PdfSharp.Pdf.Content.Text
             return true;
         }
 
-        internal string? Text(int length, uint code)
+        internal string? Text(int length, uint code) => OwnText(length, code) ?? _base?.Text(length, code);
+
+        internal int? Cid(int length, uint code) => OwnCid(length, code) ?? _base?.Cid(length, code);
+
+        string? OwnText(int length, uint code)
         {
             if (_texts.TryGetValue(Key(length, code), out var text))
                 return text;
@@ -131,7 +159,7 @@ namespace PdfSharp.Pdf.Content.Text
             return start.Substring(0, start.Length - 1) + (char)(start[start.Length - 1] + offset);
         }
 
-        internal int? Cid(int length, uint code)
+        int? OwnCid(int length, uint code)
         {
             if (_cids.TryGetValue(Key(length, code), out var cid))
                 return cid;

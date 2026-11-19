@@ -14,6 +14,7 @@ static class ReaderProbe
 {
     static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--text-probe") return TextProbe.Run(args[1]);
         if (args.Length != 2 || args[0] != "--reader-probe") return 2;
         try
         {
@@ -71,18 +72,18 @@ public class ReaderRobustnessTests
         Assert.True(result.ExitCode == 0 || result.ExitCode == 11, $"Unexpected reader failure for mutation {index}: {result.Output}");
     }
 
-    static async Task<(int ExitCode, string Output)> Probe(string scenario)
+    internal static async Task<(int ExitCode, string Output)> Probe(string scenario, string kind = "--reader-probe")
     {
 #if NETFRAMEWORK
         // xUnit shadow-copies Framework assemblies into separate cache folders.
         // Launch the original build output so the child can resolve its DLLs/config.
         var assembly = new Uri(typeof(ReaderRobustnessTests).Assembly.CodeBase).LocalPath;
         var executable = assembly;
-        var arguments = "--reader-probe " + scenario;
+        var arguments = kind + " " + scenario;
 #else
         var assembly = typeof(ReaderRobustnessTests).Assembly.Location;
         var executable = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
-        var arguments = "\"" + assembly + "\" --reader-probe " + scenario;
+        var arguments = "\"" + assembly + "\" " + kind + " " + scenario;
 #endif
         var start = new ProcessStartInfo(executable, arguments) {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true

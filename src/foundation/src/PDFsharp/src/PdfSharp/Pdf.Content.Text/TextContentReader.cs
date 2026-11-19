@@ -46,10 +46,14 @@ namespace PdfSharp.Pdf.Content.Text
         readonly List<PdfTextRun> _runs = new();
         readonly List<PdfLineSegment> _lines = new();
         readonly List<PdfLineSegment> _path = new();
+        // The closing edges of the path's open subpaths, which only a fill draws.
+        readonly List<PdfLineSegment> _closures = new();
         GraphicsState _state = new();
         TextMatrix _tm = TextMatrix.Identity, _tlm = TextMatrix.Identity;
         int _uncountedSaves, _floor;
         double _currentX, _currentY, _startX, _startY;
+        // The current subpath has a segment or curve and has not been closed.
+        bool _open;
 
         internal TextContentReader(PdfTextExtractionOptions options, bool collectLines)
         {
@@ -139,6 +143,9 @@ namespace PdfSharp.Pdf.Content.Text
                     break;
                 case OpCodeName.Tf:
                     SetFont(o, resources);
+                    break;
+                case OpCodeName.gs:
+                    SetGraphicsState(o, resources);
                     break;
                 case OpCodeName.Td:
                     MoveLine(Number(o, 0), Number(o, 1));
@@ -233,14 +240,32 @@ namespace PdfSharp.Pdf.Content.Text
             if (o.Count == 0 || o[0] is not CName name)
                 return;
             var font = TextItems.Dict(TextItems.Dict(resources, "/Font"), name.Name);
-            if (font == null)
+            if (font != null)
+                _state.Font = Loaded(font);
+        }
+
+        // A graphics state parameter dictionary can set the font and size (ISO 32000-1 8.4.5, /Font [font size]).
+        void SetGraphicsState(CSequence o, PdfDictionary? resources)
+        {
+            if (o.Count == 0 || o[0] is not CName name)
                 return;
+            var parameters = TextItems.Dict(TextItems.Dict(resources, "/ExtGState"), name.Name);
+            if (TextItems.Resolve(parameters?.Elements["/Font"]) is not PdfArray { Elements.Count: >= 2 } pair)
+                return;
+            if (TextItems.Resolve(pair.Elements[0]) is not PdfDictionary font)
+                return;
+            _state.Font = Loaded(font);
+            _state.FontSize = TextItems.Number(pair.Elements[1]) ?? 0;
+        }
+
+        TextFont Loaded(PdfDictionary font)
+        {
             if (!_fonts.TryGetValue(font, out var loaded))
             {
                 loaded = TextFont.Load(font, _budget);
                 _fonts.Add(font, loaded);
             }
-            _state.Font = loaded;
+            return loaded;
         }
 
         void MoveLine(double x, double y)
@@ -288,12 +313,18 @@ namespace PdfSharp.Pdf.Content.Text
         {
             if (array == null || _state.Font == null)
                 return;
-            var run = BeginRun();
+            // The run starts where its first glyph is drawn, after any adjustments before it.
+            RunStart? run = null;
             foreach (var item in array)
             {
                 if (item is CString text)
                 {
-                    Append(run, Bytes(text));
+                    var bytes = Bytes(text);
+                    if (bytes.Length > 0)
+                    {
+                        run ??= BeginRun();
+                        Append(run, bytes);
+                    }
                     continue;
                 }
                 double adjustment;
@@ -309,10 +340,11 @@ namespace PdfSharp.Pdf.Content.Text
                         continue;
                 }
                 _tm = TextMatrix.Translation(-adjustment / 1000 * _state.FontSize * _state.Scale, 0).Then(_tm);
-                if (-adjustment / 1000 > TjSpace && run.Text.Length > 0 && run.Text[run.Text.Length - 1] != ' ')
+                if (run != null && -adjustment / 1000 > TjSpace && run.Text.Length > 0 && run.Text[run.Text.Length - 1] != ' ')
                     run.Text.Append(' ');
             }
-            EndRun(run);
+            if (run != null)
+                EndRun(run);
         }
 
         // ISO 32000-1 9.4.4: tx = ((w0 × Tfs) + Tc + Tw) × Th, with Tw only for the single-byte code 32.
@@ -323,6 +355,7 @@ namespace PdfSharp.Pdf.Content.Text
             while (offset < bytes.Length)
             {
                 offset += font.Read(bytes, offset, out var text, out var width, out var wordSpace);
+                _budget.Spend(2L * text.Length);
                 run.Text.Append(text);
                 double spacing = _state.CharSpacing;
                 if (wordSpace)
@@ -394,6 +427,7 @@ namespace PdfSharp.Pdf.Content.Text
                     // Curves are not segments; only their end point moves the current point.
                     if (o.Count >= 2)
                         SetCurrent(Number(o, o.Count - 2), Number(o, o.Count - 1));
+                    _open = true;
                     break;
                 case OpCodeName.re:
                     Rectangle(Number(o, 0), Number(o, 1), Number(o, 2), Number(o, 3));
@@ -402,23 +436,28 @@ namespace PdfSharp.Pdf.Content.Text
                     ClosePath();
                     break;
                 case OpCodeName.S:
+                    Paint(stroked: true, filled: false);
+                    break;
                 case OpCodeName.B:
                 case OpCodeName.Bx:
-                    Paint(true);
+                    Paint(stroked: true, filled: true);
                     break;
                 case OpCodeName.s:
+                    ClosePath();
+                    Paint(stroked: true, filled: false);
+                    break;
                 case OpCodeName.b:
                 case OpCodeName.bx:
                     ClosePath();
-                    Paint(true);
+                    Paint(stroked: true, filled: true);
                     break;
                 case OpCodeName.f:
                 case OpCodeName.F:
                 case OpCodeName.fx:
-                    Paint(false);
+                    Paint(stroked: false, filled: true);
                     break;
                 case OpCodeName.n:
-                    _path.Clear();
+                    ClearPath();
                     break;
             }
         }
@@ -432,6 +471,7 @@ namespace PdfSharp.Pdf.Content.Text
 
         void MoveTo(double x, double y)
         {
+            EndSubpath();
             SetCurrent(x, y);
             _startX = _currentX;
             _startY = _currentY;
@@ -442,6 +482,18 @@ namespace PdfSharp.Pdf.Content.Text
             double fromX = _currentX, fromY = _currentY;
             SetCurrent(x, y);
             AddSegment(fromX, fromY, _currentX, _currentY);
+            _open = true;
+        }
+
+        // Filling closes every open subpath with a straight edge (ISO 32000-1 8.5.3); stroking does not.
+        void EndSubpath()
+        {
+            if (_open && (_currentX != _startX || _currentY != _startY))
+            {
+                CheckSegmentLimit();
+                _closures.Add(new PdfLineSegment(_currentX, _currentY, _startX, _startY, false));
+            }
+            _open = false;
         }
 
         void Rectangle(double x, double y, double width, double height)
@@ -459,20 +511,38 @@ namespace PdfSharp.Pdf.Content.Text
                 AddSegment(_currentX, _currentY, _startX, _startY);
             _currentX = _startX;
             _currentY = _startY;
+            _open = false;
         }
 
         void AddSegment(double x1, double y1, double x2, double y2)
         {
-            if (_lines.Count + _path.Count >= _options.MaxResults)
-                throw Parser.LimitExceeded("Text extraction found more than MaxResults line segments on the page.");
+            CheckSegmentLimit();
             _path.Add(new PdfLineSegment(x1, y1, x2, y2, false));
         }
 
-        void Paint(bool stroked)
+        void CheckSegmentLimit()
         {
+            if (_lines.Count + _path.Count + _closures.Count >= _options.MaxResults)
+                throw Parser.LimitExceeded("Text extraction found more than MaxResults line segments on the page.");
+        }
+
+        void Paint(bool stroked, bool filled)
+        {
+            if (filled)
+                EndSubpath();
             foreach (var segment in _path)
                 _lines.Add(new PdfLineSegment(segment.X1, segment.Y1, segment.X2, segment.Y2, stroked));
+            // An implicit closing edge is filled, never stroked.
+            if (filled)
+                _lines.AddRange(_closures);
+            ClearPath();
+        }
+
+        void ClearPath()
+        {
             _path.Clear();
+            _closures.Clear();
+            _open = false;
         }
     }
 }

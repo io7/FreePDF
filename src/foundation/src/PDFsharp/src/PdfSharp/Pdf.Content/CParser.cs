@@ -42,7 +42,7 @@ namespace PdfSharp.Pdf.Content
         /// </summary>
         internal CParser(byte[] content, bool extracting)
         {
-            _lexer = new CLexer(content) { RawStrings = extracting };
+            _lexer = new CLexer(content) { Extracting = extracting };
             _skipUnknownOperators = extracting;
         }
 

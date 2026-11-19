@@ -47,10 +47,13 @@ namespace PdfSharp.Pdf.Content
         }
 
         /// <summary>
-        /// Keeps every string byte as one character. Without it, a string that starts with FE FF is read as UTF-16BE
-        /// text and one that starts with FF FE ends the token; in a content stream both are character codes.
+        /// Text extraction mode (ISO 32000-1 7.2 and 7.3). Every string byte stays one character: without this mode, a
+        /// string that starts with FE FF is read as UTF-16BE text and one that starts with FF FE ends the token, but
+        /// in a content stream both are character codes. Octal escapes take only the digits 0 to 7. An operator is
+        /// every regular character up to the next white-space or delimiter, so unknown operators can be skipped.
+        /// A number that is not finite is a syntax error.
         /// </summary>
-        internal bool RawStrings { get; set; }
+        internal bool Extracting { get; set; }
 
         /// <summary>
         /// Reads the next token and returns its type.
@@ -106,6 +109,9 @@ namespace PdfSharp.Pdf.Content
 
             if (ch == Chars.EOF)
                 return Symbol = CSymbol.Eof;
+
+            if (Extracting && IsRegular(ch))
+                return ScanOperator();
 
             ContentReaderDiagnostics.HandleUnexpectedCharacter(ch);
             return Symbol = CSymbol.None;
@@ -461,6 +467,14 @@ namespace PdfSharp.Pdf.Content
                 // Case: The number is too big for long or has too many decimal digits for our own code,
                 // so we provide it as real only.
                 // Number will be parsed by .NET.
+                if (Extracting)
+                {
+                    // .NET Framework throws OverflowException here and .NET returns infinity.
+                    if (!Double.TryParse(_token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out _tokenAsReal)
+                        || Double.IsInfinity(_tokenAsReal))
+                        ContentReaderDiagnostics.ThrowContentReaderException("Number out of range.");
+                    return Symbol = CSymbol.Real;
+                }
                 _tokenAsReal = Double.Parse(_token.ToString(), CultureInfo.InvariantCulture);
 
                 return Symbol = CSymbol.Real;
@@ -511,7 +525,7 @@ namespace PdfSharp.Pdf.Content
             ClearToken();
             char ch = _currChar;
             // Scan token.
-            while (IsOperatorChar(ch))
+            while (Extracting ? IsRegular(ch) : IsOperatorChar(ch))
                 ch = AppendAndScanNextChar();
 #if DEBUG
             if (_token.ToString() == "BI")
@@ -531,7 +545,7 @@ namespace PdfSharp.Pdf.Content
             int parenLevel = 0;
             char ch = ScanNextChar();
             // Test UNICODE string
-            if (!RawStrings && ch == '\xFE' && _nextChar == '\xFF')
+            if (!Extracting && ch == '\xFE' && _nextChar == '\xFF')
             {
                 // I’m not sure if the code is correct in any case.
                 // ? Can a UNICODE character not start with ')' as hibyte
@@ -645,7 +659,7 @@ namespace PdfSharp.Pdf.Content
                     ch = (char)((chHi << 8) + chLo);
                 }
             }
-            else if (!RawStrings && ch == '\xFF' && _nextChar == '\xFE')  // Little endian?
+            else if (!Extracting && ch == '\xFF' && _nextChar == '\xFE')  // Little endian?
             {
                 // Is this possible?
                 Debug.Assert(false, "Found UTF-16LE string. Please send us the PDF file and we will fix it (issues (at) pdfsharp.net).");
@@ -720,18 +734,19 @@ namespace PdfSharp.Pdf.Content
 
                                     default:
                                         // Sync with ScanStringLiteral.
-                                        if (Char.IsDigit(ch))
+                                        if (Extracting ? IsOctal(ch) : Char.IsDigit(ch))
                                         {
                                             // Octal character code.
                                             int n = ch - '0';
-                                            if (Char.IsDigit(_nextChar))
+                                            if (Extracting ? IsOctal(_nextChar) : Char.IsDigit(_nextChar))
                                             {
                                                 n = n * 8 + ScanNextChar() - '0';
-                                                if (Char.IsDigit(_nextChar))
+                                                if (Extracting ? IsOctal(_nextChar) : Char.IsDigit(_nextChar))
                                                     n = n * 8 + ScanNextChar() - '0';
                                             }
                                             ch = (char)n;
                                         }
+                                        // Otherwise the backslash is ignored (ISO 32000-1 7.3.4.2).
                                         break;
                                 }
                                 break;
@@ -803,7 +818,7 @@ namespace PdfSharp.Pdf.Content
             string chars = _token.ToString();
             int count = chars.Length;
             // Check for UTF-16BE encoding.
-            if (!RawStrings && count > 2 && chars[0] == '\xFE' && chars[1] == '\xFF')
+            if (!Extracting && count > 2 && chars[0] == '\xFE' && chars[1] == '\xFF')
             {
                 Debug.Assert(count % 2 == 0); // #PRD runtime check
                 _token.Length = 0;
@@ -989,6 +1004,11 @@ namespace PdfSharp.Pdf.Content
                 _ => false
             };
         }
+
+        static bool IsOctal(char ch) => ch is >= '0' and <= '7';
+
+        // ISO 32000-1 7.2.2: neither white-space nor a delimiter; { and } are delimiters too.
+        static bool IsRegular(char ch) => ch != Chars.EOF && !IsWhiteSpace(ch) && !IsDelimiter(ch) && ch != '{' && ch != '}';
 
         /// <summary>
         /// Indicates whether the specified character is a PDF delimiter character.

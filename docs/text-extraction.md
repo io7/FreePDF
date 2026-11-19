@@ -24,7 +24,10 @@ The Unicode text of a character comes from, in this order (ISO 32000-1 9.10.2):
    encodings of Symbol and ZapfDingbats, and `/Differences`, with glyph names mapped by the Adobe Glyph List.
 
 A character with neither is U+FFFD. Composite fonts read their codes with `/Identity-H`, `/Identity-V` or an
-embedded CMap stream; their widths come from `/W` and `/DW`.
+embedded CMap stream; their widths come from `/W` and `/DW`. An embedded CMap stream, ToUnicode or encoding,
+inherits the CMap stream its `/UseCMap` names. The font can also come from a graphics state parameter
+dictionary (`gs` with `/Font`). A standard font without `/Widths` takes the width of the glyph its encoding
+selects.
 
 ## Order and spacing
 
@@ -35,13 +38,17 @@ written as a space.
 
 ## Limits
 
-`PdfTextExtractionOptions` bounds one page: `MaxDecodedBytes` (64 MiB), `MaxFormDepth` (32) and `MaxResults`
-(1,000,000 runs or segments). Reaching one throws `PdfReaderException`. A form that draws itself is read once;
-a syntax error ends that content stream and keeps the text before it.
+`PdfTextExtractionOptions` bounds one page: `MaxDecodedBytes` (64 MiB, the extracted text counted at two bytes
+per character), `MaxFormDepth` (32) and `MaxResults` (1,000,000 runs or segments). Reaching one throws
+`PdfReaderException`. A form that draws itself is read once; a syntax error, such as a number that is not
+finite, ends that content stream and keeps the text before it. A stream whose filters fail on its data draws
+nothing. Fixed bounds keep hostile fonts cheap: 100 code space ranges per CMap, 65,536 `/W` list entries, 8
+CMaps in a `/UseCMap` chain.
 
 ## Not yet supported
 
-- Predefined CJK CMaps other than Identity, and Unicode for CIDs without ToUnicode.
+- Predefined CJK CMaps other than Identity (also as a `/UseCMap` base), and Unicode for CIDs without ToUnicode.
+- Widths of standard-font glyphs outside WinAnsiEncoding (for example `fi`) when the font has no `/Widths`.
 - Unicode from embedded font programs (a symbolic TrueType font or an embedded Type1 font without ToUnicode
   or a known encoding is read with StandardEncoding).
 - MacExpertEncoding, vertical writing positions, `/ActualText`.

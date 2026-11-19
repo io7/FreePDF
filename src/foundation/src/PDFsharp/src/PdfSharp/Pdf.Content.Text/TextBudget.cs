@@ -6,7 +6,8 @@ using PdfSharp.Pdf.IO;
 namespace PdfSharp.Pdf.Content.Text
 {
     /// <summary>
-    /// Decodes streams within one budget of bytes. Every filter stage's output counts, as in the reader's own limit.
+    /// One page's budget of bytes: every filter stage's output counts, as in the reader's own limit, and so does the
+    /// extracted text at two bytes per character, because one code can map to a long ToUnicode string.
     /// </summary>
     sealed class TextBudget
     {
@@ -17,6 +18,10 @@ namespace PdfSharp.Pdf.Content.Text
             _left = limit;
         }
 
+        /// <summary>
+        /// The decoded bytes of a stream. A stream whose filters fail on its data is empty: it draws nothing, and the
+        /// page's other streams are still read.
+        /// </summary>
         internal byte[] Decode(PdfDictionary stream)
         {
             var bytes = stream.Stream?.Value ?? Array.Empty<byte>();
@@ -33,12 +38,21 @@ namespace PdfSharp.Pdf.Content.Text
                 {
                     throw Exceeded();
                 }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    bytes = Array.Empty<byte>();
+                }
                 spent = Math.Max(limit.Spent, bytes.Length);
             }
-            if (spent > _left)
-                throw Exceeded();
-            _left -= spent;
+            Spend(spent);
             return bytes;
+        }
+
+        internal void Spend(long bytes)
+        {
+            if (bytes > _left)
+                throw Exceeded();
+            _left -= bytes;
         }
 
         static PdfReaderException Exceeded() => Parser.LimitExceeded("Text extraction would decode more than MaxDecodedBytes.");

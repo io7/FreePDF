@@ -16,6 +16,10 @@ namespace PdfSharp.Pdf.Content.Text
         const string Replacement = "�";
         // An advance for codes without any known width, so that runs still move along the line.
         const double FallbackWidth = 0.5;
+        // ISO 32000-1 Annex C: the largest CID. A valid /W array has no more list entries than there are CIDs.
+        const int MaxCid = 65535;
+        // Embedded CMaps followed through /UseCMap.
+        const int MaxCMapChain = 8;
 
         sealed class CidWidth
         {
@@ -36,12 +40,32 @@ namespace PdfSharp.Pdf.Content.Text
         {
             var result = new TextFont { Name = PostScriptName(TextItems.NameOf(font, "/BaseFont")) };
             if (TextItems.Resolve(font.Elements["/ToUnicode"]) is PdfDictionary { Stream: not null } toUnicode)
-                result._toUnicode = CMapParser.Parse(budget.Decode(toUnicode));
+                result._toUnicode = LoadCMap(toUnicode, budget);
             if (TextItems.NameOf(font, "/Subtype") == "/Type0")
                 result.LoadComposite(font, budget);
             else
                 result.LoadSimple(font);
             return result;
+        }
+
+        // An embedded CMap may name another CMap stream as its base (ISO 32000-1 9.7.5.3, /UseCMap). The base is read
+        // first; the CMap's own mappings come before the base's. A base named by a predefined CMap name is not read.
+        static CodeMap LoadCMap(PdfDictionary stream, TextBudget budget)
+        {
+            var chain = new List<PdfDictionary>();
+            var seen = new HashSet<PdfDictionary>();
+            for (PdfDictionary? item = stream; item?.Stream != null && chain.Count < MaxCMapChain && seen.Add(item);
+                 item = TextItems.Resolve(item.Elements["/UseCMap"]) as PdfDictionary)
+                chain.Add(item);
+            CodeMap? map = null;
+            for (int i = chain.Count - 1; i >= 0; i--)
+            {
+                var derived = CMapParser.Parse(budget.Decode(chain[i]));
+                if (map != null)
+                    derived.Inherit(map);
+                map = derived;
+            }
+            return map!;
         }
 
         // "/ABCDEF+Helvetica" -> "Helvetica" (ISO 32000-1 9.6.4: a subset tag is six uppercase letters and '+').
@@ -106,12 +130,31 @@ namespace PdfSharp.Pdf.Content.Text
                     if (index >= 0 && index < widths.Elements.Count)
                         width = TextItems.Number(widths.Elements[index]) * scale;
                 }
-                else if (standard != null && code >= 32)
+                else if (standard != null && _texts[code] is string glyph && WinAnsiCodes.TryGetValue(glyph, out int index))
                 {
-                    width = standard[code - 32] / 1000.0;
+                    // The width of the glyph the encoding selects (ISO 32000-1 9.6.6), found by its character.
+                    width = standard[index - 32] / 1000.0;
                 }
                 _widths[code] = width ?? missing ?? FallbackWidth;
             }
+        }
+
+        // The WinAnsiEncoding code of each character: StandardFontWidths is indexed by it. The unused codes, which
+        // Annex D maps to the bullet too, are left out, so the bullet finds its own code.
+        static readonly Dictionary<string, int> WinAnsiCodes = BuildWinAnsiCodes();
+
+        static Dictionary<string, int> BuildWinAnsiCodes()
+        {
+            var codes = new Dictionary<string, int>();
+            for (int code = 32; code < 256; code++)
+            {
+                if (code is 0x7F or 0x81 or 0x8D or 0x8F or 0x90 or 0x9D)
+                    continue;
+                var text = GlyphTables.WinAnsiEncoding[code].ToString();
+                if (!codes.ContainsKey(text))
+                    codes.Add(text, code);
+            }
+            return codes;
         }
 
         string?[] BaseEncoding(PdfDictionary font)
@@ -168,7 +211,7 @@ namespace PdfSharp.Pdf.Content.Text
             var encoding = TextItems.Resolve(font.Elements["/Encoding"]);
             if (encoding is PdfDictionary { Stream: not null } stream)
             {
-                _encoding = CMapParser.Parse(budget.Decode(stream));
+                _encoding = LoadCMap(stream, budget);
             }
             else
             {
@@ -197,6 +240,8 @@ namespace PdfSharp.Pdf.Content.Text
         {
             var items = array.Elements;
             int i = 0;
+            // List entries left to read. A hostile array can name one long list many times.
+            int entries = MaxCid + 1;
             while (i < items.Count)
             {
                 var first = TextItems.Integer(items[i]);
@@ -207,10 +252,12 @@ namespace PdfSharp.Pdf.Content.Text
                 }
                 if (i + 1 < items.Count && TextItems.Resolve(items[i + 1]) is PdfArray list)
                 {
-                    for (int k = 0; k < list.Elements.Count; k++)
+                    int count = Math.Min(list.Elements.Count, entries);
+                    entries -= count;
+                    for (int k = 0; k < count && first.Value + k <= MaxCid; k++)
                     {
                         var width = TextItems.Number(list.Elements[k]);
-                        if (width.HasValue)
+                        if (width.HasValue && first.Value + k >= 0)
                             _cidWidths[first.Value + k] = width.Value / 1000;
                     }
                     i += 2;

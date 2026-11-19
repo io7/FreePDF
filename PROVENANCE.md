@@ -532,9 +532,10 @@ implementation was consulted.
 
 ## Text extraction (2026-11)
 
-`Pdf.Content.Text/*.cs` (except the generated `GlyphTables.g.cs`), the `RawStrings` option of `CLexer`, the
+`Pdf.Content.Text/*.cs` (except the generated `GlyphTables.g.cs`), the `Extracting` mode of `CLexer`, the
 extraction mode of `CParser` and `OpCodes.IsKnown` are original FreePDF code. Their inputs were ISO 32000-1
-sections 7.3.4, 7.7.3.4, 7.8, 8.3.4, 8.5.2, 9.2 to 9.4, 9.6, 9.7, 9.10 and Annex D, Adobe Technical Note #5099
+sections 7.2, 7.3.4, 7.7.3.4, 7.8, 8.3.4, 8.4.5, 8.5.2, 8.5.3, 9.2 to 9.4, 9.6, 9.7, 9.10 and Annexes C and D,
+Adobe Technical Note #5099
 (CMap and CIDFont files) and the Adobe Glyph List specification, section 2
 (https://github.com/adobe-type-tools/agl-specification). No other PDF library's implementation was read
 (iText, PdfPig, PDFBox, pdf.js, Poppler, MuPDF). Poppler's `pdftotext` is used as an external oracle in the

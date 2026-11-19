@@ -107,8 +107,10 @@ def main():
         notices += [n for n in afm_notices(afm) if n not in notices]
     # ISO 32000-1 Annex D: in WinAnsiEncoding, all unused codes above 40 octal map to the bullet; the PDF
     # MacRomanEncoding has the currency sign at 333 octal (Mac OS Roman later put the euro there) and no Apple logo.
-    win_ansi = single_byte("cp1252", "•", {0x7F: "•"})
-    mac_roman = single_byte("mac_roman", "�", {0x7F: "�", 0xDB: "¤", 0xF0: "�"})
+    # The duplicate codes draw the space and hyphen glyphs (WinAnsi 240 and 255 octal, MacRoman 312 octal), so
+    # their glyph names give U+0020 and U+002D, not the no-break space and soft hyphen of the code pages.
+    win_ansi = single_byte("cp1252", "•", {0x7F: "•", 0xA0: " ", 0xAD: "-"})
+    mac_roman = single_byte("mac_roman", "�", {0x7F: "�", 0xCA: " ", 0xDB: "¤", 0xF0: "�"})
     for code in range(32):
         win_ansi[code] = "�"
 

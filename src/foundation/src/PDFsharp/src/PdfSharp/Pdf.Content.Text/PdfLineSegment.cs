@@ -27,7 +27,10 @@ namespace PdfSharp.Pdf.Content.Text
         /// <summary>The end point's vertical position.</summary>
         public double Y2 { get; }
 
-        /// <summary>True if the path was stroked (S, s, B, B*, b, b*); false if it was only filled.</summary>
+        /// <summary>
+        /// True if the segment was stroked (S, s, B, B*, b, b*); false if it was only filled: by f, F or f*, or as the
+        /// straight edge that closes an open subpath when it is filled.
+        /// </summary>
         public bool Stroked { get; }
     }
 }
