@@ -28,7 +28,7 @@ def read_snippets():
     for path in sorted(SAMPLES.glob("*.cs")):
         name = None
         lines = []
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
             begin = BEGIN.match(line)
             if begin:
                 if name is not None:
@@ -50,7 +50,7 @@ def read_snippets():
 
 def sync_page(path, snippets, used):
     """Returns the page with its marked blocks replaced, and whether any block changed."""
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
     out = []
     changed = False
     i = 0
@@ -63,10 +63,11 @@ def sync_page(path, snippets, used):
         name = mark.group(1)
         if name not in snippets:
             sys.exit(f"{path}:{i}: unknown snippet {name}")
-        if i >= len(lines) or lines[i] != FENCE_OPEN:
+        # Fences may carry trailing blanks; the code between them is compared exactly.
+        if i >= len(lines) or lines[i].rstrip() != FENCE_OPEN:
             sys.exit(f"{path}:{i + 1}: a {FENCE_OPEN} block must follow the snippet mark")
         end = i + 1
-        while end < len(lines) and lines[end] != FENCE_CLOSE:
+        while end < len(lines) and lines[end].rstrip() != FENCE_CLOSE:
             end += 1
         if end == len(lines):
             sys.exit(f"{path}:{i + 1}: the code block is not closed")
