@@ -316,6 +316,10 @@ In 7.14.0 the scanner reads content one operator at a time and has a time limit,
 hostile inputs within a 256 MiB .NET heap. The limits are still not a sandbox:
 scan untrusted PDFs in a separate process with memory and time limits.
 
+In 7.14.1 `MaxDuration` and the cancellation token also stop the reader while
+it opens the PDF. Opening keeps about 500 bytes per object in memory, which no
+limit bounds.
+
 Scanner coverage is partial PDF/UA-1. A completed scan means its implemented
 checks finished; it does not establish ADA, WCAG or full PDF/UA compliance.
 Human review and independent validation remain required. Unsupported content
