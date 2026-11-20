@@ -1,14 +1,5 @@
 # FreePDF changelog
 
-## Unreleased
-
-- Documentation: a guide to the drawing API (getting started, pages and coordinates, text, fonts, shapes,
-  images, documents with many pages, existing files, links and bookmarks, metadata and passwords), and an API
-  reference built from the XML comments, at https://io7.github.io/FreePDF/. Every example in the guide is a
-  test in `src/samples/FreePDF.Samples`, and CI checks that the guide shows the tested code.
-- The XML comment of `PdfDocumentOpenMode.Append` no longer says that encrypted documents and nested page
-  trees are not supported; both work since 7.5.0 and 7.7.0.
-
 ## 7.15.0
 
 - New `PdfTextExtractor` reads the text a page draws: `GetText` gives the page or document text in reading
@@ -19,6 +10,13 @@
 - New `PdfLineExtractor.GetLineSegments` gives the straight segments of painted paths.
 - Every package carries `THIRD-PARTY/Adobe-Glyph-Tables.txt`, the notices of the glyph lists and AFM data the
   text extraction tables come from.
+- Documentation: a guide to the drawing API (getting started, pages and coordinates, text, fonts, shapes,
+  images, documents with many pages, existing files, links and bookmarks, metadata and passwords), and an API
+  reference built from the XML comments, at https://io7.github.io/FreePDF/. Every example in the guide is a
+  test in `src/samples/FreePDF.Samples`, and CI checks that the guide shows the tested code. The package
+  readme links the site.
+- The XML comment of `PdfDocumentOpenMode.Append` no longer says that encrypted documents and nested page
+  trees are not supported; both work since 7.5.0 and 7.7.0.
 
 ## 7.14.1
 
