@@ -53,7 +53,7 @@ public class ExistingXmpUpdateTests
     static string XmpOf(byte[] pdf)
     {
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
-        return Encoding.UTF8.GetString(MetadataManager.ForDocument(document).GetMetadata()!.Stream.UnfilteredValue);
+        return Encoding.UTF8.GetString(MetadataManager.ForDocument(document).GetMetadata()!.Stream!.UnfilteredValue);
     }
 
     static (XmlDocument Xml, XmlNamespaceManager Names) Parse(string packet)

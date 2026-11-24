@@ -21,7 +21,7 @@ public class GeneratedXmpTests
     static XmlDocument ReadXmp(byte[] pdf)
     {
         using var reopened = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
-        var text = Encoding.UTF8.GetString(MetadataManager.ForDocument(reopened).GetMetadata()!.Stream.UnfilteredValue);
+        var text = Encoding.UTF8.GetString(MetadataManager.ForDocument(reopened).GetMetadata()!.Stream!.UnfilteredValue);
         var xml = new XmlDocument();
         xml.LoadXml(text.Substring(text.IndexOf("<x:xmpmeta", StringComparison.Ordinal),
             text.IndexOf("</x:xmpmeta>", StringComparison.Ordinal) + "</x:xmpmeta>".Length - text.IndexOf("<x:xmpmeta", StringComparison.Ordinal)));
