@@ -12,7 +12,13 @@ namespace PdfSharp.UniversalAccessibility
 {
     sealed partial class AccessibilityScan
     {
-        sealed record UnicodeFont(int Width, CMapCoverage? Map, string?[]? Simple, bool RequiresMap);
+        enum CodeMapping : byte { Unknown, Mapped, Missing }
+
+        // Simple: what a simple font's encoding says about each code when no ToUnicode entry decides it; Glyphs: the
+        // /Differences name of each code, for the report. MapUnreadable: the font has a map the checker could not
+        // read, which might hold any code, so no missing code can be confirmed.
+        sealed record UnicodeFont(int Width, CMapCoverage? Map, bool MapUnreadable, CodeMapping[]? Simple, string?[]? Glyphs,
+            bool RequiresMap);
         // Every font and map is assessed once. A coverage grows with its map's entries, which the decode budget
         // bounds, so neither cache needs a count limit. Fonts past such a limit would decode their map for each string.
         readonly Dictionary<PdfDictionary, UnicodeFont> _unicodeFonts = new();
@@ -24,8 +30,6 @@ namespace PdfSharp.UniversalAccessibility
         // A code as it appears in a hex string of the font: two digits for a simple font, four for a two-byte code.
         static string Hex(int code, int width) => code.ToString(width == 1 ? "X2" : "X4", CultureInfo.InvariantCulture);
 
-        static readonly string?[] WinAnsi = SimpleEncodings.Named("/WinAnsiEncoding")!;
-        static readonly string?[] MacRoman = SimpleEncodings.Named("/MacRomanEncoding")!;
         static readonly string?[] Standard = SimpleEncodings.Standard();
         static readonly string?[] Symbol = SimpleEncodings.Symbol();
         static readonly string?[] Dingbats = SimpleEncodings.ZapfDingbats();
@@ -35,11 +39,11 @@ namespace PdfSharp.UniversalAccessibility
             if (_unicodeFonts.TryGetValue(font, out var cached)) return cached;
             int width = 0;
             bool requiresMap = false;
-            string?[]? simple = null;
-            var encoding = Name(font, "/Encoding");
+            CodeMapping[]? simple = null;
+            string?[]? glyphs = null;
             switch (Name(font, "/Subtype"))
             {
-                case "/Type0" when encoding is "/Identity-H" or "/Identity-V":
+                case "/Type0" when Name(font, "/Encoding") is "/Identity-H" or "/Identity-V":
                     width = 2;
                     if (Resolve(font.Elements["/DescendantFonts"]) is PdfArray { Elements.Count: 1 } kids)
                     {
@@ -54,30 +58,11 @@ namespace PdfSharp.UniversalAccessibility
                 case "/TrueType":
                 case "/Type3":
                     width = 1;
-                    if (Dict(font, "/Encoding") is PdfDictionary enc && !enc.Elements.ContainsKey("/Differences"))
-                        encoding = Name(enc, "/BaseEncoding");
-                    simple = encoding switch
-                    {
-                        "/WinAnsiEncoding" => WinAnsi,
-                        "/MacRomanEncoding" => MacRoman,
-                        "/StandardEncoding" => Standard,
-                        _ => null
-                    };
-                    if (Name(font, "/Subtype") == "/Type1" && !font.Elements.ContainsKey("/Encoding")
-                        && !font.Elements.ContainsKey("/FontDescriptor"))
-                    {
-                        var baseName = Name(font, "/BaseFont");
-                        simple = baseName switch
-                        {
-                            "/Symbol" => Symbol,
-                            "/ZapfDingbats" => Dingbats,
-                            _ when baseName.Length > 1 && StandardFontWidths.Get(baseName.Substring(1)) != null => Standard,
-                            _ => null
-                        };
-                    }
+                    simple = SimpleMapping(font, out glyphs);
                     break;
             }
             CMapCoverage? map = null;
+            bool mapUnreadable = false;
             if (width > 0 && Resolve(font.Elements["/ToUnicode"]) is PdfItem mapItem && mapItem is not (PdfNull or PdfNullObject))
             {
                 var stream = mapItem as PdfDictionary;
@@ -91,16 +76,97 @@ namespace PdfSharp.UniversalAccessibility
                         _unicodeMaps.Add((stream, width), map);
                     }
                 }
-                if (map == null)
-                {
-                    // A map we cannot interpret takes precedence over the simple encoding.
-                    simple = null;
-                    requiresMap = false;
-                }
+                mapUnreadable = map == null;
             }
-            var result = new UnicodeFont(width, map, simple, requiresMap);
+            var result = new UnicodeFont(width, map, mapUnreadable, simple, glyphs, requiresMap);
             _unicodeFonts.Add(font, result);
             return result;
+        }
+
+        // What a simple font's encoding says about each code when no ToUnicode entry decides it (Matterhorn 31-027,
+        // ISO 32000-1 9.6.6). A named WinAnsi, MacRoman or MacExpert encoding maps every code; as the BaseEncoding of
+        // a dictionary it maps the codes that /Differences leaves alone. A /Differences name maps when the Adobe Glyph
+        // List or the Zapf Dingbats list has it, and is missing otherwise. Codes that depend on a font program stay
+        // unknown, and so does .notdef, which a glyph check has to judge.
+        CodeMapping[] SimpleMapping(PdfDictionary font, out string?[]? glyphs)
+        {
+            glyphs = null;
+            var mapping = new CodeMapping[256];
+            var encoding = Resolve(font.Elements["/Encoding"]);
+            if (encoding is PdfName or PdfNameObject)
+            {
+                if (NamedEncoding(Name(font, "/Encoding"))) Fill(mapping, CodeMapping.Mapped);
+                return mapping;
+            }
+            if (encoding is PdfDictionary dictionary)
+            {
+                if (NamedEncoding(Name(dictionary, "/BaseEncoding"))) Fill(mapping, CodeMapping.Mapped);
+                if (!dictionary.Elements.ContainsKey("/Differences")) return mapping;
+                glyphs = Differences(dictionary.Elements["/Differences"]);
+                if (glyphs == null)
+                {
+                    // Which codes the array changes is not known, so no code is.
+                    Fill(mapping, CodeMapping.Unknown);
+                    return mapping;
+                }
+                for (int code = 0; code < 256; code++)
+                {
+                    var glyph = glyphs[code];
+                    if (glyph == null) continue;
+                    if (glyph == "/.notdef") mapping[code] = CodeMapping.Unknown;
+                    else if (GlyphNames.IsListed(glyph.Substring(1))) mapping[code] = CodeMapping.Mapped;
+                    else mapping[code] = CodeMapping.Missing;
+                }
+                return mapping;
+            }
+            // An unembedded standard 14 font without an encoding uses its built-in one.
+            if (!font.Elements.ContainsKey("/Encoding") && Name(font, "/Subtype") == "/Type1"
+                && !font.Elements.ContainsKey("/FontDescriptor"))
+            {
+                var baseName = Name(font, "/BaseFont");
+                var builtIn = baseName switch
+                {
+                    "/Symbol" => Symbol,
+                    "/ZapfDingbats" => Dingbats,
+                    _ when baseName.Length > 1 && StandardFontWidths.Get(baseName.Substring(1)) != null => Standard,
+                    _ => null
+                };
+                for (int code = 0; builtIn != null && code < 256; code++)
+                    if (builtIn[code] != null) mapping[code] = CodeMapping.Mapped;
+            }
+            return mapping;
+        }
+
+        // ISO 32000-1 Table 111 names no other predefined simple encodings; /StandardEncoding is not one of them.
+        static bool NamedEncoding(string name) => name is "/WinAnsiEncoding" or "/MacRomanEncoding" or "/MacExpertEncoding";
+
+        static void Fill(CodeMapping[] mapping, CodeMapping value)
+        {
+            for (int code = 0; code < mapping.Length; code++) mapping[code] = value;
+        }
+
+        // The name /Differences gives each code from 0 to 255, or null when the array holds something other than
+        // non-negative integers and names, or a name before the first integer.
+        string?[]? Differences(PdfItem? item)
+        {
+            if (Resolve(item) is not PdfArray array) return null;
+            var names = new string?[256];
+            int code = -1;
+            foreach (var raw in array.Elements)
+            {
+                Tick();
+                var entry = Resolve(raw);
+                if (Integer(entry) is int start)
+                {
+                    if (start < 0) return null;
+                    code = start;
+                    continue;
+                }
+                var name = entry switch { PdfName n => n.Value, PdfNameObject n => n.Value, _ => null };
+                if (name == null || code < 0) return null;
+                if (code < 256) names[code++] = name;
+            }
+            return names;
         }
 
         // Limits, cancellation and memory exhaustion end the whole scan, also while a map is read.
@@ -149,13 +215,19 @@ namespace PdfSharp.UniversalAccessibility
                         }
                         continue;
                     }
-                    if (font.Simple?[code] != null) continue;
+                    var fallback = CodeMapping.Unknown;
+                    if (font.Simple != null) fallback = font.Simple[code];
+                    else if (font.RequiresMap) fallback = CodeMapping.Missing;
+                    if (fallback == CodeMapping.Mapped) continue;
                     passed = false;
-                    if (font.RequiresMap)
+                    if (fallback == CodeMapping.Missing && !font.MapUnreadable)
                     {
                         if (_missingUnicode.Add((page, text.Font!)))
+                        {
+                            var glyph = font.Glyphs?[code] is string name ? $" (glyph {name})" : "";
                             Record("UNICODE", PdfAccessibilityCheckStatus.Failed,
-                                $"Shown character code <{code:X4}> has no Unicode mapping in this font.", page, path);
+                                $"Shown character code <{Hex(code, font.Width)}>{glyph} has no Unicode mapping in this font.", page, path);
+                        }
                     }
                     else Unknown();
                 }
