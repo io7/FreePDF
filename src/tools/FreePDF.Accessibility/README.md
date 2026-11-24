@@ -23,7 +23,7 @@ structure order and limitations. JSON and SARIF are for automation.
 
 For a published version, install the package with
 `dotnet tool install --global io7.FreePDF.Accessibility.Tool`. To install from a
-local package directory, add `--source /path/to/candidate-packages --version 7.15.0`.
+local package directory, add `--source /path/to/candidate-packages --version 7.16.0`.
 With the .NET 10 SDK, you can also run it from a source checkout:
 
 ```sh

@@ -296,6 +296,11 @@ the font's ToUnicode CMap or its encoding; [text extraction](text-extraction.md)
 `PdfTextExtractionOptions` bounds each page, but there is no time limit: extract text from untrusted PDFs in a
 separate process with memory and time limits.
 
+The accessibility Unicode check (7.16.0) is covered by regression tests on hand-made fonts and CMaps, by
+hostile inputs within the scan limits, and by six fixtures that CI also runs through veraPDF 1.30.3. It
+reads ToUnicode maps, named encodings and `/Differences` glyph names; the
+[preflight guide](accessibility-preflight.md) lists the cases it leaves `NotChecked`.
+
 Filling or flattening form fields with text the form's fonts cannot encode in WinAnsi, incremental updates of
 documents encrypted with a public-key or other non-standard security handler, PDF/UA for documents drawn without the
 layout engine, arbitrary PDF/A conversion, form fields created in PDF/UA documents, text and choice fields created in PDF/A documents, and complex script shaping are not promised in 7.10. Placeholder inherited types are not

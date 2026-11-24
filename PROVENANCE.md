@@ -550,6 +550,14 @@ codecs with the Annex D differences noted in the script. The generated source an
 `src/packages/Adobe-Glyph-Tables.txt`, which every package carries as `THIRD-PARTY/Adobe-Glyph-Tables.txt`,
 hold the notices.
 
+## Unicode preflight rule (7.16.0)
+
+`UniversalAccessibility/PdfAccessibilityUnicode.cs`, `Pdf.Content.Text/CMapCoverage.cs`, `GlyphNames.IsListed`
+and their tests and fixtures are original FreePDF code. Their inputs were ISO 32000-1 sections 7.3.9, 9.6.6,
+9.7.5, 9.10.2 and Table 111, ISO 14289-1 section 7.21.7, the Matterhorn Protocol 1.1 inventory, and the glyph
+tables described under text extraction. veraPDF 1.30.3 supplied runtime verdicts on original synthetic files
+only; its source was not read. No other PDF library's implementation was read.
+
 ## Guide, samples and documentation site (2026-11-19)
 
 The guide (`docs/guide`), the site pages (`docs/index.md`, `docs/reference.md`), the examples

@@ -114,7 +114,10 @@ letter takes its glyph name from `/Differences`, and no ToUnicode map exists.
 With the name `B`, both validators accept the mapping. With the name `g123`,
 which no glyph list contains, the native rule and veraPDF rule 7.21.7-1 fail.
 
-One difference is known. veraPDF 1.30.3 fails rule 7.21.7-1 for an unembedded
-Symbol or ZapfDingbats font without an `/Encoding`. The native rule maps such
-codes through the font's built-in encoding. Both validators already fail the
-file because the font program is not embedded.
+Two differences are known, both measured on synthetic files without font
+programs. veraPDF 1.30.3 fails rule 7.21.7-1 for an unembedded Symbol or
+ZapfDingbats font without an `/Encoding`. The native rule maps such codes
+through the font's built-in encoding. Both validators already fail the file
+because the font program is not embedded. For a font with MacExpertEncoding,
+veraPDF passes rule 7.21.7-1 but reports rules 7.21.7-2 and 7.21.8-1. The
+native rule passes the codes, as Matterhorn 31-027 allows for that encoding.
