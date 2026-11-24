@@ -1,5 +1,11 @@
 # FreePDF changelog
 
+## Unreleased
+
+- The accessibility preflight checks Unicode mappings for character codes used on pages and in
+  invoked forms. Findings identify the page, font and first confirmed missing code. Encodings
+  outside native coverage produce an incomplete result.
+
 ## 7.15.0
 
 - New `PdfTextExtractor` reads the text a page draws: `GetText` gives the page or document text in reading

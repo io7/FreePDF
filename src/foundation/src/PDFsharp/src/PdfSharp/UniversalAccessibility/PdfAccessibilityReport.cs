@@ -45,7 +45,7 @@ namespace PdfSharp.UniversalAccessibility
         public int MaxDepth { get; set; } = 64;
         /// <summary>Maximum findings, including review tasks.</summary>
         public int MaxFindings { get; set; } = 10000;
-        /// <summary>Maximum decoded bytes inspected across metadata, page content and each invoked form.</summary>
+        /// <summary>Maximum decoded bytes inspected across metadata, page content, invoked forms and inspected Unicode maps.</summary>
         public int MaxDecodedBytes { get; set; } = 32 * 1024 * 1024;
         /// <summary>
         /// Maximum time for one scan, or null for no limit. When it is reached, the scan ends as incomplete and keeps
@@ -109,7 +109,7 @@ namespace PdfSharp.UniversalAccessibility
     public sealed class PdfAccessibilityReport
     {
         /// <summary>Version of this bounded preflight rule set.</summary>
-        public string RulesetVersion => "1.1.0";
+        public string RulesetVersion => "1.2.0";
         /// <summary>The intended standard; only the listed checks are implemented.</summary>
         public string Profile => "PDF/UA-1 preflight";
         /// <summary>Always partial: this API is not a complete PDF/UA validator or ADA certification.</summary>
@@ -135,7 +135,7 @@ namespace PdfSharp.UniversalAccessibility
         {
             "This preflight does not establish PDF/UA, WCAG, Section 508 or ADA compliance.",
             "Human review is required for reading order, text alternatives, headings, table meaning, contrast, language and assistive-technology usability.",
-            "The font check covers visible text in page content and invoked forms. Glyph and Unicode mapping, annotation appearances, form-field semantics and optional content require further validation.",
+            "The font check covers visible text in page content and invoked forms. The Unicode check examines used character codes in supported font encodings. Glyph selection, annotation appearances, form-field semantics and optional content require further validation.",
             "The scanner resolves named marked-content properties. Complex inline property dictionaries and external reference XObjects require independent inspection.",
             "PDF/UA-2 is not supported. Use an independent validator and assistive-technology testing before making a conformance claim.",
             "Limits bound this preflight's traversal; they are not a process sandbox. Isolate untrusted PDFs with external memory and time limits."

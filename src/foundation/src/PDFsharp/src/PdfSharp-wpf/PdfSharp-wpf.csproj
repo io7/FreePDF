@@ -274,6 +274,7 @@
     <Compile Include="..\PdfSharp\Pdf.Content\CParser.cs" Link="Pdf.Content\CParser.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\GlyphTables.g.cs" Link="Pdf.Content.Text\GlyphTables.g.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\CMapParser.cs" Link="Pdf.Content.Text\CMapParser.cs" />
+    <Compile Include="..\PdfSharp\Pdf.Content.Text\CMapCoverage.cs" Link="Pdf.Content.Text\CMapCoverage.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\CodeMap.cs" Link="Pdf.Content.Text\CodeMap.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\GlyphNames.cs" Link="Pdf.Content.Text\GlyphNames.cs" />
     <Compile Include="..\PdfSharp\Pdf.Content.Text\PdfLineSegment.cs" Link="Pdf.Content.Text\PdfLineSegment.cs" />
@@ -497,6 +498,7 @@
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityReport.cs" Link="UniversalAccessibility\PdfAccessibilityReport.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityScanner.cs" Link="UniversalAccessibility\PdfAccessibilityScanner.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityContent.cs" Link="UniversalAccessibility\PdfAccessibilityContent.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityUnicode.cs" Link="UniversalAccessibility\PdfAccessibilityUnicode.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\UAManager.cs" Link="UniversalAccessibility\UAManager.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\RenderMode.cs" Link="Windows\enums\RenderMode.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\Zoom.cs" Link="Windows\enums\Zoom.cs" />

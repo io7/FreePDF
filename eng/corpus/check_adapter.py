@@ -40,6 +40,9 @@ def main():
         # 1.30.3 accepts an outer form invoked twice when its inner form owns the MCID.
         ("reused-tagged-form", 1, "Failed", "MachineChecksPassed"),
         ("untagged-form-paint", 1, "Failed", "Failed"),
+        ("unicode-mapped", 2, "NeedsReview", "MachineChecksPassed"),
+        ("unicode-missing", 1, "Failed", "Failed"),
+        ("unicode-custom-encoding", 3, "Incomplete", "MachineChecksPassed"),
         ("malformed", 3, "Incomplete", "Incomplete"),
     ):
         text, sha = scan(name, expected, "--format", "json")
@@ -49,6 +52,14 @@ def main():
             raise RuntimeError(f"Incorrect independent verdict or validator version for {name}")
         if report["native"]["status"] != status or report["status"] != status or report["hasFailures"] != (expected == 1):
             raise RuntimeError(f"Incorrect combined status or failure flag for {name}")
+        if name.startswith("unicode-"):
+            expected_rule = {"unicode-mapped": "Passed", "unicode-missing": "Failed", "unicode-custom-encoding": "NotChecked"}[name]
+            rule = next(c for c in report["native"]["checks"] if c["id"] == "FPDF-A11Y-UNICODE")
+            if rule["status"] != expected_rule:
+                raise RuntimeError(f"{name}: Unicode rule returned {rule['status']}")
+            if name == "unicode-missing" and not any(
+                    f["clause"] == "7.21.7" and f["testNumber"] == "1" for f in independent["findings"]):
+                raise RuntimeError("veraPDF did not report the missing Unicode mapping")
         if {report["documentSha256"], report["native"]["documentSha256"], independent["documentSha256"]} != {sha}:
             raise RuntimeError("Native and independent results are not bound to the same bytes")
         if not report["humanReviewRequired"] or len(report["requirementsInventory"]["humanRequirementIds"]) != 48:

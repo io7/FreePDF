@@ -7,8 +7,8 @@ using PdfSharp.Pdf.IO;
 using PdfSharp.UniversalAccessibility;
 
 if (args.Length != 2) throw new ArgumentException("CorpusGenerator MANIFEST.jsonl OUTPUT_DIRECTORY | --fixtures OUTPUT_DIRECTORY");
-if (args[0] == "--fixtures") { AccessibilityFixtures.Write(args[1]); return; }
 GlobalFontSettings.FontResolver = new CorpusFontResolver();
+if (args[0] == "--fixtures") { AccessibilityFixtures.Write(args[1]); return; }
 Directory.CreateDirectory(args[1]);
 foreach (var line in File.ReadLines(args[0]))
 {
