@@ -1,5 +1,6 @@
 // Original synthetic glyph controls for Type 1 programs (Matterhorn 31-011 and 31-030). See LICENSE.
 using System.Text;
+using FreePDF.Lab.Fixtures;
 using PdfSharp.Pdf;
 using PdfSharp.UniversalAccessibility;
 using Xunit;

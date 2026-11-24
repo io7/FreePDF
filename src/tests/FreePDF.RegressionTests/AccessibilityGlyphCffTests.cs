@@ -1,5 +1,6 @@
 // Original synthetic glyph controls for CFF programs (Matterhorn 31-011 and 31-030). See LICENSE.
 using System.Text;
+using FreePDF.Lab.Fixtures;
 using PdfSharp.UniversalAccessibility;
 using Xunit;
 

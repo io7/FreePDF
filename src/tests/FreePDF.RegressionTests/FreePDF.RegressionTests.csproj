@@ -22,6 +22,8 @@
     <Compile Include="../../../lab/Shared/PalettePng.cs" Link="Fixtures/PalettePng.cs" />
     <Compile Include="../../../lab/Shared/PreservationFixtures.cs" Link="Fixtures/PreservationFixtures.cs" />
     <Compile Include="../../../lab/Shared/FixtureFontNames.cs" Link="Fixtures/FixtureFontNames.cs" />
+    <Compile Include="../../../lab/Shared/SyntheticCff.cs" Link="Fixtures/SyntheticCff.cs" />
+    <Compile Include="../../../lab/Shared/SyntheticType1.cs" Link="Fixtures/SyntheticType1.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />

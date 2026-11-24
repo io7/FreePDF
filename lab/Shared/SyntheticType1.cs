@@ -1,7 +1,7 @@
 // Original synthetic Type 1 programs for the glyph check. See LICENSE.
 using System.Text;
 
-namespace FreePDF.RegressionTests;
+namespace FreePDF.Lab.Fixtures;
 
 /// <summary>
 /// Writes the smallest Type 1 programs the glyph check reads (Adobe Type 1 Font Format): a clear-text part with the

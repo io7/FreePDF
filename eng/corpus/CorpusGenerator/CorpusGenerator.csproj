@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../../lab/Shared/AccessibilityFormFixture.cs" Link="AccessibilityFormFixture.cs" />
+    <Compile Include="../../../lab/Shared/SyntheticCff.cs" Link="SyntheticCff.cs" />
+    <Compile Include="../../../lab/Shared/SyntheticType1.cs" Link="SyntheticType1.cs" />
     <ProjectReference Include="../../../src/foundation/src/PDFsharp/src/PdfSharp/PdfSharp.csproj" />
     <EmbeddedResource Include="../../../lab/Assets/DejaVuSans.ttf" LogicalName="CorpusFont.ttf" />
     <EmbeddedResource Include="../../../lab/Assets/colors.png" LogicalName="CorpusImage.png" />

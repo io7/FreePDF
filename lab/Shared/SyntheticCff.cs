@@ -1,5 +1,5 @@
 // Original synthetic CFF programs for the glyph check. See LICENSE.
-namespace FreePDF.RegressionTests;
+namespace FreePDF.Lab.Fixtures;
 
 /// <summary>
 /// Writes the smallest CFF programs the glyph check reads (Adobe Technical Note #5176): the header, the Name, Top DICT,
