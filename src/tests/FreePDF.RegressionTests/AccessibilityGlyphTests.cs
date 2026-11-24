@@ -360,13 +360,14 @@ public partial class AccessibilityScannerTests
         => Assert.Equal(expected, Outcome(ScanSimple("<41> Tj", "/Type1", differences: differences,
             program: embedded ? Encoding.ASCII.GetBytes("%!PS-AdobeFont-1.0: Synthetic") : null), "GLYPH"));
 
-    // A code that only the base encoding names: where WinAnsi has the same character as StandardEncoding, the name is
-    // StandardEncoding's (ISO 32000-1 Annex D), so 41 is A and 43 is C. WinAnsi 80 (Euro) has no such name.
+    // A code that only the base encoding names takes its ISO 32000-1 Annex D name: WinAnsi 41 is A, 43 is C, 80 is Euro
+    // and C4 is Adieresis.
     [Theory]
     [InlineData("<41> Tj", PdfAccessibilityCheckStatus.Passed)]
     [InlineData("<43> Tj", PdfAccessibilityCheckStatus.Failed)]
-    [InlineData("<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
-    public void Type3_base_encoding_codes_use_their_standard_names(string show, PdfAccessibilityCheckStatus expected)
+    [InlineData("<80> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("<C4> Tj", PdfAccessibilityCheckStatus.Passed)]
+    public void Type3_base_encoding_codes_use_their_Annex_D_names(string show, PdfAccessibilityCheckStatus expected)
     {
         var report = Scan(Fixture(d =>
         {
@@ -375,6 +376,7 @@ public partial class AccessibilityScannerTests
             d.Internals.AddObject(procedure);
             var procedures = new PdfDictionary(d);
             procedures.Elements["/A"] = procedure.Reference!;
+            procedures.Elements["/Adieresis"] = procedure.Reference!;
             procedures.Elements["/b"] = procedure.Reference!;
             var encoding = new PdfDictionary(d);
             encoding.Elements.SetName("/BaseEncoding", "/WinAnsiEncoding");

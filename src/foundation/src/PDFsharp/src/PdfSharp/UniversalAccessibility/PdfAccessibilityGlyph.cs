@@ -182,19 +182,18 @@ namespace PdfSharp.UniversalAccessibility
         GlyphFont NamedGlyphs(PdfDictionary font, PdfDictionary? charProcs)
         {
             var names = DifferencesNames(font);
-            // A Type 3 code that /Differences leaves alone takes its name from a WinAnsi or MacRoman base encoding, where
-            // that name is certain. An array that cannot be read hides which codes it changes, so the base is not used.
-            string?[]? baseTable = null;
+            // A Type 3 code that /Differences leaves alone takes its ISO 32000-1 Annex D name from a WinAnsi or
+            // MacRoman base encoding. An array that cannot be read hides which codes it changes, so the base is not used.
+            string[]? baseNames = null;
             if (charProcs != null && Dict(font, "/Encoding") is PdfDictionary encoding
                 && Name(encoding, "/BaseEncoding") is "/WinAnsiEncoding" or "/MacRomanEncoding"
                 && (names != null || IsNull(Resolve(encoding.Elements["/Differences"]))))
-                baseTable = SimpleEncodings.Named(Name(encoding, "/BaseEncoding"));
+                baseNames = SimpleEncodings.Names(Name(encoding, "/BaseEncoding"));
             var uses = new GlyphUse[256];
             for (int code = 0; code < 256; code++)
             {
                 var name = names?[code];
-                if (name == null && baseTable?[code] is string unicode && BaseEncodingName(unicode, code) is string standard)
-                    name = "/" + standard;
+                if (name == null && baseNames?[code] is { Length: > 0 } baseName) name = "/" + baseName;
                 if (name == null) continue;
                 if (name == "/.notdef") uses[code] = GlyphUse.Notdef;
                 else if (charProcs != null && Resolve(charProcs.Elements[name]) is PdfDictionary { Stream: not null }) uses[code] = GlyphUse.Present;

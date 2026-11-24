@@ -23,6 +23,25 @@ namespace PdfSharp.Pdf.Content.Text
             }
         }
 
+        /// <summary>
+        /// The glyph names of a named base encoding by code ("" where it names no glyph), or null if the name is not one
+        /// this reader knows. The table is shared and must not be changed.
+        /// </summary>
+        internal static string[]? Names(string name)
+        {
+            switch (name)
+            {
+                case "/StandardEncoding":
+                    return GlyphTables.StandardEncoding;
+                case "/WinAnsiEncoding":
+                    return GlyphTables.WinAnsiNames;
+                case "/MacRomanEncoding":
+                    return GlyphTables.MacRomanNames;
+                default:
+                    return null;
+            }
+        }
+
         internal static string?[] Standard() => FromNames(GlyphTables.StandardEncoding, false);
 
         internal static string?[] Symbol() => FromNames(GlyphTables.SymbolEncoding, false);
