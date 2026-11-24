@@ -53,6 +53,7 @@ static class AccessibilityFixtures
             using var bytes = new MemoryStream(); pdf.Save(bytes); WriteNew(mutation + ".pdf", bytes.ToArray());
         }
         WriteUnicodeFixtures(directory);
+        WriteGlyphFixtures(directory);
         File.WriteAllText(Path.Combine(directory, "README.txt"), "Synthetic machine-check fixtures, not certified accessible documents. The valid fixture deliberately includes HTML-like alternative text to test report escaping; its meaning requires human review.\n");
         void WriteNew(string name, byte[] data)
         {
@@ -156,6 +157,33 @@ static class AccessibilityFixtures
             encoding.Elements["/Differences"] = new PdfArray(document, new PdfInteger(66), new PdfName(glyph));
             font.Elements["/Encoding"] = encoding;
             font.Elements.Remove("/ToUnicode");
+            using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
+            document.Save(file);
+        }
+    }
+
+    // The Identity-H paragraph, plus one artifact that shows a code which selects .notdef or a glyph the program lacks.
+    // The descendant uses CIDToGIDMap Identity, so a code is a glyph index.
+    static void WriteGlyphFixtures(string directory)
+    {
+        using var original = Original(PdfFontEncoding.Unicode);
+        foreach (var (name, code) in new[] { ("glyph-notdef", "0000"), ("glyph-missing", "FFF0"), ("glyph-map-notdef", "0024") })
+        {
+            original.Position = 0;
+            using var document = PdfReader.Open(original, PdfDocumentOpenMode.Modify);
+            var fonts = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
+            var key = fonts.Elements.Keys.Single();
+            if (name == "glyph-map-notdef")
+            {
+                // A CIDToGIDMap stream that maps every CID up to 0x2F, the one shown included, to glyph 0.
+                var child = fonts.Elements.GetDictionary(key)!.Elements.GetArray("/DescendantFonts")!.Elements.GetDictionary(0)!;
+                var map = new PdfDictionary(document);
+                map.CreateStream(new byte[0x30 * 2]);
+                document.Internals.AddObject(map);
+                child.Elements["/CIDToGIDMap"] = map.Reference!;
+            }
+            document.Pages[0].Contents.AppendContent().CreateStream(
+                Encoding.ASCII.GetBytes($"/Artifact BMC BT {key} 14 Tf 40 100 Td <{code}> Tj ET EMC"));
             using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
             document.Save(file);
         }
