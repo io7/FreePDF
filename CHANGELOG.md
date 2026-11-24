@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.17.0
 
 - New accessibility rule `FPDF-A11Y-GLYPH`: a shown code must not select the .notdef glyph (Matterhorn
   31-030, any rendering mode), and visible text must select glyphs that the embedded program contains

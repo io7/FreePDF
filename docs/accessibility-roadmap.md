@@ -14,8 +14,9 @@ It does not establish ADA compliance.
 | [7.13.0](releases/7.13.0.md) | Inspect local Form XObjects, including nested forms, and resolve named marked-content properties. | Released 2026-11-18. |
 | [7.14.0](releases/7.14.0.md) | Bound the scan's memory and time on hostile files and add the `MaxDuration` limit. | Released 2026-11-18. |
 | [7.14.1](releases/7.14.1.md) | Stop the reading of the PDF at `MaxDuration` and on cancellation. | Released 2026-11-19. |
-| [7.16.0](releases/7.16.0.md) | Check that shown character codes map to Unicode (`FPDF-A11Y-UNICODE`). | Prepared for stable publication. |
-| Following releases | Extend native inspection to glyphs, form fields and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
+| [7.16.0](releases/7.16.0.md) | Check that shown character codes map to Unicode (`FPDF-A11Y-UNICODE`). | Released 2026-11-24. |
+| [7.17.0](releases/7.17.0.md) | Check that shown codes select glyphs of the embedded program, and not .notdef (`FPDF-A11Y-GLYPH`). | Prepared for stable publication. |
+| Following releases | Extend native inspection to OpenType programs, form fields and annotations. Add source-document validation and a human-review record tied to the PDF hash. Treat PDF/UA-2 as a separate profile. | Planned in the sequence below. |
 
 The 7.12.0 acceptance gate is a traceable requirement list plus positive and
 negative adapter controls. A missing validator, timeout, malformed report or
