@@ -560,7 +560,7 @@ and their tests and fixtures are original FreePDF code. Their inputs were ISO 32
 tables described under text extraction. veraPDF 1.30.3 supplied runtime verdicts on original synthetic files
 only; its source was not read. No other PDF library's implementation was read.
 
-## Glyph preflight rule (unreleased)
+## Glyph preflight rule (7.17.0)
 
 `UniversalAccessibility/PdfAccessibilityGlyph.cs`, `UniversalAccessibility/EmbeddedTrueType.cs`, the test
 program builder `SyntheticTrueType.cs` and the glyph tests and fixtures are original FreePDF code. Their inputs
