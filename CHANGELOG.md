@@ -1,5 +1,12 @@
 # FreePDF changelog
 
+## Unreleased
+
+- New accessibility rule `FPDF-A11Y-GLYPH`: a shown code must not select the .notdef glyph (Matterhorn
+  31-030, any rendering mode), and visible text must select glyphs that the embedded program contains
+  (31-011). It reads embedded TrueType programs (glyph count, cmap, post names) and Type 3 procedures;
+  CFF and Type 1 programs give `NotChecked` for now. Rule set and requirements inventory 1.3.0.
+
 ## 7.16.0
 
 - The accessibility preflight checks Unicode mappings for character codes used on pages and in

@@ -8,7 +8,7 @@ freepdf-a11y --requirements
 freepdf-a11y --requirements --format json --output requirements.json
 ```
 
-The inventory is version 1.2.0. It contains 31 checkpoints, 87 machine conditions,
+The inventory is version 1.3.0. It contains 31 checkpoints, 87 machine conditions,
 48 human conditions and two entries that refer to other requirements. The source
 introduction still says 136 conditions and 47 human conditions. Its version 1.1
 tables add human condition 13-008. The inventory includes that entry.

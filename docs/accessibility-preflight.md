@@ -48,6 +48,7 @@ found stay `Failed`, and `HasFailures` reports them.
 | CONTENT | Painting inside tags or artifacts and balanced marked-content scopes in pages and invoked forms |
 | FONT | Embedded font programs for visible text in pages and invoked forms, except in text rendering mode 3 (invisible) |
 | UNICODE | Unicode mapping for character codes shown on pages and in invoked forms, including invisible text |
+| GLYPH | Character codes shown on pages and in invoked forms select a glyph of the embedded font program, and not .notdef |
 | TABS | Structure tab order on annotated pages |
 | ANNOT | Structure object references for links/widgets |
 | REVIEW | Required human accessibility review |
@@ -88,6 +89,28 @@ failure only when it can also rule out an alternative mapping. A mapped code
 still needs a correct glyph and meaningful text. The check does not evaluate
 either.
 
+The glyph rule checks the same codes. A code fails when it selects the
+`.notdef` glyph, in any rendering mode (ISO 14289-1 7.21.8): a `/Differences`
+name `.notdef`, or glyph 0 of a TrueType CIDFont after its `CIDToGIDMap`.
+Visible text also fails when it selects a glyph that the embedded program does
+not contain (7.21.4.1): a glyph index past the program, a CID past a
+`CIDToGIDMap` stream, a Type 3 name without a procedure in `/CharProcs`, or a
+simple TrueType code that no lookup finds. For a simple TrueType font, the rule
+looks up the Unicode value of the glyph name in the (3,1) cmap, its MacRoman
+code in the (1,0) cmap and the name itself in the `post` table (ISO 32000-1
+9.6.6.4). A symbolic font uses the (3,0) cmap, with the code alone and with
+F000, F100 or F200 added, or else the (1,0) cmap. Each page reports its first
+`.notdef` and its first missing glyph, with the code and the font path.
+
+The rule reads embedded TrueType programs (`FontFile2`) and Type 3 procedures.
+CFF and Type 1 programs (`FontFile3`, `FontFile`), font collections, damaged
+programs, and programs that inflate past 32 MiB, or past 256 MiB for all
+programs of a scan, give `NotChecked`. Font programs do not count toward
+`MaxDecodedBytes`. Visible text in a font without a program fails the font
+check, and the glyph rule judges only its `.notdef` names. Invisible text in
+such a font is `NotChecked`. A glyph name that the cmap does not find, and that
+the `post` table could hold under a standard Macintosh name, is `NotChecked`.
+
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
 own tagged content. The scanner matches each form's IDs to its structure
@@ -117,7 +140,7 @@ to its end, failures found before the error remain in the report, and the scan
 is `Incomplete`.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
-do not validate all Unicode mappings, embedded glyph correctness, all heading/table
+do not validate all Unicode mappings, glyphs in CFF or Type 1 programs, glyph shapes, all heading/table
 semantics, widget accessible names, annotation appearance streams, optional content,
 all parent-tree rules, security permissions or PDF/UA-2. Language presence does not
 prove its correctness; alternative-text presence does not prove its usefulness.

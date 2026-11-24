@@ -10,7 +10,22 @@ namespace FreePDF.RegressionTests;
 /// </summary>
 static class SyntheticTrueType
 {
-    internal sealed record Cmap(int Platform, int Encoding, int Format, IReadOnlyDictionary<int, int> Map);
+    // A class, not a positional record: .NET Framework 4.7.2 has no IsExternalInit for init-only properties.
+    internal sealed class Cmap
+    {
+        internal Cmap(int platform, int encoding, int format, IReadOnlyDictionary<int, int> map)
+        {
+            Platform = platform;
+            Encoding = encoding;
+            Format = format;
+            Map = map;
+        }
+
+        internal int Platform { get; }
+        internal int Encoding { get; }
+        internal int Format { get; }
+        internal IReadOnlyDictionary<int, int> Map { get; }
+    }
 
     /// <param name="postNames">Format 2 names by glyph index; a name of the standard Macintosh set must be given as
     /// its standard index ("#3"), any other text becomes a custom name. Null writes a format 3 table, and

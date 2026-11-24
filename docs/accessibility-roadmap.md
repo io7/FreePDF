@@ -80,6 +80,9 @@ passed or complete human review.
 
 Native rule `FPDF-A11Y-UNICODE` now checks used character codes against ToUnicode
 maps, named encodings and `/Differences` glyph names, and fails forbidden mapped
-values. The next font work is validation that the referenced glyph exists
-(Matterhorn 31-030), then encodings that need the font program or the CJK
-character collections. Form-field and annotation rules follow.
+values. Native rule `FPDF-A11Y-GLYPH` checks that shown codes do not select
+.notdef (Matterhorn 31-030) and that visible text selects glyphs the embedded
+program contains (31-011), for TrueType programs and Type 3 fonts. The next
+font work reads CFF and Type 1 programs for the glyph rule, then encodings that
+need the font program or the CJK character collections. Form-field and
+annotation rules follow.

@@ -558,6 +558,17 @@ and their tests and fixtures are original FreePDF code. Their inputs were ISO 32
 tables described under text extraction. veraPDF 1.30.3 supplied runtime verdicts on original synthetic files
 only; its source was not read. No other PDF library's implementation was read.
 
+## Glyph preflight rule (unreleased)
+
+`UniversalAccessibility/PdfAccessibilityGlyph.cs`, `UniversalAccessibility/EmbeddedTrueType.cs`, the test
+program builder `SyntheticTrueType.cs` and the glyph tests and fixtures are original FreePDF code. Their inputs
+were ISO 32000-1 sections 7.3.9, 9.6.6.4, 9.7.4.2 and Table 111, ISO 14289-1 sections 7.21.4.1 and 7.21.8, the
+Matterhorn Protocol 1.1 inventory, the OpenType specification's descriptions of the table directory and the
+'maxp', 'cmap' (formats 0, 4, 6 and 12) and 'post' (formats 2 and 3) tables, and the glyph tables described under
+text extraction. The fixtures embed DejaVu Sans from `lab/Assets`. veraPDF 1.30.3 supplied runtime verdicts on
+original synthetic files only; its source was not read. FreePDF's inherited OpenType reader was not used, and no
+other font or PDF library's implementation was read.
+
 ## Guide, samples and documentation site (2026-11-19)
 
 The guide (`docs/guide`), the site pages (`docs/index.md`, `docs/reference.md`), the examples
