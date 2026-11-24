@@ -110,7 +110,7 @@ namespace PdfSharp.UniversalAccessibility
             COperator? dictionary = null;
             bool allIdsKnown = true;
             // Operators are parsed one at a time, so a long stream is not held as millions of objects.
-            foreach (var op in new CParser(bytes).ReadOperators())
+            foreach (var op in new CParser(new CLexer(bytes) { Extracting = true }).ReadOperators())
             {
                 Tick();
                 if (op.OpCode.OpCodeName == OpCodeName.Dictionary) { dictionary = op; continue; }
@@ -195,8 +195,10 @@ namespace PdfSharp.UniversalAccessibility
                 return new TextState(Resolve(stateFont.Elements[0]) as PdfDictionary,
                     Location(Location(stream.ResourcePath, "/ExtGState", stateName.Name), "/Font"), true, text.Mode,
                     new ReportKey(page, stream.Resources, "/ExtGState" + stateName.Name));
-            else if (ShowText.Contains(op.Name) && text.Mode != 3)
+            else if (ShowText.Contains(op.Name))
             {
+                InspectUnicode(op, text, page, stream);
+                if (text.Mode == 3) return text;
                 if (text.Font != null) InspectFont(text.Font, page, text.Path);
                 else if (text.Selected && _missingFonts.Add(text.Key))
                     Test("FONT", false, "Font used for text is missing from the active resources.", page, text.Path);

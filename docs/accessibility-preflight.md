@@ -47,9 +47,26 @@ found stay `Failed`, and `HasFailures` reports them.
 | MCID | IDs within each page or form, structure references, ParentTree entries and repeated use of a form with its own IDs |
 | CONTENT | Painting inside tags or artifacts and balanced marked-content scopes in pages and invoked forms |
 | FONT | Embedded font programs for visible text in pages and invoked forms, except in text rendering mode 3 (invisible) |
+| UNICODE | Unicode mapping for character codes shown on pages and in invoked forms, including invisible text |
 | TABS | Structure tab order on annotated pages |
 | ANNOT | Structure object references for links/widgets |
 | REVIEW | Required human accessibility review |
+
+The Unicode rule checks the codes used by `Tj`, `TJ`, `'` and `"` with the
+active font. Selecting an unused font or showing an empty string needs no
+mapping. The rule reads one-byte simple fonts and two-byte Identity-H/V codes.
+It recognizes explicit WinAnsi, MacRoman and StandardEncoding, the built-in
+encodings of unembedded standard Type 1 fonts, and declarative ToUnicode maps
+with one code-space range and UTF-16BE `bfchar` or `bfrange` destinations.
+For an Adobe-Identity descendant using Identity-H/V, a used code with no map
+entry produces a failure with the first missing code, page and font path.
+
+An embedded encoding CMap, an inherited ToUnicode map, a map over 256 KiB,
+or another mapping the checker cannot establish produces `NotChecked` for
+affected text. The report locates the first unassessed occurrence on each page.
+The checker reports a missing code as a failure only when it
+can also rule out an alternative mapping. A mapped code still needs a correct
+glyph and meaningful text. The check does not evaluate either.
 
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
@@ -80,7 +97,7 @@ to its end, failures found before the error remain in the report, and the scan
 is `Incomplete`.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
-do not validate Unicode mappings, embedded glyph correctness, all heading/table
+do not validate all Unicode mappings, embedded glyph correctness, all heading/table
 semantics, widget accessible names, annotation appearance streams, optional content,
 all parent-tree rules, security permissions or PDF/UA-2. Language presence does not
 prove its correctness; alternative-text presence does not prove its usefulness.
@@ -188,7 +205,7 @@ CI runs the installed CLI on nine synthetic files with veraPDF 1.30.3. The
 adapter tests record each validator's result, including the
 [repeated-form difference](https://github.com/io7/FreePDF/blob/main/docs/accessibility-verapdf.md#validation).
 
-Future releases can extend the versioned rules with Unicode/glyph validation,
+Future releases can extend the versioned rules with additional encodings and glyph validation,
 complete annotation/form/table rules,
 then generation preflight and reviewed remediation. Automatic repair, AI-written
 alternative text, PDF/UA-2 and organizational review sign-off are not part of this

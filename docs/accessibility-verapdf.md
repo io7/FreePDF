@@ -100,3 +100,10 @@ https://docs.verapdf.org/cli/help/
 
 The complete Matterhorn inventory and its limits are described in
 `docs/accessibility/README.md`.
+
+The Unicode controls use a tagged paragraph containing two letters. Both
+validators accept its mappings. Removing the second letter’s ToUnicode entry
+fails native rule `FPDF-A11Y-UNICODE` and veraPDF 1.30.3 rule 7.21.7-1.
+Replacing Identity-H with an equivalent embedded encoding CMap gives native
+`NotChecked` and an independent machine pass. The combined scan remains
+`Incomplete` with exit code 3.

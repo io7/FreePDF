@@ -12,7 +12,7 @@ namespace PdfSharp.Pdf.Content.Text
     /// The parser has no recursion and keeps at most one flat array, so a hostile CMap costs time and memory in
     /// proportion to its length.
     /// </summary>
-    static class CMapParser
+    static partial class CMapParser
     {
         sealed class Keyword
         {
@@ -210,6 +210,8 @@ namespace PdfSharp.Pdf.Content.Text
                             _position++;
                             if (Peek(0) == '>')
                                 _position++;
+                            else
+                                MalformedToken = true;
                             return new Keyword(">>");
                         case (byte)'(':
                             return LiteralString();
@@ -226,6 +228,7 @@ namespace PdfSharp.Pdf.Content.Text
                             var word = Regular();
                             if (word.Length == 0)
                             {
+                                MalformedToken = true;
                                 _position++;
                                 continue;
                             }
@@ -257,16 +260,24 @@ namespace PdfSharp.Pdf.Content.Text
                 return Encoding.ASCII.GetString(_data, start, _position - start);
             }
 
+            internal bool MalformedToken { get; private set; }
+            internal bool LastStringWasHex { get; private set; }
+
             byte[] HexString()
             {
                 _position++;
                 var bytes = new List<byte>();
+                LastStringWasHex = true;
                 int high = -1;
                 while (_position < _data.Length && _data[_position] != '>')
                 {
-                    int digit = HexDigit(_data[_position++]);
+                    byte b = _data[_position++];
+                    int digit = HexDigit(b);
                     if (digit < 0)
+                    {
+                        if (!IsWhitespace(b)) MalformedToken = true;
                         continue;
+                    }
                     if (high < 0)
                     {
                         high = digit;
@@ -278,6 +289,7 @@ namespace PdfSharp.Pdf.Content.Text
                     }
                 }
                 _position++;
+                if (_position > _data.Length) MalformedToken = true;
                 if (high >= 0)
                     bytes.Add((byte)(high * 16));
                 return bytes.ToArray();
@@ -298,6 +310,7 @@ namespace PdfSharp.Pdf.Content.Text
             {
                 _position++;
                 var bytes = new List<byte>();
+                LastStringWasHex = false;
                 int depth = 1;
                 while (_position < _data.Length)
                 {
@@ -324,6 +337,7 @@ namespace PdfSharp.Pdf.Content.Text
                         break;
                     bytes.Add(b);
                 }
+                if (depth != 0) MalformedToken = true;
                 return bytes.ToArray();
             }
 

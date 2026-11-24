@@ -52,11 +52,67 @@ static class AccessibilityFixtures
             }
             using var bytes = new MemoryStream(); pdf.Save(bytes); WriteNew(mutation + ".pdf", bytes.ToArray());
         }
+        WriteUnicodeFixtures(directory);
         File.WriteAllText(Path.Combine(directory, "README.txt"), "Synthetic machine-check fixtures, not certified accessible documents. The valid fixture deliberately includes HTML-like alternative text to test report escaping; its meaning requires human review.\n");
         void WriteNew(string name, byte[] data)
         {
             using var output = new FileStream(Path.Combine(directory, name), FileMode.CreateNew);
             output.Write(data);
+        }
+    }
+
+    static void WriteUnicodeFixtures(string directory)
+    {
+        using var original = new MemoryStream();
+        using (var pdf = new PdfDocument())
+        {
+            pdf.Info.Title = "Synthetic mapped text";
+            var tags = UAManager.ForDocument(pdf).StructureBuilder;
+            using (var gfx = XGraphics.FromPdfPage(pdf.AddPage()))
+            {
+                tags.BeginElement(PdfBlockLevelElementTag.Paragraph);
+                gfx.DrawString("AB", new XFont("Corpus Sans", 14, XFontStyleEx.Regular,
+                    new XPdfFontOptions(PdfFontEncoding.Unicode)), XBrushes.Black, 40, 60);
+                tags.End();
+            }
+            pdf.Save(original, closeStream: false);
+        }
+        foreach (var name in new[] { "unicode-mapped", "unicode-missing", "unicode-custom-encoding" })
+        {
+            original.Position = 0;
+            using var document = PdfReader.Open(original, PdfDocumentOpenMode.Modify);
+            var fonts = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
+            var font = fonts.Elements.GetDictionary(fonts.Elements.Keys.Single())!;
+            if (name == "unicode-missing")
+            {
+                // Keep A mapped, remove only B's mapping. Both glyphs still draw.
+                var cmap = font.Elements.GetDictionary("/ToUnicode")!;
+                var lines = Encoding.ASCII.GetString(cmap.Stream!.UnfilteredValue).Split('\n')
+                    .Where(line => !line.TrimEnd().EndsWith("<0042>", StringComparison.Ordinal))
+                    .Select(line => line.TrimEnd() == "2 beginbfrange" ? "1 beginbfrange" : line);
+                cmap.Elements.Remove("/Filter");
+                cmap.Stream.Value = Encoding.ASCII.GetBytes(string.Join("\n", lines));
+            }
+            if (name == "unicode-custom-encoding")
+            {
+                // Equivalent to Identity-H for the two used glyphs, expressed as an embedded encoding CMap.
+                var child = font.Elements.GetArray("/DescendantFonts")!.Elements.GetDictionary(0)!;
+                var encoding = new PdfDictionary(document);
+                encoding.Elements.SetName("/Type", "/CMap");
+                encoding.Elements.SetName("/CMapName", "/SyntheticIdentity");
+                encoding.Elements["/CIDSystemInfo"] = child.Elements.GetDictionary("/CIDSystemInfo")!.Clone();
+                encoding.CreateStream(Encoding.ASCII.GetBytes(
+                    "/CIDInit /ProcSet findresource begin 12 dict begin begincmap " +
+                    "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def " +
+                    "/CMapName /SyntheticIdentity def /CMapType 1 def " +
+                    "1 begincodespacerange <0000> <FFFF> endcodespacerange " +
+                    "1 begincidrange <0000> <FFFF> 0 endcidrange " +
+                    "endcmap CMapName currentdict /CMap defineresource pop end end"));
+                document.Internals.AddObject(encoding);
+                font.Elements["/Encoding"] = encoding.Reference!;
+            }
+            using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
+            document.Save(file);
         }
     }
 }
