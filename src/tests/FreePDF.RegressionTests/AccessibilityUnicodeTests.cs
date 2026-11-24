@@ -419,7 +419,8 @@ public partial class AccessibilityScannerTests
     // A simple font without a font program. Differences are written as in PDF: "65 /A /B 70 /C".
     static PdfAccessibilityReport ScanSimple(string show, string subtype = "/TrueType", string? encoding = null,
         string? differences = null, string? baseEncoding = null, string? toUnicode = null, bool descriptor = true,
-        string baseFont = "/SyntheticSimple", Action<PdfDictionary>? editFont = null, Action<PdfDictionary>? editMap = null)
+        string baseFont = "/SyntheticSimple", Action<PdfDictionary>? editFont = null, Action<PdfDictionary>? editMap = null,
+        byte[]? program = null, int flags = 32)
     {
         return Scan(Fixture(d =>
         {
@@ -432,7 +433,14 @@ public partial class AccessibilityScannerTests
                 var fd = new PdfDictionary(d);
                 fd.Elements.SetName("/Type", "/FontDescriptor");
                 fd.Elements.SetName("/FontName", baseFont);
-                fd.Elements.SetInteger("/Flags", 32);
+                fd.Elements.SetInteger("/Flags", flags);
+                if (program != null)
+                {
+                    var file = new PdfDictionary(d);
+                    file.CreateStream(program);
+                    d.Internals.AddObject(file);
+                    fd.Elements[subtype == "/TrueType" ? "/FontFile2" : "/FontFile"] = file.Reference!;
+                }
                 d.Internals.AddObject(fd);
                 font.Elements["/FontDescriptor"] = fd.Reference!;
             }

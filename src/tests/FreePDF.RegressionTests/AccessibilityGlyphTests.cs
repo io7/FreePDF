@@ -137,4 +137,124 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "GLYPH"));
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
     }
+
+    static Cmap Map(int platform, int encoding, int format, params int[] codeGlyphPairs)
+    {
+        var map = new Dictionary<int, int>();
+        for (int i = 0; i < codeGlyphPairs.Length; i += 2) map[codeGlyphPairs[i]] = codeGlyphPairs[i + 1];
+        return new Cmap(platform, encoding, format, map);
+    }
+
+    static readonly byte[] UnicodeA = Build(4, new[] { Map(3, 1, 4, 0x41, 1) });
+
+    // ISO 32000-1 9.6.6.4 for simple TrueType fonts. Nonsymbolic: the glyph name's Unicode value in (3,1), its
+    // MacRoman code in (1,0), or a name of its own in 'post'. Symbolic: the code in (3,0), also from F000, or in (1,0).
+    [Theory]
+    [InlineData("winansi-present", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("winansi-absent", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("glyph-past-program", "<41> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("standard-names-in-post", "<42> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("unnamed-glyphs-in-post", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("custom-name", "<42> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("custom-name-absent", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("mac-roman-code", "<E9> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("format-4-glyph-array", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("format-4-glyph-array", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("format-4-glyph-array", "<43> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("format-12", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("format-6", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("unreadable-format", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("mac-expert-base", "<42> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("ligature-name", "<42> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("standard-encoding", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("notdef-name", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("symbolic-3-0", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("symbolic-3-0", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("symbolic-1-0", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("symbolic-1-0", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("symbolic-without-subtable", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    public void Simple_TrueType_codes_follow_the_font_cmap(string kind, string show, PdfAccessibilityCheckStatus expected)
+    {
+        var report = kind switch
+        {
+            "winansi-present" or "winansi-absent" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: UnicodeA),
+            "glyph-past-program" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: Build(4, new[] { Map(3, 1, 4, 0x41, 9) })),
+            "standard-names-in-post" => ScanSimple(show, encoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x41, 1) }, new[] { null, "#36", null, null })),
+            "unnamed-glyphs-in-post" => ScanSimple(show, encoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x41, 1) }, new[] { null, "first", null, null })),
+            "custom-name" => ScanSimple(show, differences: "66 /g123", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x41, 1) }, new[] { null, null, "g123", null })),
+            "custom-name-absent" => ScanSimple(show, differences: "66 /g124", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x41, 1) }, new[] { null, "#36", "g123", null })),
+            // WinAnsi E9 is eacute, MacRoman 8E.
+            "mac-roman-code" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: Build(4, new[] { Map(1, 0, 0, 0x8E, 3) })),
+            "format-4-glyph-array" => ScanSimple(show, encoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 41, 0x41, 1, 0x42, 0, 0x43, 2) })),
+            "format-12" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: Build(4, new[] { Map(3, 1, 12, 0x41, 1) })),
+            "format-6" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: Build(4, new[] { Map(1, 0, 6, 0x41, 2) })),
+            "unreadable-format" => ScanSimple(show, encoding: "/WinAnsiEncoding", program: Build(4, new[] { Map(3, 1, 99) })),
+            "mac-expert-base" => ScanSimple(show, differences: "65 /A", baseEncoding: "/MacExpertEncoding", program: UnicodeA),
+            "ligature-name" => ScanSimple(show, differences: "66 /f_i", baseEncoding: "/WinAnsiEncoding", program: UnicodeA),
+            // No /Encoding and the Nonsymbolic flag: StandardEncoding gives the name.
+            "standard-encoding" => ScanSimple(show, program: UnicodeA),
+            "notdef-name" => ScanSimple(show, differences: "66 /.notdef", baseEncoding: "/WinAnsiEncoding", program: UnicodeA),
+            "symbolic-3-0" => ScanSimple(show, flags: 4, program: Build(4, new[] { Map(3, 0, 4, 0xF041, 1) })),
+            "symbolic-1-0" => ScanSimple(show, flags: 4, program: Build(4, new[] { Map(1, 0, 0, 0x41, 1) })),
+            _ => ScanSimple(show, flags: 4, program: UnicodeA),
+        };
+        Assert.Equal(expected, Outcome(report, "GLYPH"));
+    }
+
+    [Fact]
+    public void A_missing_simple_glyph_is_reported_with_its_name()
+    {
+        var finding = GlyphFinding(ScanSimple("<42> Tj", differences: "66 /g124", baseEncoding: "/WinAnsiEncoding", program: UnicodeA));
+        Assert.Equal(PdfAccessibilityCheckStatus.Failed, finding.Status);
+        Assert.Contains("<42> (glyph /g124)", finding.Message);
+        Assert.Contains("does not contain", finding.Message);
+    }
+
+    // A Type 1 /Differences name of .notdef selects .notdef whether or not the program is embedded. Other Type 1 codes
+    // need the program, which this check does not read yet; without one, visible text is left to the font check.
+    [Theory]
+    [InlineData("65 /.notdef", false, PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("65 /A", false, PdfAccessibilityCheckStatus.NotApplicable)]
+    [InlineData("65 /A", true, PdfAccessibilityCheckStatus.NotChecked)]
+    public void Type1_fonts_are_judged_by_notdef_names(string differences, bool embedded, PdfAccessibilityCheckStatus expected)
+        => Assert.Equal(expected, Outcome(ScanSimple("<41> Tj", "/Type1", differences: differences,
+            program: embedded ? Encoding.ASCII.GetBytes("%!PS-AdobeFont-1.0: Synthetic") : null), "GLYPH"));
+
+    // A Type 3 glyph exists when /CharProcs has a procedure for its name. veraPDF 1.30.3: a missing procedure is
+    // rule 7.21.4.1-2, a name of .notdef rule 7.21.8-1.
+    [Theory]
+    [InlineData("<41> Tj", PdfAccessibilityCheckStatus.Passed, null)]
+    [InlineData("<42> Tj", PdfAccessibilityCheckStatus.Failed, "<42> (glyph /b) selects a glyph that the embedded font program does not contain")]
+    [InlineData("<43> Tj", PdfAccessibilityCheckStatus.Failed, "<43> selects the .notdef glyph")]
+    [InlineData("3 Tr <42> Tj", PdfAccessibilityCheckStatus.Passed, null)]
+    public void Type3_glyphs_need_a_procedure(string show, PdfAccessibilityCheckStatus expected, string? message)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var procedure = new PdfDictionary(d);
+            procedure.CreateStream(Encoding.ASCII.GetBytes("500 0 0 0 500 500 d1 0 0 500 500 re f"));
+            d.Internals.AddObject(procedure);
+            var procedures = new PdfDictionary(d);
+            procedures.Elements["/a"] = procedure.Reference!;
+            var encoding = new PdfDictionary(d);
+            encoding.Elements["/Differences"] = new PdfArray(d, new PdfInteger(65), new PdfName("/a"), new PdfName("/b"), new PdfName("/.notdef"));
+            var font = new PdfDictionary(d);
+            font.Elements.SetName("/Type", "/Font");
+            font.Elements.SetName("/Subtype", "/Type3");
+            font.Elements["/CharProcs"] = procedures;
+            font.Elements["/Encoding"] = encoding;
+            var fonts = new PdfDictionary(d);
+            fonts.Elements["/Text"] = font;
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Text 12 Tf " + show + " ET EMC"));
+        }));
+        Assert.Equal(expected, Outcome(report, "GLYPH"));
+        if (message != null) Assert.Contains(message, GlyphFinding(report).Message);
+    }
 }

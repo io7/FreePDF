@@ -96,6 +96,23 @@ static class SyntheticTrueType
                     foreach (var _ in segments) w.U16(0);
                 });
             }
+            case 41:
+            {
+                // Format 4 with one segment over the whole code range whose glyphs come from the glyph index array
+                // (idRangeOffset), then the final segment.
+                int first = map[0].Key;
+                int last = map[map.Count - 1].Key;
+                var glyphIds = Enumerable.Range(first, last - first + 1).Select(c => cmap.Map.TryGetValue(c, out var g) ? g : 0).ToList();
+                return Bytes(w =>
+                {
+                    w.U16(4); w.U16(16 + 8 * 2 + 2 * glyphIds.Count); w.U16(0); w.U16(4); w.U16(0); w.U16(0); w.U16(0);
+                    w.U16(last); w.U16(0xFFFF); w.U16(0);
+                    w.U16(first); w.U16(0xFFFF);
+                    w.U16(0); w.U16(1);
+                    w.U16(4); w.U16(0);   // From the first idRangeOffset entry, 4 bytes on is the array.
+                    foreach (var glyph in glyphIds) w.U16(glyph);
+                });
+            }
             case 12:
                 return Bytes(w =>
                 {
@@ -103,7 +120,8 @@ static class SyntheticTrueType
                     foreach (var p in map) { w.U32(p.Key); w.U32(p.Key); w.U32(p.Value); }
                 });
             default:
-                throw new ArgumentException("Unsupported cmap format.");
+                // A header of a format the check does not read.
+                return Bytes(w => { w.U16(cmap.Format); w.U16(6); w.U16(0); });
         }
     }
 

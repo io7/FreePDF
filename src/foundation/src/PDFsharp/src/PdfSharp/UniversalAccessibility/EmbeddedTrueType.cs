@@ -98,7 +98,10 @@ namespace PdfSharp.UniversalAccessibility
             return _customNames.TryGetValue(name, out var glyph) ? glyph : null;
         }
 
-        /// <summary>True when a format 2 'post' table gives some glyph other than 0 a standard Macintosh name.</summary>
+        /// <summary>
+        /// True when the 'post' table can name a glyph with a standard Macintosh name other than .notdef: format 1, or
+        /// format 2 with an index from 1 to 257. Index 0 names .notdef, which unnamed glyphs commonly use.
+        /// </summary>
         internal bool HasStandardNames
         {
             get
@@ -108,7 +111,9 @@ namespace PdfSharp.UniversalAccessibility
                 int count = U16(_post, 32);
                 for (int glyph = 1; glyph < count && 34 + 2 * glyph + 1 < _post.Length; glyph++)
                 {
-                    if (U16(_post, 34 + 2 * glyph) < 258) return true;
+                    _tick();
+                    int index = U16(_post, 34 + 2 * glyph);
+                    if (index > 0 && index < 258) return true;
                 }
                 return false;
             }
