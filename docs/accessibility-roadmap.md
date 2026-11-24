@@ -77,6 +77,8 @@ mappings. The optional [veraPDF adapter](accessibility-verapdf.md) reports a
 separate machine verdict. Its result does not mark individual inventory rows as
 passed or complete human review.
 
-Native rule `FPDF-A11Y-UNICODE` now checks used character codes in supported font
-encodings. The next font work is broader encoding coverage and validation that
-the referenced glyph exists. Form-field and annotation rules follow.
+Native rule `FPDF-A11Y-UNICODE` now checks used character codes against ToUnicode
+maps, named encodings and `/Differences` glyph names, and fails forbidden mapped
+values. The next font work is validation that the referenced glyph exists
+(Matterhorn 31-030), then encodings that need the font program or the CJK
+character collections. Form-field and annotation rules follow.

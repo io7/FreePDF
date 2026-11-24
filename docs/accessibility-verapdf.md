@@ -106,4 +106,15 @@ validators accept its mappings. Removing the second letter’s ToUnicode entry
 fails native rule `FPDF-A11Y-UNICODE` and veraPDF 1.30.3 rule 7.21.7-1.
 Replacing Identity-H with an equivalent embedded encoding CMap gives native
 `NotChecked` and an independent machine pass. The combined scan remains
-`Incomplete` with exit code 3.
+`Incomplete` with exit code 3. Mapping the second letter to U+FEFF fails the
+native rule and veraPDF rule 7.21.7-2.
+
+Two more controls draw the letters with a WinAnsi simple font. The second
+letter takes its glyph name from `/Differences`, and no ToUnicode map exists.
+With the name `B`, both validators accept the mapping. With the name `g123`,
+which no glyph list contains, the native rule and veraPDF rule 7.21.7-1 fail.
+
+One difference is known. veraPDF 1.30.3 fails rule 7.21.7-1 for an unembedded
+Symbol or ZapfDingbats font without an `/Encoding`. The native rule maps such
+codes through the font's built-in encoding. Both validators already fail the
+file because the font program is not embedded.
