@@ -64,10 +64,18 @@ public partial class AccessibilityScannerTests
     [InlineData("predefined-charset")]
     [InlineData("opentype")]
     [InlineData("no-subtype")]
+    [InlineData("negative-encoding-offset")]
+    [InlineData("disordered-charstrings")]
+    [InlineData("long-name")]
     public void Cff_programs_the_check_cannot_read_leave_the_text_unassessed(string kind)
     {
         var report = kind switch
         {
+            "negative-encoding-offset" => ScanCff("<0000> Tj", SyntheticCff.Named(new[] { "#34" }, encodingId: -1)),
+            // Every offset of the CharStrings INDEX must be in order and inside its data, not only the last one.
+            "disordered-charstrings" => ScanCff("<0000> Tj", SyntheticCff.Named(new[] { "#34", "#35" }, disorderedCharStrings: true)),
+            // Glyph names are at most 255 characters.
+            "long-name" => ScanCff("<0000> Tj", SyntheticCff.Named(new[] { new string('x', 256) })),
             "damaged" => ScanCff("<0000> Tj", Encoding.ASCII.GetBytes("not a font program")),
             "cff2" => ScanCff("<0000> Tj", SyntheticCff.Named(new[] { "#34" }, major: 2)),
             "two-fonts" => ScanCff("<0000> Tj", SyntheticCff.Named(new[] { "#34" }, fonts: 2)),

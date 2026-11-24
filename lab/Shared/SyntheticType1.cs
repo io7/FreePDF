@@ -11,8 +11,9 @@ namespace FreePDF.Lab.Fixtures;
 static class SyntheticType1
 {
     /// <param name="glyphs">The glyph names besides .notdef.</param>
-    /// <param name="encoding">The built-in encoding: "StandardEncoding", another name, or "code name" pairs
-    /// ("97 A 98 B") for a custom array.</param>
+    /// <param name="encoding">The built-in encoding: "code name" pairs ("97 A 98 B") for a custom array, or any other
+    /// text, such as "StandardEncoding", written as it is between /Encoding and def (start it with a blank to write
+    /// an array by hand).</param>
     /// <param name="hex">Writes the encrypted part as hexadecimal text instead of binary.</param>
     /// <param name="aliases">The names of the RD, ND and NP procedures.</param>
     /// <param name="cutTail">Characters cut from the end of the private text, to damage the program.</param>

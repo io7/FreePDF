@@ -10,7 +10,7 @@ internal static class HostileInputs
     {
         "q-flood", "nested-xmp", "long-form-name", "type0-chain", "shared-alt", "form-fan-out",
         "whitespace-alt", "mcr-form", "type3-shared", "shared-differences", "shared-invalid-differences", "cff-cid-maps",
-        "post-strings"
+        "post-strings", "cff-repeated-name"
     };
 
     // What a correct scan reports for each input: the READ outcome (a limit makes it NotChecked) and, where the
@@ -57,6 +57,8 @@ internal static class HostileInputs
         "cff-cid-maps" => CidMaps(3000),
         // A TrueType 'post' table with 15 million one-letter names, of which no glyph uses more than one.
         "post-strings" => PostStrings(15_000_000),
+        // One CFF program whose 65,534 glyphs all have the same 1 MiB custom name (one string, referenced 65,534 times).
+        "cff-repeated-name" => RepeatedName(1 << 20, 65_534),
         _ => throw new ArgumentException("Unknown input.", nameof(name))
     };
 
@@ -202,6 +204,20 @@ internal static class HostileInputs
             objects.Add(Stream("/Subtype /CIDFontType0C /Filter /FlateDecode", compressed.ToArray()));
         }
         return Pdf(objects.ToArray());
+    }
+
+    // A Type 1 font with a Type1C program, so the reader names every glyph.
+    static byte[] RepeatedName(int length, int glyphs)
+    {
+        var name = new string('x', length);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+            zlib.Write(FreePDF.Lab.Fixtures.SyntheticCff.Named(Enumerable.Repeat(name, glyphs).ToArray()));
+        return Pdf(A(Catalog), A(Pages), A(Page("/Resources << /Font << /F 5 0 R >> >>")),
+            Stream("", A("/Artifact BMC BT /F 12 Tf (A) Tj ET EMC")),
+            A("<< /Type /Font /Subtype /Type1 /BaseFont /R /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>"),
+            A("<< /Type /FontDescriptor /FontName /R /Flags 32 /FontFile3 7 0 R >>"),
+            Stream("/Subtype /Type1C /Filter /FlateDecode", compressed.ToArray()));
     }
 
     // A simple TrueType font whose program has no cmap, so the shown code's glyph name is looked up in 'post'.

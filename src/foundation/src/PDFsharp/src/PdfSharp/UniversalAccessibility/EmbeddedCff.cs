@@ -12,6 +12,7 @@ namespace PdfSharp.UniversalAccessibility
     sealed class EmbeddedCff
     {
         const int StandardStringCount = 391;
+        const int MaxNameLength = 255;
 
         readonly HashSet<string>? _names;
         readonly Dictionary<int, int>? _cids;
@@ -58,7 +59,7 @@ namespace PdfSharp.UniversalAccessibility
             var top = TopDict.Read(data, tops.ItemStart(0), tops.ItemEnd(0), tick);
             if (top == null || top.SyntheticBase || top.CharStrings <= 0) return null;
             var charStrings = Index.Read(data, top.CharStrings);
-            if (charStrings == null || charStrings.Count == 0) return null;
+            if (charStrings == null || charStrings.Count == 0 || !charStrings.InOrder(tick)) return null;
             int glyphs = charStrings.Count;
             if (!reserve(glyphs)) return null;
             var charset = Charset(data, top.Charset, glyphs, top.Cid, tick);
@@ -73,7 +74,17 @@ namespace PdfSharp.UniversalAccessibility
                 }
                 return new EmbeddedCff(glyphs, null, null, cids);
             }
-            string? Name(int sid) => sid < StandardStringCount ? CffStandardStrings.Names[sid] : strings.Text(sid - StandardStringCount);
+            // Each custom string is made once, however many glyphs share its SID. A name longer than 255 characters is
+            // damage, and each name kept reserves one more entry for every 16 characters.
+            var custom = new Dictionary<int, string?>();
+            string? Name(int sid)
+            {
+                if (sid < StandardStringCount) return CffStandardStrings.Names[sid];
+                if (custom.TryGetValue(sid, out var known)) return known;
+                var text = strings.Text(sid - StandardStringCount, MaxNameLength);
+                custom.Add(sid, text);
+                return text;
+            }
             var glyphNames = new string[glyphs];
             var set = new HashSet<string>(System.StringComparer.Ordinal);
             for (int glyph = 0; glyph < glyphs; glyph++)
@@ -82,7 +93,7 @@ namespace PdfSharp.UniversalAccessibility
                 var name = Name(charset[glyph]);
                 if (name == null) return null;
                 glyphNames[glyph] = name;
-                set.Add(name);
+                if (set.Add(name) && !reserve(name.Length / 16)) return null;
             }
             string?[]? encoding;
             if (!Encoding(data, top.Encoding, glyphNames, Name, tick, out encoding)) return null;
@@ -144,7 +155,7 @@ namespace PdfSharp.UniversalAccessibility
                 encoding = table;
                 return true;
             }
-            if (offset >= data.Length) return false;
+            if (offset < 0 || offset >= data.Length) return false;
             int format = data[offset] & 0x7F;
             int position = offset + 1;
             if (position >= data.Length) return false;
@@ -252,10 +263,27 @@ namespace PdfSharp.UniversalAccessibility
 
             internal int ItemEnd(int i) => ItemStart(i) < 0 ? -1 : (int)(_dataStart + Offset(i + 1));
 
-            /// <summary>Item i as text, one character per byte, or null when it is out of range or damaged.</summary>
-            internal string? Text(int i)
+            /// <summary>True when every offset is at least 1 and none is smaller than the one before.</summary>
+            internal bool InOrder(Action tick)
             {
-                if (i < 0 || i >= Count || ItemStart(i) < 0) return null;
+                long previous = 1;
+                for (int i = 0; i <= Count; i++)
+                {
+                    if ((i & 0xFFF) == 0) tick();
+                    long offset = Offset(i);
+                    if (offset < previous) return false;
+                    previous = offset;
+                }
+                return true;
+            }
+
+            /// <summary>
+            /// Item i as text, one character per byte, or null when it is out of range, damaged or longer than
+            /// <paramref name="maxLength"/>.
+            /// </summary>
+            internal string? Text(int i, int maxLength)
+            {
+                if (i < 0 || i >= Count || ItemStart(i) < 0 || ItemEnd(i) - ItemStart(i) > maxLength) return null;
                 int start = ItemStart(i);
                 var chars = new char[ItemEnd(i) - start];
                 for (int c = 0; c < chars.Length; c++) chars[c] = (char)_data[start + c];

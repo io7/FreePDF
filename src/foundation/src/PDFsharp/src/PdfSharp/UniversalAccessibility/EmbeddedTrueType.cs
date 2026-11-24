@@ -188,6 +188,12 @@ namespace PdfSharp.UniversalAccessibility
                 _tick();
                 int length = _post[position];
                 if (position + 1 + length > _post.Length) break;
+                // Each name kept reserves one more entry for every 16 characters.
+                if (!_reserve(length / 16))
+                {
+                    _postNamesComplete = false;
+                    return;
+                }
                 strings.Add(System.Text.Encoding.ASCII.GetString(_post, (int)position + 1, length));
                 position += 1 + length;
             }

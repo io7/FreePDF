@@ -16,9 +16,11 @@ static class SyntheticCff
     /// <param name="charsetId">A predefined charset (0 ISOAdobe, 1 Expert, 2 ExpertSubset) instead of a written one;
     /// <paramref name="glyphCount"/> then gives the glyph count.</param>
     /// <param name="fonts">The number of fonts in the Name and Top DICT INDEXes (the same font repeated).</param>
+    /// <param name="disorderedCharStrings">Damages the CharStrings INDEX: the second offset points past the data,
+    /// while the last one is right.</param>
     internal static byte[] Named(string[] names, int[]? codes = null, (int Code, string Name)[]? supplements = null,
         int charsetFormat = 0, int encodingFormat = 0, int encodingId = 0, int? charsetId = null, int glyphCount = 0,
-        int fonts = 1, int major = 1, bool syntheticBase = false)
+        int fonts = 1, int major = 1, bool syntheticBase = false, bool disorderedCharStrings = false)
     {
         var strings = new List<string>();
         int glyphs = charsetId == null ? names.Length + 1 : glyphCount;
@@ -29,7 +31,8 @@ static class SyntheticCff
             var sups = supplements?.Select(s => (s.Code, Sid(s.Name, strings))).ToList();
             encoding = Encoding(codes, encodingFormat, sups);
         }
-        return Assemble(major, fonts, strings, glyphs, charset, charsetId ?? 0, encoding, encodingId, syntheticBase, null);
+        return Assemble(major, fonts, strings, glyphs, charset, charsetId ?? 0, encoding, encodingId, syntheticBase, null,
+            disorderedCharStrings: disorderedCharStrings);
     }
 
     /// <summary>A CIDFont: glyph 0 is CID 0 and glyphs 1 and up are <paramref name="cids"/>.</summary>
@@ -100,7 +103,8 @@ static class SyntheticCff
     });
 
     static byte[] Assemble(int major, int fonts, List<string> strings, int glyphs, byte[]? charset, int charsetId,
-        byte[]? encoding, int encodingId, bool syntheticBase, List<int>? cids, bool emptyGlyphs = false)
+        byte[]? encoding, int encodingId, bool syntheticBase, List<int>? cids, bool emptyGlyphs = false,
+        bool disorderedCharStrings = false)
     {
         if (cids != null)
         {
@@ -111,6 +115,8 @@ static class SyntheticCff
         var stringIndex = Index(strings.Select(s => System.Text.Encoding.ASCII.GetBytes(s)));
         var globalSubrs = Index(Array.Empty<byte[]>());
         var charStrings = Index(Enumerable.Repeat(emptyGlyphs ? Array.Empty<byte>() : new byte[] { 14 }, glyphs));   // endchar
+        // The offsets start after count (2 bytes) and offSize (1 byte) and take 4 bytes each.
+        if (disorderedCharStrings) charStrings[3 + 4 + 3] = 0xFF;
         var priv = Bytes(w => { Number(w, 0); w.U8(20); });                    // defaultWidthX 0
         var fdSelect = Bytes(w => { w.U8(0); for (int i = 0; i < glyphs; i++) w.U8(0); });
         byte[] TopDict(int charsetAt, int encodingAt, int charStringsAt, int privateAt, int fdArrayAt, int fdSelectAt) => Bytes(w =>

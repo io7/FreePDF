@@ -13,6 +13,9 @@ namespace PdfSharp.UniversalAccessibility
     sealed class EmbeddedType1
     {
         const int MaxGlyphs = 65536;
+        const int MaxNameLength = 255;
+        // Longer names and numbers are not in real programs; the lexer ends at one, so no huge text is made.
+        const int MaxTokenLength = 1024;
 
         readonly HashSet<string> _glyphs;
 
@@ -65,13 +68,16 @@ namespace PdfSharp.UniversalAccessibility
             return glyphs == null ? null : new EmbeddedType1(glyphs, encoding);
         }
 
-        // "/Encoding StandardEncoding def", or "/Encoding 256 array ... dup code /name put ... def". Null for any other
-        // form, such as another named encoding.
+        // Only the forms the reader follows completely: "/Encoding StandardEncoding def", or "/Encoding 256 array",
+        // optionally filled by "0 1 255 {1 index exch /.notdef put} for", then "dup code /name put" entries, then "def"
+        // (each def may follow readonly or noaccess). Null for any other form: another named encoding, a changed copy,
+        // or an operation the reader does not know.
         static string?[]? Encoding(Lexer lexer)
         {
             var first = lexer.Next();
             if (first == "StandardEncoding")
             {
+                if (!EndsDefinition(lexer)) return null;
                 var standard = new string?[256];
                 for (int code = 0; code < 256; code++)
                 {
@@ -79,19 +85,32 @@ namespace PdfSharp.UniversalAccessibility
                 }
                 return standard;
             }
-            if (Integer(first) == null || lexer.Next() != "array") return null;
+            if (Integer(first) != 256 || lexer.Next() != "array") return null;
             var table = new string?[256];
-            for (var token = lexer.Next(); token != null; token = lexer.Next())
+            if (lexer.Peek() == "0")
             {
-                if (token == "def") return table;
-                if (token != "dup") continue;
+                foreach (var expected in new[] { "0", "1", "255", "{", "1", "index", "exch", "/.notdef", "put", "}", "for" })
+                {
+                    if (lexer.Next() != expected) return null;
+                }
+            }
+            while (lexer.Peek() == "dup")
+            {
+                lexer.Next();
                 var code = Integer(lexer.Next());
                 var name = lexer.Next();
-                if (code is not >= 0 and < 256 || name == null || !name.StartsWith("/", System.StringComparison.Ordinal)) return null;
+                if (code is not (>= 0 and < 256) || name == null || !name.StartsWith("/", System.StringComparison.Ordinal)) return null;
                 if (lexer.Next() != "put") return null;
                 table[code.Value] = name == "/.notdef" ? null : name.Substring(1);
             }
-            return null;
+            return EndsDefinition(lexer) ? table : null;
+        }
+
+        static bool EndsDefinition(Lexer lexer)
+        {
+            var token = lexer.Next();
+            if (token is "readonly" or "noaccess") token = lexer.Next();
+            return token == "def";
         }
 
         // eexec decryption (Type 1 Font Format, chapter 7): key 55665, the first four plaintext bytes dropped. The
@@ -169,8 +188,10 @@ namespace PdfSharp.UniversalAccessibility
                         if (entry.StartsWith("/", System.StringComparison.Ordinal))
                         {
                             if (!SkipBinary(lexer)) return null;
+                            // A name kept reserves one more entry for every 16 characters; longer than 255 is damage.
                             var name = entry.Substring(1);
-                            if (!glyphs.Contains(name) && (glyphs.Count >= MaxGlyphs || !reserve(1))) return null;
+                            if (name.Length > MaxNameLength) return null;
+                            if (!glyphs.Contains(name) && (glyphs.Count >= MaxGlyphs || !reserve(1 + name.Length / 16))) return null;
                             glyphs.Add(name);
                         }
                         // ND, or "noaccess def"; anything else means the entries are out of step.
@@ -323,6 +344,11 @@ namespace PdfSharp.UniversalAccessibility
                 }
                 // A name or number; a literal name keeps its slash.
                 while (Position < _end && !IsWhite(_data[Position]) && !IsDelimiter(_data[Position])) Position++;
+                if (Position - start > MaxTokenLength)
+                {
+                    Position = _end;
+                    return null;
+                }
                 if (first == '/' && Position == start + 1) return "/";
                 var chars = new char[Position - start];
                 for (int i = 0; i < chars.Length; i++) chars[i] = (char)_data[start + i];

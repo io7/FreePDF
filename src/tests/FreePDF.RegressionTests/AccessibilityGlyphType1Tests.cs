@@ -104,17 +104,38 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "GLYPH"));
     }
 
+    // A built-in encoding counts only in a form the reader follows completely: StandardEncoding itself, or a 256-entry
+    // array, optionally filled with .notdef, then changed by "dup code /name put". A changed copy of StandardEncoding,
+    // an operation the reader does not know, or a code past the array leaves the codes it gives unassessed.
+    [Theory]
+    [InlineData("StandardEncoding", "A", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData(" 256 array dup 97 /A put readonly", "A", "<61> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("StandardEncoding 256 array copy dup 65 /B put readonly", "B", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData(" 256 array dup 65 /A put ISOLatin1Encoding 0 get pop", "A", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("65 A 256 B", "A", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData(" 128 array dup 65 /A put readonly", "A", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    public void Type1_built_in_encodings_are_read_only_when_understood(string encoding, string glyph, string show,
+        PdfAccessibilityCheckStatus expected)
+    {
+        var report = ScanType1(show, SyntheticType1.Build(new[] { glyph }, encoding));
+        Assert.Equal(expected, Outcome(report, "GLYPH"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
+    }
+
     [Theory]
     [InlineData("pfb")]
     [InlineData("clear-text")]
     [InlineData("cut")]
     [InlineData("length-past-end")]
     [InlineData("damaged")]
+    [InlineData("long-name")]
     public void Type1_programs_the_check_cannot_read_leave_the_text_unassessed(string kind)
     {
         var good = SyntheticType1.Build(new[] { "A" });
         byte[] program = kind switch
         {
+            // Glyph names are at most 255 characters.
+            "long-name" => SyntheticType1.Build(new[] { "A", new string('x', 256) }),
             // A PFB file's segment headers are not a PDF font program.
             "pfb" => new byte[] { 0x80, 0x01, 0x10, 0, 0, 0 }.Concat(good).ToArray(),
             "clear-text" => SyntheticType1.Build(new[] { "A" }, encrypt: false),

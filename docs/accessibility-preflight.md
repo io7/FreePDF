@@ -118,12 +118,17 @@ procedures. Font programs do not count toward `MaxDecodedBytes`, and each is
 read once per scan. These give `NotChecked`: OpenType programs in `FontFile3`,
 CFF2, CFF font sets with more than one font, synthetic CFF fonts, the Expert
 charsets and encodings, CID-keyed CFF programs in simple fonts, Type 1 programs
-in PFB form or without eexec encryption, built-in encodings other than
-StandardEncoding or an explicit array, font collections, damaged programs,
-programs that inflate past 32 MiB, or past 256 MiB for all programs of a scan,
-and programs whose glyph tables do not fit: the glyph names, CID tables and
-`post` names kept from all programs of a scan share 1,048,576 entries, and a
-Type 1 program may name at most 65,536 glyphs.
+in PFB form or without eexec encryption, font collections, damaged programs
+(including CFF INDEXes with offsets out of order and glyph names longer than 255
+characters), programs that inflate past 32 MiB, or past 256 MiB for all programs
+of a scan, and programs whose glyph tables do not fit. The glyph names, CID
+tables and `post` names kept from all programs of a scan share 1,048,576
+entries; a name takes one entry and one more for every 16 characters, and a
+Type 1 program may name at most 65,536 glyphs. A Type 1 built-in encoding counts
+only as `StandardEncoding def`, or as `256 array`, optionally filled with
+`.notdef` by the usual `for` loop, then set by `dup code /name put` entries and
+`def`. Any other form, such as a changed copy of StandardEncoding, leaves the
+codes it gives `NotChecked`.
 Visible text in a font without a program fails the font check, and the glyph
 rule judges only its `.notdef` names. Invisible text in such a font is
 `NotChecked`.
