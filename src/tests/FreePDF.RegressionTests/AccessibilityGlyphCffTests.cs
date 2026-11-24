@@ -1,6 +1,7 @@
 // Original synthetic glyph controls for CFF programs (Matterhorn 31-011 and 31-030). See LICENSE.
 using System.Text;
 using FreePDF.Lab.Fixtures;
+using PdfSharp.Pdf;
 using PdfSharp.UniversalAccessibility;
 using Xunit;
 
@@ -166,4 +167,41 @@ public partial class AccessibilityScannerTests
     public void Type1C_expert_encoding_still_follows_a_named_encoding()
         => Assert.Equal(PdfAccessibilityCheckStatus.Passed,
             Outcome(ScanType1C("<41> Tj", SyntheticCff.Named(new[] { "#34" }, encodingId: 1), "/WinAnsiEncoding"), "GLYPH"));
+
+    // The glyph tables kept from programs share 1,048,576 entries per scan. Sixteen distinct programs of 65,535 glyphs
+    // fit; a seventeenth leaves its font unassessed.
+    [Theory]
+    [InlineData(16, PdfAccessibilityCheckStatus.Passed)]
+    [InlineData(17, PdfAccessibilityCheckStatus.NotChecked)]
+    public void Glyph_tables_share_one_total_per_scan(int fonts, PdfAccessibilityCheckStatus expected)
+    {
+        var program = SyntheticCff.Cid(Enumerable.Range(1, 65534).ToArray(), charsetFormat: 2, emptyGlyphs: true);
+        var report = Scan(Fixture(d =>
+        {
+            var resources = new PdfDictionary(d);
+            var content = new StringBuilder("/Artifact BMC BT ");
+            for (int i = 0; i < fonts; i++)
+            {
+                var file = new PdfDictionary(d);
+                file.CreateStream(program);
+                file.Elements.SetName("/Subtype", "/CIDFontType0C");
+                d.Internals.AddObject(file);
+                var descriptor = new PdfDictionary(d);
+                descriptor.Elements["/FontFile3"] = file.Reference!;
+                var child = new PdfDictionary(d);
+                child.Elements.SetName("/Subtype", "/CIDFontType0");
+                child.Elements["/FontDescriptor"] = descriptor;
+                var font = new PdfDictionary(d);
+                font.Elements.SetName("/Subtype", "/Type0");
+                font.Elements.SetName("/Encoding", "/Identity-H");
+                font.Elements["/DescendantFonts"] = new PdfArray(d, child);
+                resources.Elements["/F" + i] = font;
+                content.Append($"/F{i} 12 Tf <FFFE> Tj ");
+            }
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = resources;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
+        }));
+        Assert.Equal(expected, Outcome(report, "GLYPH"));
+    }
 }

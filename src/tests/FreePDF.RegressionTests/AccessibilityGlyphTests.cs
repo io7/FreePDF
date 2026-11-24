@@ -301,6 +301,8 @@ public partial class AccessibilityScannerTests
     [InlineData("post-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     // A 'post' table shorter than its 32-byte header is present but cannot be read.
     [InlineData("post-header-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // A damaged string that no glyph uses names nothing, so the absent name is known to be absent.
+    [InlineData("post-unused-damage", "<41> Tj", PdfAccessibilityCheckStatus.Failed)]
     public void Simple_TrueType_codes_follow_the_font_cmap(string kind, string show, PdfAccessibilityCheckStatus expected)
     {
         var report = kind switch
@@ -337,6 +339,9 @@ public partial class AccessibilityScannerTests
                 program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postCut: 2)),
             "post-header-cut" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
                 program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, postCut: 16)),
+            // After the name zzzz, a string that claims 200 bytes and has 3.
+            "post-unused-damage" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postExtra: new byte[] { 200, 1, 2, 3 })),
             _ => ScanSimple(show, flags: 4, program: UnicodeA),
         };
         Assert.Equal(expected, Outcome(report, "GLYPH"));

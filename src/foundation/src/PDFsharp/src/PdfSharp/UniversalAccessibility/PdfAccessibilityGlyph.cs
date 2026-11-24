@@ -31,6 +31,19 @@ namespace PdfSharp.UniversalAccessibility
         const long MaxFontProgramTotal = 256L * 1024 * 1024;
         long _fontProgramBytes;
 
+        // The glyph names and CID tables kept from font programs can be much larger than the bytes that describe them
+        // (one charset range can cover 65,535 CIDs). Their entries share one total per scan; a program whose tables do
+        // not fit leaves its fonts unassessed.
+        const int MaxGlyphTableEntries = 1 << 20;
+        long _glyphTableEntries;
+
+        bool ReserveGlyphTable(int entries)
+        {
+            if (entries < 0 || _glyphTableEntries + entries > MaxGlyphTableEntries) return false;
+            _glyphTableEntries += entries;
+            return true;
+        }
+
         readonly Dictionary<PdfDictionary, GlyphFont?> _glyphFonts = new();
         readonly Dictionary<PdfDictionary, EmbeddedTrueType?> _trueTypePrograms = new();
         readonly Dictionary<PdfDictionary, EmbeddedCff?> _cffPrograms = new();
@@ -261,7 +274,7 @@ namespace PdfSharp.UniversalAccessibility
             if (_type1Programs.TryGetValue(file, out var known)) return known;
             var data = DecodeFontProgram(file);
             EmbeddedType1? program = null;
-            if (data != null) program = EmbeddedType1.Read(data, Tick);
+            if (data != null) program = EmbeddedType1.Read(data, Tick, ReserveGlyphTable);
             _type1Programs.Add(file, program);
             return program;
         }
@@ -273,7 +286,7 @@ namespace PdfSharp.UniversalAccessibility
             if (_cffPrograms.TryGetValue(file, out var known)) return known;
             var data = DecodeFontProgram(file);
             EmbeddedCff? program = null;
-            if (data != null) program = EmbeddedCff.Read(data, Tick);
+            if (data != null) program = EmbeddedCff.Read(data, Tick, ReserveGlyphTable);
             _cffPrograms.Add(file, program);
             return program;
         }
@@ -415,7 +428,7 @@ namespace PdfSharp.UniversalAccessibility
             if (_trueTypePrograms.TryGetValue(file, out var known)) return known;
             var data = DecodeFontProgram(file);
             EmbeddedTrueType? program = null;
-            if (data != null) program = EmbeddedTrueType.Read(data, Tick);
+            if (data != null) program = EmbeddedTrueType.Read(data, Tick, ReserveGlyphTable);
             _trueTypePrograms.Add(file, program);
             return program;
         }

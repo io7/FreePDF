@@ -12,5 +12,6 @@
     <PackageReference Include="xunit.assert" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../tools/FreePDF.Accessibility/FreePDF.Accessibility.csproj" />
+    <Compile Include="../../../lab/Shared/SyntheticCff.cs" Link="Fixtures/SyntheticCff.cs" />
   </ItemGroup>
 </Project>

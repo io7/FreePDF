@@ -16,17 +16,19 @@ namespace PdfSharp.UniversalAccessibility
         readonly byte[]? _cmap;
         readonly byte[]? _post;
         readonly Action _tick;
+        readonly Func<int, bool> _reserve;
         readonly Dictionary<(int Platform, int Encoding, int Code), int?> _lookups = new();
         readonly Dictionary<string, int> _customNames = new(System.StringComparer.Ordinal);
         bool _postRead, _hasStandardNames, _hasCustomNames;
         bool _postNamesComplete = true;
 
-        EmbeddedTrueType(int glyphCount, byte[]? cmap, byte[]? post, Action tick)
+        EmbeddedTrueType(int glyphCount, byte[]? cmap, byte[]? post, Action tick, Func<int, bool> reserve)
         {
             GlyphCount = glyphCount;
             _cmap = cmap;
             _post = post;
             _tick = tick;
+            _reserve = reserve;
             // A table shorter than its 32-byte header is present but unreadable (-1), unlike a missing one (0).
             if (post != null) PostFormat = post.Length >= 32 ? (int)U32(post, 0) : -1;
         }
@@ -39,8 +41,11 @@ namespace PdfSharp.UniversalAccessibility
         /// </summary>
         internal int PostFormat { get; }
 
-        /// <summary>The program, or null when it is not a single TrueType program with a 'maxp' table.</summary>
-        internal static EmbeddedTrueType? Read(byte[] data, Action tick)
+        /// <summary>
+        /// The program, or null when it is not a single TrueType program with a 'maxp' table. The 'post' names it keeps
+        /// are first reserved with <paramref name="reserve"/>; when that fails, the names count as unreadable.
+        /// </summary>
+        internal static EmbeddedTrueType? Read(byte[] data, Action tick, Func<int, bool> reserve)
         {
             if (data.Length < 12) return null;
             // 0x00010000 and 'true' mark TrueType outlines. 'OTTO' (CFF outlines) and 'ttcf' (collections) are not read.
@@ -64,7 +69,7 @@ namespace PdfSharp.UniversalAccessibility
             byte[]? cmap = null, post = null;
             if (found.TryGetValue("cmap", out var c)) cmap = Slice(data, c.Offset, c.Length);
             if (found.TryGetValue("post", out var p)) post = Slice(data, p.Offset, p.Length);
-            return new EmbeddedTrueType(U16(data, (int)maxp.Offset + 4), cmap, post, tick);
+            return new EmbeddedTrueType(U16(data, (int)maxp.Offset + 4), cmap, post, tick, reserve);
         }
 
         /// <summary>True when the 'cmap' table has a subtable for this platform and encoding.</summary>
@@ -161,17 +166,28 @@ namespace PdfSharp.UniversalAccessibility
                 _postNamesComplete = false;
                 return;
             }
-            // The Pascal strings in order; index 258 + i names string i.
+            // Only the strings that a glyph index refers to are read: index 258 + i names string i.
+            int needed = 0;
+            for (int glyph = 0; glyph < count; glyph++)
+            {
+                _tick();
+                int index = U16(_post, 34 + 2 * glyph);
+                if (index > 0 && index < 258) _hasStandardNames = true;
+                if (index >= 258) needed = Math.Max(needed, index - 257);
+            }
+            if (needed == 0) return;
+            _hasCustomNames = true;
+            if (!_reserve(needed))
+            {
+                _postNamesComplete = false;
+                return;
+            }
             var strings = new List<string>();
-            for (long position = stringsStart; position < _post.Length;)
+            for (long position = stringsStart; position < _post.Length && strings.Count < needed;)
             {
                 _tick();
                 int length = _post[position];
-                if (position + 1 + length > _post.Length)
-                {
-                    _postNamesComplete = false;
-                    break;
-                }
+                if (position + 1 + length > _post.Length) break;
                 strings.Add(System.Text.Encoding.ASCII.GetString(_post, (int)position + 1, length));
                 position += 1 + length;
             }
@@ -179,9 +195,7 @@ namespace PdfSharp.UniversalAccessibility
             {
                 _tick();
                 int index = U16(_post, 34 + 2 * glyph);
-                if (index > 0 && index < 258) _hasStandardNames = true;
                 if (index < 258) continue;
-                _hasCustomNames = true;
                 if (index - 258 >= strings.Count) _postNamesComplete = false;
                 else if (!_customNames.ContainsKey(strings[index - 258])) _customNames.Add(strings[index - 258], glyph);
             }

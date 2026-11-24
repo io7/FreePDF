@@ -12,6 +12,8 @@ namespace PdfSharp.UniversalAccessibility
     /// </summary>
     sealed class EmbeddedType1
     {
+        const int MaxGlyphs = 65536;
+
         readonly HashSet<string> _glyphs;
 
         EmbeddedType1(HashSet<string> glyphs, string?[]? encoding)
@@ -28,7 +30,11 @@ namespace PdfSharp.UniversalAccessibility
 
         internal bool HasGlyph(string name) => _glyphs.Contains(name);
 
-        internal static EmbeddedType1? Read(byte[] data, Action tick)
+        /// <summary>
+        /// The program, or null when the reader cannot use it, when it names more than 65,536 glyphs, or when
+        /// <paramref name="reserve"/> refuses an entry for a glyph name it keeps.
+        /// </summary>
+        internal static EmbeddedType1? Read(byte[] data, Action tick, System.Func<int, bool> reserve)
         {
             // A PDF Type 1 program is the font file itself: "%!", not the segment headers of a PFB file.
             if (data.Length < 2 || data[0] != '%' || data[1] != '!') return null;
@@ -55,7 +61,7 @@ namespace PdfSharp.UniversalAccessibility
             while (encrypted < data.Length && data[encrypted] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') encrypted++;
             var plain = Decrypt(data, encrypted, tick);
             if (plain == null) return null;
-            var glyphs = CharStrings(plain, tick);
+            var glyphs = CharStrings(plain, tick, reserve);
             return glyphs == null ? null : new EmbeddedType1(glyphs, encoding);
         }
 
@@ -136,7 +142,7 @@ namespace PdfSharp.UniversalAccessibility
         // The keys of the CharStrings dictionary. Each Subrs entry is "dup index count RD <count bytes> NP" and each
         // CharStrings entry "/name count RD <count bytes> ND", with one blank between RD and the bytes; RD, ND and NP
         // may have other names (Type 1 Font Format, section 2.4). Null unless the dictionary's end is reached.
-        static HashSet<string>? CharStrings(byte[] plain, Action tick)
+        static HashSet<string>? CharStrings(byte[] plain, Action tick, System.Func<int, bool> reserve)
         {
             var lexer = new Lexer(plain, 0, plain.Length, tick);
             for (var token = lexer.Next(); token != null; token = lexer.Next())
@@ -163,7 +169,9 @@ namespace PdfSharp.UniversalAccessibility
                         if (entry.StartsWith("/", System.StringComparison.Ordinal))
                         {
                             if (!SkipBinary(lexer)) return null;
-                            glyphs.Add(entry.Substring(1));
+                            var name = entry.Substring(1);
+                            if (!glyphs.Contains(name) && (glyphs.Count >= MaxGlyphs || !reserve(1))) return null;
+                            glyphs.Add(name);
                         }
                         // ND, or "noaccess def"; anything else means the entries are out of step.
                         else if (!IsExecutable(entry)) return null;

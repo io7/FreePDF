@@ -32,8 +32,9 @@ static class SyntheticTrueType
     /// <paramref name="post"/> false writes none.</param>
     /// <param name="padding">The size of an extra table of zeros, to give the program a size.</param>
     /// <param name="postCut">Bytes cut from the end of the 'post' table, to damage its last name.</param>
+    /// <param name="postExtra">Bytes appended to the 'post' table after the names, which no glyph uses.</param>
     internal static byte[] Build(int glyphs, IEnumerable<Cmap>? cmaps = null, string?[]? postNames = null, bool post = true,
-        string tag = "\0\u0001\0\0", int padding = 0, int postCut = 0)
+        string tag = "\0\u0001\0\0", int padding = 0, int postCut = 0, byte[]? postExtra = null)
     {
         var tables = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
         {
@@ -43,7 +44,7 @@ static class SyntheticTrueType
         if (cmaps != null) tables["cmap"] = CmapTable(cmaps.ToList());
         if (post)
         {
-            var table = PostTable(postNames, glyphs);
+            var table = PostTable(postNames, glyphs).Concat(postExtra ?? Array.Empty<byte>()).ToArray();
             tables["post"] = table.Take(table.Length - postCut).ToArray();
         }
         return Bytes(w =>

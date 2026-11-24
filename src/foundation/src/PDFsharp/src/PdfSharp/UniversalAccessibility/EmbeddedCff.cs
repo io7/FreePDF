@@ -41,8 +41,11 @@ namespace PdfSharp.UniversalAccessibility
         /// <summary>The glyph that a CID-keyed font's charset gives the CID, or -1 when it has none.</summary>
         internal int GlyphOfCid(int cid) => _cids != null && _cids.TryGetValue(cid, out var glyph) ? glyph : -1;
 
-        /// <summary>The program, or null when it is not a single readable CFF font.</summary>
-        internal static EmbeddedCff? Read(byte[] data, Action tick)
+        /// <summary>
+        /// The program, or null when it is not a single readable CFF font, or when <paramref name="reserve"/> refuses an
+        /// entry for each glyph, which the names or the CID table keep.
+        /// </summary>
+        internal static EmbeddedCff? Read(byte[] data, Action tick, System.Func<int, bool> reserve)
         {
             // Header: major version 1 (CFF2 is not read), header size, offset size.
             if (data.Length < 4 || data[0] != 1 || data[2] < 4) return null;
@@ -57,6 +60,7 @@ namespace PdfSharp.UniversalAccessibility
             var charStrings = Index.Read(data, top.CharStrings);
             if (charStrings == null || charStrings.Count == 0) return null;
             int glyphs = charStrings.Count;
+            if (!reserve(glyphs)) return null;
             var charset = Charset(data, top.Charset, glyphs, top.Cid, tick);
             if (charset == null) return null;
             if (top.Cid)

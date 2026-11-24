@@ -33,11 +33,12 @@ static class SyntheticCff
     }
 
     /// <summary>A CIDFont: glyph 0 is CID 0 and glyphs 1 and up are <paramref name="cids"/>.</summary>
-    internal static byte[] Cid(int[] cids, int charsetFormat = 0, int? charsetId = null)
+    /// <param name="emptyGlyphs">Writes empty charstrings, so that a large font compresses to almost nothing.</param>
+    internal static byte[] Cid(int[] cids, int charsetFormat = 0, int? charsetId = null, bool emptyGlyphs = false)
     {
         var strings = new List<string>();
         byte[]? charset = charsetId == null ? Charset(cids.ToList(), charsetFormat) : null;
-        return Assemble(1, 1, strings, cids.Length + 1, charset, charsetId ?? 0, null, 0, false, cids.ToList());
+        return Assemble(1, 1, strings, cids.Length + 1, charset, charsetId ?? 0, null, 0, false, cids.ToList(), emptyGlyphs);
     }
 
     static int Sid(string name, List<string> strings)
@@ -99,7 +100,7 @@ static class SyntheticCff
     });
 
     static byte[] Assemble(int major, int fonts, List<string> strings, int glyphs, byte[]? charset, int charsetId,
-        byte[]? encoding, int encodingId, bool syntheticBase, List<int>? cids)
+        byte[]? encoding, int encodingId, bool syntheticBase, List<int>? cids, bool emptyGlyphs = false)
     {
         if (cids != null)
         {
@@ -109,7 +110,7 @@ static class SyntheticCff
         var name = Index(Enumerable.Repeat(System.Text.Encoding.ASCII.GetBytes("Synthetic"), fonts));
         var stringIndex = Index(strings.Select(s => System.Text.Encoding.ASCII.GetBytes(s)));
         var globalSubrs = Index(Array.Empty<byte[]>());
-        var charStrings = Index(Enumerable.Repeat(new byte[] { 14 }, glyphs));   // endchar
+        var charStrings = Index(Enumerable.Repeat(emptyGlyphs ? Array.Empty<byte>() : new byte[] { 14 }, glyphs));   // endchar
         var priv = Bytes(w => { Number(w, 0); w.U8(20); });                    // defaultWidthX 0
         var fdSelect = Bytes(w => { w.U8(0); for (int i = 0; i < glyphs; i++) w.U8(0); });
         byte[] TopDict(int charsetAt, int encodingAt, int charStringsAt, int privateAt, int fdArrayAt, int fdSelectAt) => Bytes(w =>
