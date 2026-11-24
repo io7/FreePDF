@@ -144,6 +144,7 @@ namespace PdfSharp.UniversalAccessibility
             Add("CONTENT", "Page and form painting occurs inside tagged content or artifacts", "Tag meaningful content and mark decorative content as artifacts.", "PDF4.html");
             Add("FONT", "Fonts that show visible text have embedded programs", "Embed the fonts used by page and form text and independently validate their glyph and Unicode mappings.");
             Add("UNICODE", "Character codes used by text have a Unicode mapping", "Supply a ToUnicode map for the used codes or verify the font’s encoding independently.");
+            Add("GLYPH", "Character codes used by text select a glyph of the font program other than .notdef", "Embed every glyph the text uses, and do not show codes that select .notdef.");
             Add("TABS", "Annotated pages use structure tab order", "Set page Tabs to S and verify keyboard navigation.", "PDF3.html");
             Add("ANNOT", "Links and widgets have structure object references", "Include each link/widget annotation in the structure tree and review its accessible name.", "PDF11.html");
             Add("REVIEW", "Human accessibility review", "Review reading order, text alternatives, headings, table associations, language, contrast, forms and assistive-technology behavior.");
@@ -264,7 +265,7 @@ namespace PdfSharp.UniversalAccessibility
                         Test("ANNOT", _objects.Contains(annotation), "Link or widget has no structure OBJR association.", page.Value, "/Annots");
             }
             CheckDuration();
-            Finished("CONTENT", "FONT", "UNICODE", "TABS", "ANNOT");
+            Finished("CONTENT", "FONT", "UNICODE", "GLYPH", "TABS", "ANNOT");
             InspectParentTree(root);
             CheckDuration();
             Finished("MCID");

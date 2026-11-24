@@ -121,3 +121,11 @@ through the font's built-in encoding. Both validators already fail the file
 because the font program is not embedded. For a font with MacExpertEncoding,
 veraPDF passes rule 7.21.7-1 but reports rules 7.21.7-2 and 7.21.8-1. The
 native rule passes the codes, as Matterhorn 31-027 allows for that encoding.
+
+The glyph controls add a code to the Identity-H paragraph. Code `0000` selects
+glyph 0: native rule `FPDF-A11Y-GLYPH` and veraPDF rule 7.21.8-1 fail. A glyph
+index past the program fails the native rule and veraPDF rule 7.21.4.1-2. A
+third control maps the shown CID to glyph 0 through a `CIDToGIDMap` stream.
+ISO 14289-1 7.21.8 forbids that reference to .notdef, and the native rule
+fails it. veraPDF 1.30.3 reports no 7.21.8-1 for it and fails the file only on
+glyph widths.

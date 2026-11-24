@@ -46,6 +46,10 @@ def main():
         ("unicode-forbidden", 1, "Failed", "Failed"),
         ("unicode-glyph-name", 2, "NeedsReview", "MachineChecksPassed"),
         ("unicode-glyph-name-missing", 1, "Failed", "Failed"),
+        ("glyph-notdef", 1, "Failed", "Failed"),
+        ("glyph-missing", 1, "Failed", "Failed"),
+        # 1.30.3 fails this file on glyph widths only: it does not apply the CIDToGIDMap stream to .notdef.
+        ("glyph-map-notdef", 1, "Failed", "Failed"),
         ("malformed", 3, "Incomplete", "Incomplete"),
     ):
         text, sha = scan(name, expected, "--format", "json")
@@ -71,6 +75,20 @@ def main():
             if vera_test and not any(
                     f["clause"] == "7.21.7" and f["testNumber"] == vera_test for f in independent["findings"]):
                 raise RuntimeError(f"{name}: veraPDF did not report 7.21.7-{vera_test}")
+        if name.startswith("glyph-"):
+            # Every glyph control fails the native rule. veraPDF reports .notdef as 7.21.8-1 and a glyph missing from
+            # the program as 7.21.4.1-2; for a CIDToGIDMap entry of 0 it reports neither (a documented difference).
+            vera_rule, vera_present = {
+                "glyph-notdef": (("7.21.8", "1"), True),
+                "glyph-missing": (("7.21.4.1", "2"), True),
+                "glyph-map-notdef": (("7.21.8", "1"), False),
+            }[name]
+            rule = next(c for c in report["native"]["checks"] if c["id"] == "FPDF-A11Y-GLYPH")
+            if rule["status"] != "Failed":
+                raise RuntimeError(f"{name}: glyph rule returned {rule['status']}")
+            found = any((f["clause"], f["testNumber"]) == vera_rule for f in independent["findings"])
+            if found != vera_present:
+                raise RuntimeError(f"{name}: veraPDF {'did not report' if vera_present else 'reported'} {vera_rule[0]}-{vera_rule[1]}")
         if {report["documentSha256"], report["native"]["documentSha256"], independent["documentSha256"]} != {sha}:
             raise RuntimeError("Native and independent results are not bound to the same bytes")
         if not report["humanReviewRequired"] or len(report["requirementsInventory"]["humanRequirementIds"]) != 48:
