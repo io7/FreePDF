@@ -135,4 +135,101 @@ public partial class AccessibilityScannerTests
         Fails(report, "UNICODE");
         Assert.Contains(report.Findings, f => f.RuleId == "FPDF-A11Y-UNICODE" && f.Status == PdfAccessibilityCheckStatus.NotChecked);
     }
+
+    // The entries are out of order, so the lookup works on the sorted ranges.
+    const string ThreeRanges = "1 beginbfrange <0050> <0052> <0070> endbfrange "
+        + "1 beginbfrange <0040> <0045> <0061> endbfrange 1 beginbfchar <0030> <0031> endbfchar";
+
+    [Theory]
+    [InlineData("<0030> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<0040> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<0043> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<0045> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<0052> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<0001> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("<0046> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("<0060> Tj", PdfAccessibilityCheckStatus.Failed)]
+    public void Codes_are_looked_up_in_every_range(string content, PdfAccessibilityCheckStatus expected)
+        => Assert.Equal(expected, Outcome(ScanIdentity(content, ThreeRanges), "UNICODE"));
+
+    [Theory]
+    [InlineData("2 beginbfchar <0041> <0061> <0041> <0062> endbfchar")]
+    [InlineData("1 beginbfchar <0042> <0061> endbfchar 1 beginbfrange <0040> <0045> <0062> endbfrange")]
+    public void Codes_mapped_twice_are_not_checked(string entries)
+        => Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(ScanIdentity("<0041> Tj", entries), "UNICODE"));
+
+    [Fact]
+    public void Every_font_is_checked_and_each_map_is_decoded_once()
+    {
+        // 300 fonts with their own maps. Reading each map once fits the budget. Reading a map again for
+        // every string, as a bounded cache did for the fonts past its limit, would exceed it.
+        const int count = 300;
+        var entries = new StringBuilder("100 beginbfchar ");
+        for (int code = 0; code < 100; code++) entries.Append($"<{code:X4}> <{code + 0x100:X4}> ");
+        var cmapText = "begincmap " + TwoCodes + entries + "endbfchar endcmap";
+        var report = Scan(Fixture(d =>
+        {
+            var fonts = new PdfDictionary(d);
+            var content = new StringBuilder("/Artifact BMC BT ");
+            for (int i = 0; i < count; i++)
+            {
+                var info = new PdfDictionary(d);
+                info.Elements.SetString("/Registry", "Adobe");
+                info.Elements.SetString("/Ordering", "Identity");
+                var child = new PdfDictionary(d);
+                child.Elements.SetName("/Subtype", "/CIDFontType2");
+                child.Elements["/CIDSystemInfo"] = info;
+                var font = new PdfDictionary(d);
+                font.Elements.SetName("/Subtype", "/Type0");
+                font.Elements.SetName("/Encoding", "/Identity-H");
+                font.Elements["/DescendantFonts"] = new PdfArray(d, child);
+                var cmap = new PdfDictionary(d);
+                cmap.CreateStream(Encoding.ASCII.GetBytes(cmapText));
+                d.Internals.AddObject(cmap);
+                font.Elements["/ToUnicode"] = cmap.Reference!;
+                d.Internals.AddObject(font);
+                fonts.Elements["/F" + i] = font.Reference!;
+                content.Append($"/F{i} 12 Tf ");
+                for (int s = 0; s < 40; s++) content.Append("<0041> Tj ");
+            }
+            // Only the last font shows a code its map leaves out.
+            content.Append("<0100> Tj ET EMC");
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content.ToString()));
+        }), new PdfAccessibilityScanOptions { MaxDecodedBytes = 1024 * 1024 });
+        Assert.True(report.ScanCompleted);
+        var finding = Assert.Single(report.Findings.Where(f => f.RuleId == "FPDF-A11Y-UNICODE"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Failed, finding.Status);
+        Assert.Equal($"/Resources/Font/F{count - 1}", finding.Location);
+        Assert.Contains("<0100>", finding.Message);
+    }
+
+    [Theory]
+    [InlineData("/FlateDecode", "x\u009Cÿÿÿÿ\u0000\u00137")]
+    [InlineData("/ASCII85Decode", "!!!~x")]
+    public void Damaged_map_leaves_only_its_font_unassessed(string filter, string data)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var font = new PdfDictionary(d);
+            font.Elements.SetName("/Subtype", "/TrueType");
+            font.Elements.SetName("/Encoding", "/WinAnsiEncoding");
+            var cmap = new PdfDictionary(d);
+            cmap.CreateStream(data.Select(c => (byte)c).ToArray());
+            cmap.Elements.SetName("/Filter", filter);
+            d.Internals.AddObject(cmap);
+            font.Elements["/ToUnicode"] = cmap.Reference!;
+            var fonts = new PdfDictionary(d);
+            fonts.Elements["/Text"] = font;
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Text 12 Tf <41> Tj ET EMC"));
+        }));
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "UNICODE"));
+        // The scan went on past the map: the reader check ran last, and the font check still reports its failure.
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "CONTENT"));
+        Fails(report, "FONT");
+    }
 }

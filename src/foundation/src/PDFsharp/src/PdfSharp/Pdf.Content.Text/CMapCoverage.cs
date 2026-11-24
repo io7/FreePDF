@@ -1,13 +1,52 @@
 // Original FreePDF implementation. See LICENSE and PROVENANCE.md.
-using System.Collections;
 
 namespace PdfSharp.Pdf.Content.Text
 {
+    /// <summary>
+    /// The character codes that a ToUnicode CMap maps, as sorted ranges that do not overlap. Its size grows with the
+    /// entries in the map, not with the code space, so one coverage can be kept for every map in a document.
+    /// </summary>
+    sealed class CMapCoverage
+    {
+        readonly int[] _low;
+        readonly int[] _high;
+
+        CMapCoverage(int[] low, int[] high)
+        {
+            _low = low;
+            _high = high;
+        }
+
+        internal bool Contains(int code)
+        {
+            int index = Array.BinarySearch(_low, code);
+            if (index >= 0) return true;
+            // The complement is the first range that starts above the code. The range before it may contain the code.
+            index = ~index - 1;
+            return index >= 0 && code <= _high[index];
+        }
+
+        // Null when two entries map the same code: the map then has no single meaning.
+        internal static CMapCoverage? Create(List<(int Low, int High)> ranges)
+        {
+            ranges.Sort((a, b) => a.Low.CompareTo(b.Low));
+            var low = new int[ranges.Count];
+            var high = new int[ranges.Count];
+            for (int i = 0; i < ranges.Count; i++)
+            {
+                if (i > 0 && ranges[i].Low <= high[i - 1]) return null;
+                low[i] = ranges[i].Low;
+                high[i] = ranges[i].High;
+            }
+            return new CMapCoverage(low, high);
+        }
+    }
+
     static partial class CMapParser
     {
         // Extraction tolerates incomplete CMaps. To prove a code is absent we must understand the
         // entire mapping program. Accept the declarative subset below and return null for the rest.
-        internal static BitArray? ReadCoverage(byte[] data, int width, Action tick)
+        internal static CMapCoverage? ReadCoverage(byte[] data, int width, Action tick)
         {
             if (data.Length > 256 * 1024) return null;
             var tokens = new Tokenizer(data);
@@ -30,7 +69,7 @@ namespace PdfSharp.Pdf.Content.Text
                 first = tokens.Next();
             }
             if (first is not Keyword { Value: "begincmap" }) return null;
-            var mapped = new BitArray(1 << (width * 8));
+            var mapped = new List<(int Low, int High)>();
             int spaceLow = -1, spaceHigh = -1;
             object? token;
             while ((token = tokens.Next()) is not Keyword { Value: "endcmap" })
@@ -64,27 +103,19 @@ namespace PdfSharp.Pdf.Content.Text
                         for (int code = low; code <= high; code++)
                         {
                             tick();
-                            if (!ReadDestination(tokens.Next(), 0) || !tokens.LastStringWasHex || mapped[code]) return null;
-                            mapped[code] = true;
+                            if (!ReadDestination(tokens.Next(), 0) || !tokens.LastStringWasHex) return null;
                         }
                         if (!KeywordIs("]")) return null;
                     }
-                    else
-                    {
-                        if (!ReadDestination(dest, high - low) || !tokens.LastStringWasHex) return null;
-                        for (int code = low; code <= high; code++)
-                        {
-                            if (mapped[code]) return null;
-                            mapped[code] = true;
-                        }
-                    }
+                    else if (!ReadDestination(dest, high - low) || !tokens.LastStringWasHex) return null;
+                    mapped.Add((low, high));
                 }
                 if (!KeywordIs(range ? "endbfrange" : "endbfchar")) return null;
             }
             if (wrapped && !(KeywordIs("CMapName") && KeywordIs("currentdict") && NameIs("/CMap")
                 && KeywordIs("defineresource") && KeywordIs("pop") && KeywordIs("end") && KeywordIs("end"))) return null;
             if (spaceLow < 0 || tokens.Next() != null || tokens.MalformedToken) return null;
-            return mapped;
+            return CMapCoverage.Create(mapped);
         }
 
         static bool ReadMetadata(Tokenizer tokens, string name)

@@ -62,8 +62,9 @@ For an Adobe-Identity descendant using Identity-H/V, a used code with no map
 entry produces a failure with the first missing code, page and font path.
 
 An embedded encoding CMap, an inherited ToUnicode map, a map over 256 KiB,
-or another mapping the checker cannot establish produces `NotChecked` for
-affected text. The report locates the first unassessed occurrence on each page.
+a map stream that cannot be decoded, or another mapping the checker cannot
+establish produces `NotChecked` for affected text. The other checks continue.
+The report locates the first unassessed occurrence on each page.
 The checker reports a missing code as a failure only when it
 can also rule out an alternative mapping. A mapped code still needs a correct
 glyph and meaningful text. The check does not evaluate either.

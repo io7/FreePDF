@@ -1,19 +1,21 @@
 // Original FreePDF implementation. See LICENSE and PROVENANCE.md.
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Content.Objects;
 using PdfSharp.Pdf.Content.Text;
 using PdfSharp.Pdf.Forms;
+using PdfSharp.Pdf.IO;
 
 namespace PdfSharp.UniversalAccessibility
 {
     sealed partial class AccessibilityScan
     {
-        sealed record UnicodeFont(int Width, BitArray? Map, string?[]? Simple, bool RequiresMap);
+        sealed record UnicodeFont(int Width, CMapCoverage? Map, string?[]? Simple, bool RequiresMap);
+        // Every font and map is assessed once. A coverage grows with its map's entries, which the decode budget
+        // bounds, so neither cache needs a count limit. Fonts past such a limit would decode their map for each string.
         readonly Dictionary<PdfDictionary, UnicodeFont> _unicodeFonts = new();
-        readonly Dictionary<(PdfDictionary, int), BitArray?> _unicodeMaps = new();
+        readonly Dictionary<(PdfDictionary, int), CMapCoverage?> _unicodeMaps = new();
         readonly HashSet<(int Page, PdfDictionary Font)> _missingUnicode = new();
         readonly HashSet<int> _unassessedUnicodePages = new();
 
@@ -70,7 +72,7 @@ namespace PdfSharp.UniversalAccessibility
                     }
                     break;
             }
-            BitArray? map = null;
+            CMapCoverage? map = null;
             if (width > 0 && Resolve(font.Elements["/ToUnicode"]) is PdfItem mapItem && mapItem is not (PdfNull or PdfNullObject))
             {
                 var stream = mapItem as PdfDictionary;
@@ -78,10 +80,10 @@ namespace PdfSharp.UniversalAccessibility
                 {
                     if (!_unicodeMaps.TryGetValue((stream, width), out map))
                     {
+                        // A damaged map stream or an unsupported filter leaves only the fonts using that map unassessed.
                         try { map = CMapParser.ReadCoverage(Decode(stream), width, Tick); }
-                        catch (NotImplementedException) { /* Unsupported stream filter. Other fonts can still be checked. */ }
-                        // Up to 8 KiB per map. A later cache miss still uses the scan-wide decode budget.
-                        if (_unicodeMaps.Count < 256) _unicodeMaps.Add((stream, width), map);
+                        catch (Exception ex) when (!EndsScan(ex)) { }
+                        _unicodeMaps.Add((stream, width), map);
                     }
                 }
                 if (map == null)
@@ -92,9 +94,14 @@ namespace PdfSharp.UniversalAccessibility
                 }
             }
             var result = new UnicodeFont(width, map, simple, requiresMap);
-            if (_unicodeFonts.Count < 256) _unicodeFonts.Add(font, result);
+            _unicodeFonts.Add(font, result);
             return result;
         }
+
+        // Limits, cancellation and memory exhaustion end the whole scan, also while a map is read.
+        static bool EndsScan(Exception ex)
+            => ex is AccessibilityLimitException or OperationCanceledException or OutOfMemoryException
+                || (ex is PdfReaderException reader && Parser.IsLimitExceeded(reader));
 
         void InspectUnicode(COperator op, TextState text, int page, ContentStream stream)
         {
@@ -126,7 +133,7 @@ namespace PdfSharp.UniversalAccessibility
                         if (offset + 1 == value.Length) { Unknown(); return; }
                         code = (code << 8) | (byte)value[offset + 1];
                     }
-                    if (font.Map?[code] == true || font.Simple?[code] != null) continue;
+                    if (font.Map?.Contains(code) == true || font.Simple?[code] != null) continue;
                     passed = false;
                     if (font.RequiresMap)
                     {
