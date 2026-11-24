@@ -352,7 +352,8 @@ public partial class AccessibilityScannerTests
     }
 
     // A Type 1 /Differences name of .notdef selects .notdef whether or not the program is embedded. Other Type 1 codes
-    // need the program, which this check does not read yet; without one, visible text is left to the font check.
+    // need the program: one the check cannot read (here one without eexec) leaves them unassessed, and without one,
+    // visible text is left to the font check.
     [Theory]
     [InlineData("65 /.notdef", false, PdfAccessibilityCheckStatus.Failed)]
     [InlineData("65 /A", false, PdfAccessibilityCheckStatus.NotApplicable)]

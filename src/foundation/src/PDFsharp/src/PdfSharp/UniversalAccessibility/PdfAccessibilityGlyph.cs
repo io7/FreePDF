@@ -34,6 +34,7 @@ namespace PdfSharp.UniversalAccessibility
         readonly Dictionary<PdfDictionary, GlyphFont?> _glyphFonts = new();
         readonly Dictionary<PdfDictionary, EmbeddedTrueType?> _trueTypePrograms = new();
         readonly Dictionary<PdfDictionary, EmbeddedCff?> _cffPrograms = new();
+        readonly Dictionary<PdfDictionary, EmbeddedType1?> _type1Programs = new();
         readonly HashSet<int> _notdefPages = new();
         readonly HashSet<int> _missingGlyphPages = new();
         readonly HashSet<int> _unassessedGlyphPages = new();
@@ -243,13 +244,26 @@ namespace PdfSharp.UniversalAccessibility
             return new GlyphFont(1, uses, resolved, 0, null, embedded);
         }
 
-        // The names and built-in encoding of a Type 1 font's embedded program: CFF (FontFile3, without CIDFont
-        // operators). Null when there is none the check can read.
+        // The names and built-in encoding of a Type 1 font's embedded program: Type 1 (FontFile) or CFF (FontFile3,
+        // without CIDFont operators). Null when there is none the check can read.
         NamedProgram? NamedProgramOf(PdfDictionary? descriptor)
         {
+            var type1 = Type1Program(Dict(descriptor, "/FontFile"));
+            if (type1 != null) return new NamedProgram(type1.HasGlyph, type1.BuiltInEncoding);
             var cff = CffProgram(Dict(descriptor, "/FontFile3"));
             if (cff != null && !cff.CidKeyed) return new NamedProgram(cff.HasGlyph, cff.BuiltInEncoding);
             return null;
+        }
+
+        EmbeddedType1? Type1Program(PdfDictionary? file)
+        {
+            if (file?.Stream == null) return null;
+            if (_type1Programs.TryGetValue(file, out var known)) return known;
+            var data = DecodeFontProgram(file);
+            EmbeddedType1? program = null;
+            if (data != null) program = EmbeddedType1.Read(data, Tick);
+            _type1Programs.Add(file, program);
+            return program;
         }
 
         // ISO 32000-1 Table 126: Type1C and CIDFontType0C streams hold a bare CFF program; OpenType ones are not read.
