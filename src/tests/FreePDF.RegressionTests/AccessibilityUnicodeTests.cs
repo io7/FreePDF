@@ -337,6 +337,40 @@ public partial class AccessibilityScannerTests
     public void Unembedded_standard_fonts_use_their_built_in_encoding(string baseFont, string show, PdfAccessibilityCheckStatus expected)
         => Assert.Equal(expected, Outcome(ScanSimple(show, "/Type1", descriptor: false, baseFont: baseFont), "UNICODE"));
 
+    // A page can select thousands of fonts. One finding per kind of defect and page keeps the report within
+    // MaxFindings; it names the first font and code.
+    [Fact]
+    public void Each_page_reports_the_first_missing_mapping_and_the_first_forbidden_value()
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var fonts = new PdfDictionary(d);
+            var content = new StringBuilder("/Artifact BMC BT ");
+            for (int i = 0; i < 3; i++)
+            {
+                var font = new PdfDictionary(d);
+                font.Elements.SetName("/Subtype", "/Type1");
+                var encoding = new PdfDictionary(d);
+                encoding.Elements["/Differences"] = new PdfArray(d, new PdfInteger(65), new PdfName("/g" + i), new PdfName("/B"));
+                font.Elements["/Encoding"] = encoding;
+                var cmap = new PdfDictionary(d);
+                cmap.CreateStream(Encoding.ASCII.GetBytes(OneByteMap("1 beginbfchar <42> <0000> endbfchar")));
+                d.Internals.AddObject(cmap);
+                font.Elements["/ToUnicode"] = cmap.Reference!;
+                fonts.Elements["/F" + i] = font;
+                content.Append($"/F{i} 12 Tf <4142> Tj ");
+            }
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
+        }));
+        var findings = report.Findings.Where(f => f.RuleId == "FPDF-A11Y-UNICODE").ToList();
+        Assert.Equal(2, findings.Count);
+        Assert.All(findings, f => Assert.Equal("/Resources/Font/F0", f.Location));
+        Assert.Contains(findings, f => f.Message.Contains("<41> (glyph /g0)"));
+        Assert.Contains(findings, f => f.Message.Contains("<42>") && f.Message.Contains("U+FEFF"));
+    }
+
     static string OneByteMap(string entries)
         => "begincmap 1 begincodespacerange <00> <FF> endcodespacerange " + entries + " endcmap";
 

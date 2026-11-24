@@ -23,8 +23,10 @@ namespace PdfSharp.UniversalAccessibility
         // bounds, so neither cache needs a count limit. Fonts past such a limit would decode their map for each string.
         readonly Dictionary<PdfDictionary, UnicodeFont> _unicodeFonts = new();
         readonly Dictionary<(PdfDictionary, int), CMapCoverage?> _unicodeMaps = new();
-        readonly HashSet<(int Page, PdfDictionary Font)> _missingUnicode = new();
-        readonly HashSet<(int Page, PdfDictionary Font)> _forbiddenUnicode = new();
+        // Pages that already report a missing mapping, a forbidden value or an unassessed code. A page can select
+        // thousands of fonts, so each kind is reported once per page, with the first font and code, within MaxFindings.
+        readonly HashSet<int> _missingUnicodePages = new();
+        readonly HashSet<int> _forbiddenUnicodePages = new();
         readonly HashSet<int> _unassessedUnicodePages = new();
 
         // A code as it appears in a hex string of the font: two digits for a simple font, four for a two-byte code.
@@ -209,7 +211,7 @@ namespace PdfSharp.UniversalAccessibility
                         if (font.Map.MapsToForbiddenValue(code))
                         {
                             passed = false;
-                            if (_forbiddenUnicode.Add((page, text.Font!)))
+                            if (_forbiddenUnicodePages.Add(page))
                                 Record("UNICODE", PdfAccessibilityCheckStatus.Failed,
                                     $"Shown character code <{Hex(code, font.Width)}> maps to U+0000, U+FEFF or U+FFFE in the ToUnicode map.", page, path);
                         }
@@ -222,7 +224,7 @@ namespace PdfSharp.UniversalAccessibility
                     passed = false;
                     if (fallback == CodeMapping.Missing && !font.MapUnreadable)
                     {
-                        if (_missingUnicode.Add((page, text.Font!)))
+                        if (_missingUnicodePages.Add(page))
                         {
                             var glyph = font.Glyphs?[code] is string name ? $" (glyph {name})" : "";
                             Record("UNICODE", PdfAccessibilityCheckStatus.Failed,
