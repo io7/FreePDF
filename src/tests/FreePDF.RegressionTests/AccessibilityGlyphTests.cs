@@ -13,7 +13,7 @@ public partial class AccessibilityScannerTests
 
     // A Type0 font with Identity-H over a CIDFontType2 whose descriptor embeds the given program as FontFile2.
     static PdfAccessibilityReport ScanCid(string content, byte[]? program = null, Action<PdfDocument, PdfDictionary>? editChild = null,
-        string fontFileKey = "/FontFile2", string childSubtype = "/CIDFontType2")
+        string fontFileKey = "/FontFile2", string childSubtype = "/CIDFontType2", string? fileSubtype = null)
     {
         return Scan(Fixture(d =>
         {
@@ -29,6 +29,7 @@ public partial class AccessibilityScannerTests
             {
                 var file = new PdfDictionary(d);
                 file.CreateStream(program);
+                if (fileSubtype != null) file.Elements.SetName("/Subtype", fileSubtype);
                 d.Internals.AddObject(file);
                 descriptor.Elements[fontFileKey] = file.Reference!;
             }
@@ -124,7 +125,7 @@ public partial class AccessibilityScannerTests
     [InlineData("damaged")]
     [InlineData("OTTO")]
     [InlineData("ttcf")]
-    [InlineData("cff")]
+    [InlineData("truetype-as-fontfile3")]
     public void Programs_the_check_cannot_read_leave_the_text_unassessed(string kind)
     {
         var report = kind switch
@@ -132,7 +133,7 @@ public partial class AccessibilityScannerTests
             "damaged" => ScanCid("<0000> Tj", Encoding.ASCII.GetBytes("not a font program")),
             "OTTO" => ScanCid("<0000> Tj", Build(4, tag: "OTTO")),
             "ttcf" => ScanCid("<0000> Tj", Build(4, tag: "ttcf")),
-            _ => ScanCid("<0000> Tj", FourGlyphs, fontFileKey: "/FontFile3", childSubtype: "/CIDFontType0"),
+            _ => ScanCid("<0000> Tj", FourGlyphs, fontFileKey: "/FontFile3", childSubtype: "/CIDFontType0", fileSubtype: "/CIDFontType0C"),
         };
         Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "GLYPH"));
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
@@ -292,14 +293,16 @@ public partial class AccessibilityScannerTests
     [InlineData("symbolic-1-0", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
     [InlineData("symbolic-1-0", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
     [InlineData("symbolic-without-subtable", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
-    // WinAnsi 80 is Euro. The base encoding gives no name to look up, and 'post' may name the glyph.
-    [InlineData("base-code-post-names", "<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // WinAnsi 80 is Euro (ISO 32000-1 Annex D): the cmap does not map U+20AC, and 'post' names glyph 1 Euro.
+    [InlineData("base-code-post-names", "<80> Tj", PdfAccessibilityCheckStatus.Passed)]
     // A damaged format 4 subtable points past its own end into the next subtable.
     [InlineData("subtable-overrun", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     // A cut 'post' table cannot show that the name is absent.
     [InlineData("post-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     // A 'post' table shorter than its 32-byte header is present but cannot be read.
     [InlineData("post-header-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // A damaged string that no glyph uses names nothing, so the absent name is known to be absent.
+    [InlineData("post-unused-damage", "<41> Tj", PdfAccessibilityCheckStatus.Failed)]
     public void Simple_TrueType_codes_follow_the_font_cmap(string kind, string show, PdfAccessibilityCheckStatus expected)
     {
         var report = kind switch
@@ -336,6 +339,9 @@ public partial class AccessibilityScannerTests
                 program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postCut: 2)),
             "post-header-cut" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
                 program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, postCut: 16)),
+            // After the name zzzz, a string that claims 200 bytes and has 3.
+            "post-unused-damage" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postExtra: new byte[] { 200, 1, 2, 3 })),
             _ => ScanSimple(show, flags: 4, program: UnicodeA),
         };
         Assert.Equal(expected, Outcome(report, "GLYPH"));
@@ -351,7 +357,8 @@ public partial class AccessibilityScannerTests
     }
 
     // A Type 1 /Differences name of .notdef selects .notdef whether or not the program is embedded. Other Type 1 codes
-    // need the program, which this check does not read yet; without one, visible text is left to the font check.
+    // need the program: one the check cannot read (here one without eexec) leaves them unassessed, and without one,
+    // visible text is left to the font check.
     [Theory]
     [InlineData("65 /.notdef", false, PdfAccessibilityCheckStatus.Failed)]
     [InlineData("65 /A", false, PdfAccessibilityCheckStatus.NotApplicable)]
@@ -360,13 +367,14 @@ public partial class AccessibilityScannerTests
         => Assert.Equal(expected, Outcome(ScanSimple("<41> Tj", "/Type1", differences: differences,
             program: embedded ? Encoding.ASCII.GetBytes("%!PS-AdobeFont-1.0: Synthetic") : null), "GLYPH"));
 
-    // A code that only the base encoding names: where WinAnsi has the same character as StandardEncoding, the name is
-    // StandardEncoding's (ISO 32000-1 Annex D), so 41 is A and 43 is C. WinAnsi 80 (Euro) has no such name.
+    // A code that only the base encoding names takes its ISO 32000-1 Annex D name: WinAnsi 41 is A, 43 is C, 80 is Euro
+    // and C4 is Adieresis.
     [Theory]
     [InlineData("<41> Tj", PdfAccessibilityCheckStatus.Passed)]
     [InlineData("<43> Tj", PdfAccessibilityCheckStatus.Failed)]
-    [InlineData("<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
-    public void Type3_base_encoding_codes_use_their_standard_names(string show, PdfAccessibilityCheckStatus expected)
+    [InlineData("<80> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("<C4> Tj", PdfAccessibilityCheckStatus.Passed)]
+    public void Type3_base_encoding_codes_use_their_Annex_D_names(string show, PdfAccessibilityCheckStatus expected)
     {
         var report = Scan(Fixture(d =>
         {
@@ -375,6 +383,7 @@ public partial class AccessibilityScannerTests
             d.Internals.AddObject(procedure);
             var procedures = new PdfDictionary(d);
             procedures.Elements["/A"] = procedure.Reference!;
+            procedures.Elements["/Adieresis"] = procedure.Reference!;
             procedures.Elements["/b"] = procedure.Reference!;
             var encoding = new PdfDictionary(d);
             encoding.Elements.SetName("/BaseEncoding", "/WinAnsiEncoding");

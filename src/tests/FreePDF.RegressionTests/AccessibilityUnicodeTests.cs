@@ -420,7 +420,7 @@ public partial class AccessibilityScannerTests
     static PdfAccessibilityReport ScanSimple(string show, string subtype = "/TrueType", string? encoding = null,
         string? differences = null, string? baseEncoding = null, string? toUnicode = null, bool descriptor = true,
         string baseFont = "/SyntheticSimple", Action<PdfDictionary>? editFont = null, Action<PdfDictionary>? editMap = null,
-        byte[]? program = null, int flags = 32)
+        byte[]? program = null, int flags = 32, string? fontFileKey = null, string? fileSubtype = null)
     {
         return Scan(Fixture(d =>
         {
@@ -438,8 +438,9 @@ public partial class AccessibilityScannerTests
                 {
                     var file = new PdfDictionary(d);
                     file.CreateStream(program);
+                    if (fileSubtype != null) file.Elements.SetName("/Subtype", fileSubtype);
                     d.Internals.AddObject(file);
-                    fd.Elements[subtype == "/TrueType" ? "/FontFile2" : "/FontFile"] = file.Reference!;
+                    fd.Elements[fontFileKey ?? (subtype == "/TrueType" ? "/FontFile2" : "/FontFile")] = file.Reference!;
                 }
                 d.Internals.AddObject(fd);
                 font.Elements["/FontDescriptor"] = fd.Reference!;

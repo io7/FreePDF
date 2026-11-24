@@ -187,5 +187,77 @@ static class AccessibilityFixtures
             using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
             document.Save(file);
         }
+
+        // A second font with a synthetic Type 1 or CFF program, shown in an artifact: glyphs A and B (CIDs 1, 5 and 7).
+        foreach (var (name, show) in new[] { ("glyph-type1-missing", "42"), ("glyph-type1c-notdef", "01"),
+                     ("glyph-cff-cid-missing", "0003"), ("glyph-type1c-builtin-notdef", "80") })
+        {
+            original.Position = 0;
+            using var document = PdfReader.Open(original, PdfDocumentOpenMode.Modify);
+            var fonts = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
+            // CID 3 is not in the CID-keyed charset; B's code is renamed to a glyph the Type 1 program lacks; WinAnsi
+            // names no glyph at 01, and the CFF built-in Standard Encoding names none at 80.
+            var (key, bytes, subtype) = name switch
+            {
+                "glyph-cff-cid-missing" => ("/FontFile3", SyntheticCff.Cid(new[] { 1, 5, 7 }), "/CIDFontType0C"),
+                "glyph-type1-missing" => ("/FontFile", SyntheticType1.Build(new[] { "A", "B" }), null),
+                _ => ("/FontFile3", SyntheticCff.Named(new[] { "#34", "#35" }), "/Type1C"),
+            };
+            var program = new PdfDictionary(document);
+            program.CreateStream(bytes);
+            if (subtype != null) program.Elements.SetName("/Subtype", subtype);
+            document.Internals.AddObject(program);
+            var descriptor = new PdfDictionary(document);
+            descriptor.Elements[key] = program.Reference!;
+            descriptor.Elements.SetName("/Type", "/FontDescriptor");
+            descriptor.Elements.SetName("/FontName", "/Synthetic");
+            descriptor.Elements.SetInteger("/Flags", 32);
+            descriptor.Elements["/FontBBox"] = new PdfArray(document, new PdfInteger(0), new PdfInteger(0), new PdfInteger(1000), new PdfInteger(1000));
+            descriptor.Elements.SetInteger("/ItalicAngle", 0);
+            descriptor.Elements.SetInteger("/Ascent", 800);
+            descriptor.Elements.SetInteger("/Descent", -200);
+            descriptor.Elements.SetInteger("/CapHeight", 700);
+            descriptor.Elements.SetInteger("/StemV", 80);
+            var font = new PdfDictionary(document);
+            font.Elements.SetName("/Type", "/Font");
+            font.Elements.SetName("/BaseFont", "/Synthetic");
+            if (name == "glyph-cff-cid-missing")
+            {
+                var info = new PdfDictionary(document);
+                info.Elements.SetString("/Registry", "Adobe");
+                info.Elements.SetString("/Ordering", "Identity");
+                info.Elements.SetInteger("/Supplement", 0);
+                var child = new PdfDictionary(document);
+                child.Elements.SetName("/Type", "/Font");
+                child.Elements.SetName("/Subtype", "/CIDFontType0");
+                child.Elements.SetName("/BaseFont", "/Synthetic");
+                child.Elements["/CIDSystemInfo"] = info;
+                child.Elements["/FontDescriptor"] = descriptor;
+                font.Elements.SetName("/Subtype", "/Type0");
+                font.Elements.SetName("/Encoding", "/Identity-H");
+                font.Elements["/DescendantFonts"] = new PdfArray(document, child);
+            }
+            else
+            {
+                font.Elements.SetName("/Subtype", "/Type1");
+                font.Elements.SetInteger("/FirstChar", 0);
+                font.Elements.SetInteger("/LastChar", 255);
+                font.Elements["/Widths"] = new PdfArray(document, Enumerable.Repeat<PdfItem>(new PdfInteger(500), 256).ToArray());
+                font.Elements["/FontDescriptor"] = descriptor;
+                if (name == "glyph-type1-missing")
+                {
+                    var encoding = new PdfDictionary(document);
+                    encoding.Elements.SetName("/BaseEncoding", "/WinAnsiEncoding");
+                    encoding.Elements["/Differences"] = new PdfArray(document, new PdfInteger(66), new PdfName("/uniE000"));
+                    font.Elements["/Encoding"] = encoding;
+                }
+                if (name == "glyph-type1c-notdef") font.Elements.SetName("/Encoding", "/WinAnsiEncoding");
+            }
+            fonts.Elements["/Synthetic"] = font;
+            document.Pages[0].Contents.AppendContent().CreateStream(
+                Encoding.ASCII.GetBytes($"/Artifact BMC BT /Synthetic 14 Tf 40 100 Td <{show}> Tj ET EMC"));
+            using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
+            document.Save(file);
+        }
     }
 }

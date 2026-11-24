@@ -14,10 +14,17 @@ namespace PdfSharp.UniversalAccessibility
     {
         enum GlyphUse : byte { Unknown, Present, Notdef, Missing }
 
-        // Width 1: Simple holds the outcome of each one-byte code and Names its /Differences name. Width 2: a
-        // CIDFontType2 behind Identity-H or Identity-V, with the program's glyph count and its CIDToGIDMap (null for
-        // Identity). Embedded is false when the font has no program at all.
-        sealed record GlyphFont(int Width, GlyphUse[]? Simple, string?[]? Names, int GlyphCount, byte[]? CidMap, bool Embedded = true);
+        // Width 1: Simple holds the outcome of each one-byte code and Names its /Differences name; BaseNames is the shared
+        // base or built-in table that names the other codes (without a slash), for messages only. Width 2: a CIDFont
+        // behind Identity-H or Identity-V, with the program's glyph count and, for a CIDFontType2, its CIDToGIDMap (null
+        // for Identity); a CID-keyed CFF program gives the glyph of each CID itself (CidCff). Embedded is false when the
+        // font has no program at all.
+        sealed record GlyphFont(int Width, GlyphUse[]? Simple, string?[]? Names, int GlyphCount, byte[]? CidMap, bool Embedded = true,
+            EmbeddedCff? CidCff = null, string?[]? BaseNames = null);
+
+        // The glyph names of an embedded Type 1 or CFF program, and its built-in encoding: a glyph name for each code,
+        // null where it encodes none; BuiltIn is null when the encoding could not be read.
+        sealed record NamedProgram(Func<string, bool> HasGlyph, string?[]? BuiltIn);
 
         // Font programs are decoded once each, and not charged to MaxDecodedBytes: a program over its limit, or past
         // the total, leaves its fonts unassessed instead of ending the scan.
@@ -25,8 +32,23 @@ namespace PdfSharp.UniversalAccessibility
         const long MaxFontProgramTotal = 256L * 1024 * 1024;
         long _fontProgramBytes;
 
+        // The glyph names and CID tables kept from font programs can be much larger than the bytes that describe them
+        // (one charset range can cover 65,535 CIDs). Their entries share one total per scan; a program whose tables do
+        // not fit leaves its fonts unassessed.
+        const int MaxGlyphTableEntries = 1 << 20;
+        long _glyphTableEntries;
+
+        bool ReserveGlyphTable(int entries)
+        {
+            if (entries < 0 || _glyphTableEntries + entries > MaxGlyphTableEntries) return false;
+            _glyphTableEntries += entries;
+            return true;
+        }
+
         readonly Dictionary<PdfDictionary, GlyphFont?> _glyphFonts = new();
         readonly Dictionary<PdfDictionary, EmbeddedTrueType?> _trueTypePrograms = new();
+        readonly Dictionary<PdfDictionary, EmbeddedCff?> _cffPrograms = new();
+        readonly Dictionary<PdfDictionary, EmbeddedType1?> _type1Programs = new();
         readonly HashSet<int> _notdefPages = new();
         readonly HashSet<int> _missingGlyphPages = new();
         readonly HashSet<int> _unassessedGlyphPages = new();
@@ -90,7 +112,9 @@ namespace PdfSharp.UniversalAccessibility
                         if (_missingGlyphPages.Add(page))
                         {
                             var glyph = "";
-                            if (font.Names?[code] is string name) glyph = " (glyph " + ShortName(name) + ")";
+                            var name = font.Names?[code];
+                            if (name == null && font.BaseNames?[code] is { Length: > 0 } baseName) name = "/" + baseName;
+                            if (name != null) glyph = " (glyph " + ShortName(name) + ")";
                             Record("GLYPH", PdfAccessibilityCheckStatus.Failed,
                                 $"Shown character code <{Hex(code, font.Width)}>{glyph} selects a glyph that the embedded font program does not contain.",
                                 page, path);
@@ -104,10 +128,16 @@ namespace PdfSharp.UniversalAccessibility
             ForEachShownString(op, InspectString, Unknown);
         }
 
-        // ISO 32000-1 9.7.4.2: the CID is the code under Identity-H/V; CIDToGIDMap gives its glyph. TrueType glyph 0 is
-        // .notdef.
+        // ISO 32000-1 9.7.4.2: the CID is the code under Identity-H/V. A CID-keyed CFF program's charset gives its
+        // glyph; CIDToGIDMap does for a TrueType program, and other CFF programs use the CID as the glyph index. Glyph 0
+        // is .notdef.
         static GlyphUse CidGlyph(GlyphFont font, int cid)
         {
+            if (font.CidCff != null)
+            {
+                if (cid == 0) return GlyphUse.Notdef;
+                return font.CidCff.GlyphOfCid(cid) > 0 ? GlyphUse.Present : GlyphUse.Missing;
+            }
             int glyph = cid;
             if (font.CidMap != null)
             {
@@ -150,6 +180,12 @@ namespace PdfSharp.UniversalAccessibility
             var descriptor = Dict(child, "/FontDescriptor");
             // CID 0 is .notdef in every CIDFont, so even without a program the identity mapping can judge it.
             if (!HasFontProgram(descriptor)) return new GlyphFont(2, null, null, int.MaxValue, null, Embedded: false);
+            if (Name(child, "/Subtype") == "/CIDFontType0")
+            {
+                var cff = CffProgram(Dict(descriptor, "/FontFile3"));
+                if (cff == null) return null;
+                return new GlyphFont(2, null, null, cff.GlyphCount, null, CidCff: cff.CidKeyed ? cff : null);
+            }
             if (Name(child, "/Subtype") != "/CIDFontType2") return null;
             var program = TrueTypeProgram(Dict(descriptor, "/FontFile2"));
             if (program == null) return null;
@@ -177,32 +213,86 @@ namespace PdfSharp.UniversalAccessibility
             return map;
         }
 
-        // Type 1 and Type 3: a /Differences name selects the glyph. Without reading a Type 1 program, only .notdef is
-        // known; a Type 3 font has a glyph for each name in /CharProcs.
+        // Type 1 and Type 3 (ISO 32000-1 9.6.6.2 and 9.6.6.3): a code's glyph name comes from /Differences, else from
+        // the base encoding, and the program has a glyph of that name or not. The base is a named encoding (Annex D);
+        // without one, an embedded Type 1 or CFF program's built-in encoding (Table 114). Type 3 fonts have no built-in
+        // encoding, and their glyphs are the procedures in /CharProcs.
         GlyphFont NamedGlyphs(PdfDictionary font, PdfDictionary? charProcs)
         {
+            var descriptor = Dict(font, "/FontDescriptor");
             var names = DifferencesNames(font);
-            // A Type 3 code that /Differences leaves alone takes its name from a WinAnsi or MacRoman base encoding, where
-            // that name is certain. An array that cannot be read hides which codes it changes, so the base is not used.
-            string?[]? baseTable = null;
-            if (charProcs != null && Dict(font, "/Encoding") is PdfDictionary encoding
-                && Name(encoding, "/BaseEncoding") is "/WinAnsiEncoding" or "/MacRomanEncoding"
-                && (names != null || IsNull(Resolve(encoding.Elements["/Differences"]))))
-                baseTable = SimpleEncodings.Named(Name(encoding, "/BaseEncoding"));
+            var program = charProcs == null ? NamedProgramOf(descriptor) : null;
+            // An array that cannot be read hides which codes it changes, so then no base is used.
+            string[]? baseNames = null;
+            bool builtIn = false;
+            var encodingItem = Resolve(font.Elements["/Encoding"]);
+            if (encodingItem is PdfDictionary encoding)
+            {
+                if (names != null || IsNull(Resolve(encoding.Elements["/Differences"])))
+                {
+                    if (!IsNull(Resolve(encoding.Elements["/BaseEncoding"]))) baseNames = SimpleEncodings.Names(Name(encoding, "/BaseEncoding"));
+                    else builtIn = true;
+                }
+            }
+            else if (charProcs == null && encodingItem is PdfName or PdfNameObject) baseNames = SimpleEncodings.Names(Name(font, "/Encoding"));
+            else if (IsNull(encodingItem)) builtIn = true;
             var uses = new GlyphUse[256];
             for (int code = 0; code < 256; code++)
             {
-                var name = names?[code];
-                if (name == null && baseTable?[code] is string unicode && BaseEncodingName(unicode, code) is string standard)
-                    name = "/" + standard;
+                // The name without its slash. A code that the encoding does not name selects .notdef in a Type 1 font
+                // program.
+                var differencesName = names?[code];
+                string? name = differencesName?.Substring(1);
+                if (name == null && baseNames != null)
+                {
+                    if (baseNames[code].Length > 0) name = baseNames[code];
+                    else if (program != null) name = ".notdef";
+                }
+                if (name == null && builtIn && program?.BuiltIn != null) name = program.BuiltIn[code] ?? ".notdef";
                 if (name == null) continue;
-                if (name == "/.notdef") uses[code] = GlyphUse.Notdef;
-                else if (charProcs != null && Resolve(charProcs.Elements[name]) is PdfDictionary { Stream: not null }) uses[code] = GlyphUse.Present;
-                else if (charProcs != null) uses[code] = GlyphUse.Missing;
+                if (name == ".notdef") uses[code] = GlyphUse.Notdef;
+                else if (charProcs != null)
+                    uses[code] = Resolve(charProcs.Elements[differencesName ?? "/" + name]) is PdfDictionary { Stream: not null } ? GlyphUse.Present : GlyphUse.Missing;
+                else if (program != null) uses[code] = program.HasGlyph(name) ? GlyphUse.Present : GlyphUse.Missing;
             }
-            // A Type 3 font's glyph procedures are its program.
-            bool embedded = charProcs != null || HasFontProgram(Dict(font, "/FontDescriptor"));
-            return new GlyphFont(1, uses, names, 0, null, embedded);
+            // A Type 3 font's glyph procedures are its program. The base names stay shared: no copy is kept per font.
+            bool embedded = charProcs != null || HasFontProgram(descriptor);
+            string?[]? baseForMessages = baseNames ?? (builtIn ? program?.BuiltIn : null);
+            return new GlyphFont(1, uses, names, 0, null, embedded, BaseNames: baseForMessages);
+        }
+
+        // The names and built-in encoding of a Type 1 font's embedded program: Type 1 (FontFile) or CFF (FontFile3,
+        // without CIDFont operators). Null when there is none the check can read.
+        NamedProgram? NamedProgramOf(PdfDictionary? descriptor)
+        {
+            var type1 = Type1Program(Dict(descriptor, "/FontFile"));
+            if (type1 != null) return new NamedProgram(type1.HasGlyph, type1.BuiltInEncoding);
+            var cff = CffProgram(Dict(descriptor, "/FontFile3"));
+            if (cff != null && !cff.CidKeyed) return new NamedProgram(cff.HasGlyph, cff.BuiltInEncoding);
+            return null;
+        }
+
+        EmbeddedType1? Type1Program(PdfDictionary? file)
+        {
+            if (file?.Stream == null) return null;
+            if (_type1Programs.TryGetValue(file, out var known)) return known;
+            var data = DecodeFontProgram(file);
+            EmbeddedType1? program = null;
+            if (data != null) program = EmbeddedType1.Read(data, Tick, ReserveGlyphTable);
+            _type1Programs.Add(file, program);
+            return program;
+        }
+
+        // ISO 32000-1 Table 126: Type1C and CIDFontType0C streams hold a bare CFF program; OpenType ones are not read.
+        EmbeddedCff? CffProgram(PdfDictionary? file)
+        {
+            if (file?.Stream == null || Name(file, "/Subtype") is not ("/Type1C" or "/CIDFontType0C")) return null;
+            if (_cffPrograms.TryGetValue(file, out var known)) return known;
+            var data = DecodeFontProgram(file);
+            EmbeddedCff? program = null;
+            if (data != null) program = EmbeddedCff.Read(data, Tick, ReserveGlyphTable);
+            _cffPrograms.Add(file, program);
+            return program;
         }
 
         static bool HasFontProgram(PdfDictionary? descriptor)
@@ -234,6 +324,7 @@ namespace PdfSharp.UniversalAccessibility
             if (Dict(font, "/Encoding") is PdfDictionary encoding) baseName = Name(encoding, "/BaseEncoding");
             var baseTable = SimpleEncodings.Named(baseName);
             if (baseName == "/StandardEncoding") baseTable = null;
+            var baseNames = baseTable == null ? null : SimpleEncodings.Names(baseName);
             // No MacExpert table is at hand, so codes that encoding gives stay unknown.
             bool unknownBase = baseName == "/MacExpertEncoding";
             var program = TrueTypeProgram(Dict(descriptor, "/FontFile2"));
@@ -244,7 +335,7 @@ namespace PdfSharp.UniversalAccessibility
                 var name = names?[code];
                 if (nonsymbolic && name == "/.notdef") uses[code] = GlyphUse.Notdef;
                 else if (program == null || (nonsymbolic && name == null && unknownBase)) uses[code] = GlyphUse.Unknown;
-                else if (nonsymbolic) uses[code] = NonsymbolicGlyph(program, code, name, baseTable);
+                else if (nonsymbolic) uses[code] = NonsymbolicGlyph(program, code, name, baseTable, baseNames);
                 else uses[code] = SymbolicGlyph(program, code);
             }
             return new GlyphFont(1, uses, names, 0, null, HasFontProgram(descriptor));
@@ -268,17 +359,18 @@ namespace PdfSharp.UniversalAccessibility
             return Found(program, program.Lookup(1, 0, code));
         }
 
-        // The glyph name comes from /Differences, else the base encoding, else StandardEncoding. Its Unicode value is
-        // looked up in the (3,1) subtable, its MacRoman code in the (1,0) subtable, and the name in the 'post' table.
-        // A glyph is missing only when every lookup that could find it is known to fail.
-        static GlyphUse NonsymbolicGlyph(EmbeddedTrueType program, int code, string? differencesName, string?[]? baseTable)
+        // The glyph name comes from /Differences, else the base encoding (ISO 32000-1 Annex D), else StandardEncoding.
+        // Its Unicode value is looked up in the (3,1) subtable, its MacRoman code in the (1,0) subtable, and the name in
+        // the 'post' table. A glyph is missing only when every lookup that could find it is known to fail.
+        static GlyphUse NonsymbolicGlyph(EmbeddedTrueType program, int code, string? differencesName, string?[]? baseTable,
+            string[]? baseNames)
         {
             string? name = differencesName?.Substring(1);
             string? unicode = null;
             if (name == null)
             {
                 unicode = baseTable?[code];
-                if (unicode != null) name = BaseEncodingName(unicode, code);
+                if (unicode != null && baseNames?[code] is { Length: > 0 } baseName) name = baseName;
             }
             if (name == null && unicode == null && GlyphTables.StandardEncoding[code].Length > 0)
                 name = GlyphTables.StandardEncoding[code];
@@ -301,8 +393,9 @@ namespace PdfSharp.UniversalAccessibility
             if (name != null && program.GlyphByCustomName(name) is int named && named > 0 && named < program.GlyphCount)
                 return GlyphUse.Present;
             // The 'post' table may still name the glyph: under a standard Macintosh name (those are in the Adobe Glyph
-            // List, or are .null or nonmarkingreturn), under a custom name when only the base encoding gives the code
-            // (its WinAnsi or MacRoman name is not at hand), or in a part the reader could not read.
+            // List, or are .null or nonmarkingreturn), under a custom name when the base encoding gives the code a
+            // character but no name (a Mac OS Roman code that MacRomanEncoding lacks), or in a part the reader could
+            // not read.
             bool standardName = name == null || GlyphNames.IsListed(name) || name is ".null" or "nonmarkingreturn";
             bool postMayName = !program.PostNamesComplete || (standardName && program.HasStandardNames)
                 || (name == null && program.HasCustomNames);
@@ -310,15 +403,6 @@ namespace PdfSharp.UniversalAccessibility
             return GlyphUse.Missing;
         }
 
-        // The name a WinAnsi or MacRoman code has, where it is certain: ISO 32000-1 Annex D gives a character one name
-        // in every encoding, so where the base table has StandardEncoding's character, it has StandardEncoding's name.
-        // Null elsewhere (Euro, for example), because only character tables of those encodings are at hand.
-        static string? BaseEncodingName(string unicode, int code)
-        {
-            var standard = GlyphTables.StandardEncoding[code];
-            if (standard.Length == 0 || GlyphNames.ToUnicode(standard, false) != unicode) return null;
-            return standard;
-        }
 
         static GlyphUse Found(EmbeddedTrueType program, int? glyph)
         {
@@ -348,7 +432,7 @@ namespace PdfSharp.UniversalAccessibility
             if (_trueTypePrograms.TryGetValue(file, out var known)) return known;
             var data = DecodeFontProgram(file);
             EmbeddedTrueType? program = null;
-            if (data != null) program = EmbeddedTrueType.Read(data, Tick);
+            if (data != null) program = EmbeddedTrueType.Read(data, Tick, ReserveGlyphTable);
             _trueTypePrograms.Add(file, program);
             return program;
         }

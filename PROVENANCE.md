@@ -546,7 +546,9 @@ the Adobe Glyph List and the ITC Zapf Dingbats Glyph List at the publisher's com
 `4036a9ca80a62f64f9de4f7321a9a045ad0ecfd6` (BSD 3-clause, Copyright 2002-2019 Adobe), and the built-in
 encodings of the Helvetica, Symbol and ZapfDingbats AFM files in Apache PDFBox at tag `3.0.3` (Adobe's AFM
 terms; no PDFBox code). WinAnsiEncoding and MacRomanEncoding come from Python's `cp1252` and `mac_roman`
-codecs with the Annex D differences noted in the script. The generated source and
+codecs with the Annex D differences noted in the script. Their glyph names are the Adobe Glyph List names of
+those characters, with ISO 32000-1 Annex D's choice where the list has several, and without the codes that
+Table 115 lists for Mac OS Roman only; they were checked against Annex D Table D.2. The generated source and
 `src/packages/Adobe-Glyph-Tables.txt`, which every package carries as `THIRD-PARTY/Adobe-Glyph-Tables.txt`,
 hold the notices.
 
@@ -568,6 +570,17 @@ Matterhorn Protocol 1.1 inventory, the OpenType specification's descriptions of 
 text extraction. The fixtures embed DejaVu Sans from `lab/Assets`. veraPDF 1.30.3 supplied runtime verdicts on
 original synthetic files only; its source was not read. FreePDF's inherited OpenType reader was not used, and no
 other font or PDF library's implementation was read.
+
+`UniversalAccessibility/EmbeddedCff.cs`, `UniversalAccessibility/EmbeddedType1.cs`,
+`UniversalAccessibility/CffStandardStrings.cs` and the program builders `lab/Shared/SyntheticCff.cs` and
+`lab/Shared/SyntheticType1.cs` are original FreePDF code. Their inputs were Adobe Technical Note #5176 (The
+Compact Font Format Specification, 4 December 2003: header, INDEX, DICT, Top DICT, charsets, encodings and the
+standard strings of Appendix A, whose 391 names `CffStandardStrings.cs` lists), the Adobe Type 1 Font Format
+(program organization, the RD, ND and NP procedures and eexec encryption), and ISO 32000-1 sections 9.6.6.1,
+9.6.6.2, 9.7.4.2, Table 114, Table 115, Table 126 and Annex D. veraPDF 1.30.3 supplied runtime verdicts on
+original synthetic files and on local probes that embedded the URW base-35 fonts installed on the build machine
+and PDFs made there by pdfTeX, XeTeX and Ghostscript; none of those fonts or PDFs is in the repository. No other
+font or PDF library's implementation was read.
 
 ## Guide, samples and documentation site (2026-11-19)
 

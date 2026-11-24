@@ -4,7 +4,8 @@
 Writes Pdf.Content.Text/GlyphTables.g.cs and src/packages/Adobe-Glyph-Tables.txt from the Adobe Glyph List,
 the ITC Zapf Dingbats Glyph List and three Core14 AFM files (as distributed with Apache PDFBox 3.0.3; only the
 data is used). Every download is pinned by SHA-256. WinAnsiEncoding and MacRomanEncoding come from Python's
-cp1252 and mac_roman codecs with the ISO 32000-1 Annex D differences noted below.
+cp1252 and mac_roman codecs with the ISO 32000-1 Annex D differences noted below; their glyph names are the Adobe
+Glyph List names of those characters, with Annex D's choice where the list has several.
 
 Usage: python3 eng/update_text_tables.py
 """
@@ -85,6 +86,40 @@ def single_byte(codec, undefined, overrides):
     return chars
 
 
+def encoding_names(chars, agl, absent=()):
+    """Glyph name for each code ('' where undefined): the Adobe Glyph List name of the code's character.
+
+    ISO 32000-1 Annex D gives each character of the Latin set one name. Where the list has several names for a
+    character, PREFERRED holds Annex D's; codes in `absent` have no name in the PDF encoding.
+    """
+    by_char = {}
+    for line in entries(agl):
+        name, codes = line.split(";")
+        if " " not in codes:
+            by_char.setdefault(chr(int(codes, 16)), []).append(name)
+    names = []
+    for code, char in enumerate(chars):
+        candidates = by_char.get(char, [])
+        if char == "�" or code in absent:
+            names.append("")
+        elif char in PREFERRED:
+            if PREFERRED[char] not in candidates:
+                raise SystemExit(f"{PREFERRED[char]} is not a name of U+{ord(char):04X}")
+            names.append(PREFERRED[char])
+        elif len(candidates) == 1:
+            names.append(candidates[0])
+        else:
+            raise SystemExit(f"Code {code}: no single name for U+{ord(char):04X}: {candidates}")
+    return names
+
+
+# Annex D's names where the Adobe Glyph List has more than one name for the character.
+PREFERRED = {" ": "space", "|": "bar", "¯": "macron", "µ": "mu", "·": "periodcentered",
+             "˜": "tilde", "€": "Euro"}
+# ISO 32000-1 Table 115: the codes Mac OS Roman adds to MacRomanEncoding (notequal ... lozenge, apple).
+MAC_OS_ONLY = (0o255, 0o260, 0o262, 0o263, 0o266, 0o267, 0o270, 0o271, 0o272, 0o275, 0o303, 0o305, 0o306, 0o327, 0o360)
+
+
 def cs_names(names):
     rows = [", ".join(f'"{n}"' for n in names[i:i + 16]) for i in range(0, 256, 16)]
     return "{\n            " + ",\n            ".join(rows) + "\n        }"
@@ -163,6 +198,15 @@ namespace PdfSharp.Pdf.Content.Text
 
         /// <summary>MacRomanEncoding: the character of each code (U+FFFD where undefined).</summary>
         internal const string MacRomanEncoding ={cs_chars(mac_roman)};
+
+        /// <summary>Glyph names of WinAnsiEncoding by code ("" where undefined), as in ISO 32000-1 Annex D.</summary>
+        internal static readonly string[] WinAnsiNames = {cs_names(encoding_names(win_ansi, agl))};
+
+        /// <summary>
+        /// Glyph names of MacRomanEncoding by code ("" where undefined), as in ISO 32000-1 Annex D: without the codes
+        /// that Table 115 lists for Mac OS Roman only.
+        /// </summary>
+        internal static readonly string[] MacRomanNames = {cs_names(encoding_names(mac_roman, agl, MAC_OS_ONLY))};
     }}
 }}
 """, encoding="utf-8", newline="\n")

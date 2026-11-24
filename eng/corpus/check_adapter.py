@@ -50,6 +50,12 @@ def main():
         ("glyph-missing", 1, "Failed", "Failed"),
         # 1.30.3 fails this file on glyph widths only: it does not apply the CIDToGIDMap stream to .notdef.
         ("glyph-map-notdef", 1, "Failed", "Failed"),
+        ("glyph-type1-missing", 1, "Failed", "Failed"),
+        ("glyph-type1c-notdef", 1, "Failed", "Failed"),
+        ("glyph-cff-cid-missing", 1, "Failed", "Failed"),
+        # 1.30.3 fails this file on widths and Unicode only: it passes a code the CFF built-in encoding does not name.
+        # The native Unicode rule does not read built-in encodings yet, so the native scan is incomplete.
+        ("glyph-type1c-builtin-notdef", 1, "Incomplete", "Failed"),
         ("malformed", 3, "Incomplete", "Incomplete"),
     ):
         text, sha = scan(name, expected, "--format", "json")
@@ -77,11 +83,16 @@ def main():
                 raise RuntimeError(f"{name}: veraPDF did not report 7.21.7-{vera_test}")
         if name.startswith("glyph-"):
             # Every glyph control fails the native rule. veraPDF reports .notdef as 7.21.8-1 and a glyph missing from
-            # the program as 7.21.4.1-2; for a CIDToGIDMap entry of 0 it reports neither (a documented difference).
+            # the program as 7.21.4.1-2; for a CIDToGIDMap entry of 0, and for a code that a CFF built-in encoding
+            # does not name, it reports neither (documented differences).
             vera_rule, vera_present = {
                 "glyph-notdef": (("7.21.8", "1"), True),
                 "glyph-missing": (("7.21.4.1", "2"), True),
                 "glyph-map-notdef": (("7.21.8", "1"), False),
+                "glyph-type1-missing": (("7.21.4.1", "2"), True),
+                "glyph-type1c-notdef": (("7.21.8", "1"), True),
+                "glyph-cff-cid-missing": (("7.21.4.1", "2"), True),
+                "glyph-type1c-builtin-notdef": (("7.21.8", "1"), False),
             }[name]
             rule = next(c for c in report["native"]["checks"] if c["id"] == "FPDF-A11Y-GLYPH")
             if rule["status"] != "Failed":

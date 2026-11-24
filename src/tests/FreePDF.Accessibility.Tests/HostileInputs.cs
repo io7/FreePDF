@@ -9,7 +9,8 @@ internal static class HostileInputs
     internal static readonly string[] Names =
     {
         "q-flood", "nested-xmp", "long-form-name", "type0-chain", "shared-alt", "form-fan-out",
-        "whitespace-alt", "mcr-form", "type3-shared", "shared-differences", "shared-invalid-differences"
+        "whitespace-alt", "mcr-form", "type3-shared", "shared-differences", "shared-invalid-differences", "cff-cid-maps",
+        "post-strings", "cff-repeated-name"
     };
 
     // What a correct scan reports for each input: the READ outcome (a limit makes it NotChecked) and, where the
@@ -52,6 +53,13 @@ internal static class HostileInputs
         "shared-alt" => SharedAlternativeText(2000, 64 * 1024),
         // 4.2 million form invocations; bounded by MaxDecodedBytes.
         "form-fan-out" => FormFanOut(22),
+        // Distinct CID-keyed CFF programs whose one charset range covers 65,535 glyphs: a CID table each.
+        "cff-cid-maps" => CidMaps(3000),
+        // A TrueType 'post' table with 15 million one-letter names, of which no glyph uses more than one.
+        "post-strings" => PostStrings(15_000_000),
+        // One CFF program whose 65,534 glyphs all have the same 1 MiB custom name (one string, referenced 65,534 times):
+        // each glyph made its own copy. The 255-character name limit now refuses it.
+        "cff-repeated-name" => RepeatedName(1 << 20, 65_534),
         _ => throw new ArgumentException("Unknown input.", nameof(name))
     };
 
@@ -175,6 +183,69 @@ internal static class HostileInputs
         for (int i = 0; i < fonts; i++)
             objects.Add(A("<< /Type /Font /Subtype /Type1 /BaseFont /Shared /FontDescriptor 6 0 R /Encoding 5 0 R >>"));
         return Pdf(objects.ToArray());
+    }
+
+    // Each Type0 font has its own descendant, descriptor and compressed program stream, so every program is read.
+    static byte[] CidMaps(int fonts)
+    {
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+            zlib.Write(FreePDF.Lab.Fixtures.SyntheticCff.Cid(Enumerable.Range(1, 65534).ToArray(), charsetFormat: 2, emptyGlyphs: true));
+        var names = String.Join(" ", Enumerable.Range(0, fonts).Select(i => "/F" + i + " " + (5 + 4 * i) + " 0 R"));
+        var show = String.Concat(Enumerable.Range(0, fonts).Select(i => "/F" + i + " 1 Tf <0001> Tj "));
+        var objects = new List<byte[]> { A(Catalog), A(Pages), A(Page("/Resources << /Font << " + names + " >> >>")),
+            Stream("", A("/Artifact BMC BT " + show + "ET EMC")) };
+        for (int i = 0; i < fonts; i++)
+        {
+            int font = 5 + 4 * i;
+            objects.Add(A("<< /Type /Font /Subtype /Type0 /BaseFont /C /Encoding /Identity-H /DescendantFonts [" + (font + 1) + " 0 R] >>"));
+            objects.Add(A("<< /Type /Font /Subtype /CIDFontType0 /BaseFont /C /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) "
+                + "/Supplement 0 >> /FontDescriptor " + (font + 2) + " 0 R >>"));
+            objects.Add(A("<< /Type /FontDescriptor /FontName /C /Flags 4 /FontFile3 " + (font + 3) + " 0 R >>"));
+            objects.Add(Stream("/Subtype /CIDFontType0C /Filter /FlateDecode", compressed.ToArray()));
+        }
+        return Pdf(objects.ToArray());
+    }
+
+    // A Type 1 font with a Type1C program, so the reader names every glyph.
+    static byte[] RepeatedName(int length, int glyphs)
+    {
+        var name = new string('x', length);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+            zlib.Write(FreePDF.Lab.Fixtures.SyntheticCff.Named(Enumerable.Repeat(name, glyphs).ToArray()));
+        return Pdf(A(Catalog), A(Pages), A(Page("/Resources << /Font << /F 5 0 R >> >>")),
+            Stream("", A("/Artifact BMC BT /F 12 Tf (A) Tj ET EMC")),
+            A("<< /Type /Font /Subtype /Type1 /BaseFont /R /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>"),
+            A("<< /Type /FontDescriptor /FontName /R /Flags 32 /FontFile3 7 0 R >>"),
+            Stream("/Subtype /Type1C /Filter /FlateDecode", compressed.ToArray()));
+    }
+
+    // A simple TrueType font whose program has no cmap, so the shown code's glyph name is looked up in 'post'.
+    static byte[] PostStrings(int strings)
+    {
+        using var program = new MemoryStream();
+        void U16(int v) { program.WriteByte((byte)(v >> 8)); program.WriteByte((byte)v); }
+        void U32(long v) { U16((int)(v >> 16)); U16((int)(v & 0xFFFF)); }
+        // The table directory: maxp at 44 (6 bytes, padded to 8), post at 52.
+        long postLength = 32 + 2 + 2 * 4 + 2L * strings;
+        U32(0x00010000); U16(2); U16(0); U16(0); U16(0);
+        program.Write(A("maxp")); U32(0); U32(44); U32(6);
+        program.Write(A("post")); U32(0); U32(52); U32(postLength);
+        U32(0x00005000); U16(4); U16(0);
+        // Format 2: four glyphs, each named by string 0, then the strings "a".
+        U32(0x00020000); for (int i = 0; i < 7; i++) U32(0);
+        U16(4); for (int i = 0; i < 4; i++) U16(258);
+        var names = new byte[2 * strings];
+        for (int i = 0; i < strings; i++) { names[2 * i] = 1; names[2 * i + 1] = (byte)'a'; }
+        program.Write(names);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true)) zlib.Write(program.ToArray());
+        return Pdf(A(Catalog), A(Pages), A(Page("/Resources << /Font << /F 5 0 R >> >>")),
+            Stream("", A("/Artifact BMC BT /F 12 Tf (B) Tj ET EMC")),
+            A("<< /Type /Font /Subtype /TrueType /BaseFont /P /Encoding /WinAnsiEncoding /FontDescriptor 6 0 R >>"),
+            A("<< /Type /FontDescriptor /FontName /P /Flags 32 /FontFile2 7 0 R >>"),
+            Stream("/Filter /FlateDecode", compressed.ToArray()));
     }
 
     static byte[] A(string value) => Encoding.ASCII.GetBytes(value);

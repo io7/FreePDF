@@ -90,35 +90,58 @@ still needs a correct glyph and meaningful text. The check does not evaluate
 either.
 
 The glyph rule checks the same codes. A code fails when it selects the
-`.notdef` glyph, in any rendering mode (ISO 14289-1 7.21.8): a `/Differences`
-name `.notdef`, or glyph 0 of a TrueType CIDFont after its `CIDToGIDMap`.
-Visible text also fails when it selects a glyph that the embedded program does
-not contain (7.21.4.1): a glyph index past the program, a CID past a
-`CIDToGIDMap` stream, a Type 3 name without a procedure in `/CharProcs`, or a
-simple TrueType code that no lookup finds. For a simple TrueType font, the rule
-looks up the Unicode value of the glyph name in the (3,1) cmap, its MacRoman
-code in the (1,0) cmap and the name itself in the `post` table (ISO 32000-1
-9.6.6.4). A symbolic font uses the (3,0) cmap, with the code alone and with
-F000, F100 or F200 added, or else the (1,0) cmap. Each page reports its first
-`.notdef` and its first missing glyph, with the code and the font path.
+`.notdef` glyph, in any rendering mode (ISO 14289-1 7.21.8): a glyph name
+`.notdef`, a code that a Type 1 font's encoding does not name, glyph 0 of a
+TrueType CIDFont after its `CIDToGIDMap`, or CID 0 of a CFF CIDFont. Visible
+text also fails when it selects a glyph that the embedded program does not
+contain (7.21.4.1): a glyph index past the program, a CID past a `CIDToGIDMap`
+stream or missing from a CFF charset, a glyph name that the Type 1 or CFF
+program lacks, a Type 3 name without a procedure in `/CharProcs`, or a simple
+TrueType code that no lookup finds. Each page reports its first `.notdef` and
+its first missing glyph, with the code and the font path.
 
-The rule reads embedded TrueType programs (`FontFile2`) and Type 3 procedures.
-CFF and Type 1 programs (`FontFile3`, `FontFile`), font collections, damaged
-programs, and programs that inflate past 32 MiB, or past 256 MiB for all
-programs of a scan, give `NotChecked`. Font programs do not count toward
-`MaxDecodedBytes`. Visible text in a font without a program fails the font
-check, and the glyph rule judges only its `.notdef` names. Invisible text in
-such a font is `NotChecked`.
+For a simple TrueType font, the rule looks up the Unicode value of the glyph
+name in the (3,1) cmap, its MacRoman code in the (1,0) cmap and the name itself
+in the `post` table (ISO 32000-1 9.6.6.4). A symbolic font uses the (3,0) cmap,
+with the code alone and with F000, F100 or F200 added, or else the (1,0) cmap.
 
-A code that only a WinAnsi or MacRoman base encoding names has a known glyph
-name where that encoding has the same character as StandardEncoding (ISO
-32000-1 Annex D gives a character one name). Elsewhere, such as WinAnsi `80`
-(Euro), the name is not known. A glyph that the cmap does not find stays
-`NotChecked` when the `post` table could still name it: under a standard
-Macintosh name, under a custom name for a code whose name is not known, or in a
-part of the table the rule cannot read. A Type 3 code whose name is not known
-is `NotChecked`. The rule reads each cmap subtable within the length it declares.
-Decoding a program that passes its own limit still counts toward the total.
+For a Type 1 font, the glyph name comes from `/Differences`, else from a named
+base encoding, else from the program's built-in encoding (ISO 32000-1 9.6.6.2
+and Table 114). The name must be a key of the Type 1 `CharStrings` dictionary or
+a name in the CFF charset. A Type 0 font over a CIDFontType0 with a CID-keyed
+CFF program takes the glyph of each CID from the charset. A CFF program without
+CIDFont operators uses the CID as the glyph index (9.7.4.2).
+
+The rule reads embedded TrueType (`FontFile2`), Type 1 (`FontFile`) and CFF
+(`FontFile3` with subtype `Type1C` or `CIDFontType0C`) programs and Type 3
+procedures. Font programs do not count toward `MaxDecodedBytes`, and each is
+read once per scan. These give `NotChecked`: OpenType programs in `FontFile3`,
+CFF2, CFF font sets with more than one font, synthetic CFF fonts, the Expert
+charsets and encodings, CID-keyed CFF programs in simple fonts, Type 1 programs
+in PFB form or without eexec encryption, font collections, damaged programs
+(including CFF INDEXes with offsets out of order and glyph names longer than 255
+characters), programs that inflate past 32 MiB, or past 256 MiB for all programs
+of a scan, and programs whose glyph tables do not fit. The glyph names, CID
+tables, `post` names and built-in encoding names kept from all programs of a
+scan share 1,048,576 entries; a name takes one entry and one more for every 16
+characters, and a
+Type 1 program may name at most 65,536 glyphs. A Type 1 built-in encoding counts
+only as `StandardEncoding def`, or as `256 array`, optionally filled with
+`.notdef` by the usual `for` loop, then set by `dup code /name put` entries and
+`def`. Any other form, such as a changed copy of StandardEncoding, leaves the
+codes it gives `NotChecked`.
+Visible text in a font without a program fails the font check, and the glyph
+rule judges only its `.notdef` names. Invisible text in such a font is
+`NotChecked`.
+
+A code that only a WinAnsi or MacRoman base encoding names has its ISO 32000-1
+Annex D glyph name: WinAnsi `80` is `Euro`. A TrueType glyph that the cmap does
+not find stays `NotChecked` when the `post` table could still name it: under a
+standard Macintosh name, or in a part of the table the rule cannot read. A Type
+3 code without a name is `NotChecked`. The rule reads each cmap subtable within
+the length it declares, each CFF structure within its INDEX, and skips each
+Type 1 charstring by its byte count. Decoding a program that passes its own
+limit still counts toward the total.
 
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
@@ -149,7 +172,7 @@ to its end, failures found before the error remain in the report, and the scan
 is `Incomplete`.
 
 The checks are a starting point, not the complete Matterhorn/PDF/UA test set. They
-do not validate all Unicode mappings, glyphs in CFF or Type 1 programs, glyph shapes, all heading/table
+do not validate all Unicode mappings, glyphs in OpenType programs, glyph shapes, all heading/table
 semantics, widget accessible names, annotation appearance streams, optional content,
 all parent-tree rules, security permissions or PDF/UA-2. Language presence does not
 prove its correctness; alternative-text presence does not prove its usefulness.
