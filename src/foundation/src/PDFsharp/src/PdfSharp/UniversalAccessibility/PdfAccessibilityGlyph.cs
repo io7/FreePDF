@@ -154,14 +154,27 @@ namespace PdfSharp.UniversalAccessibility
             var program = TrueTypeProgram(Dict(descriptor, "/FontFile2"));
             if (program == null) return null;
             byte[]? map = null;
-            var mapItem = Resolve(child!.Elements["/CIDToGIDMap"]);
+            var mapItem = Resolve(child.Elements["/CIDToGIDMap"]);
             if (mapItem is PdfDictionary { Stream: not null } stream)
             {
-                try { map = Decode(stream); }
-                catch (Exception ex) when (!EndsScan(ex)) { return null; }
+                map = CidToGidMap(stream);
+                if (map == null) return null;
             }
             else if (!IsNull(mapItem) && Name(child, "/CIDToGIDMap") != "/Identity") return null;
             return new GlyphFont(2, null, null, program.GlyphCount, map);
+        }
+
+        // Fonts often share a descendant and its map, so each map stream is decoded once. Null for a damaged stream.
+        readonly Dictionary<PdfDictionary, byte[]?> _cidToGidMaps = new();
+
+        byte[]? CidToGidMap(PdfDictionary stream)
+        {
+            if (_cidToGidMaps.TryGetValue(stream, out var known)) return known;
+            byte[]? map = null;
+            try { map = Decode(stream); }
+            catch (Exception ex) when (!EndsScan(ex)) { }
+            _cidToGidMaps.Add(stream, map);
+            return map;
         }
 
         // Type 1 and Type 3: a /Differences name selects the glyph. Without reading a Type 1 program, only .notdef is

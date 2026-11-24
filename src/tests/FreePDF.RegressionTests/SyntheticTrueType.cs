@@ -15,13 +15,15 @@ static class SyntheticTrueType
     /// <param name="postNames">Format 2 names by glyph index; a name of the standard Macintosh set must be given as
     /// its standard index ("#3"), any other text becomes a custom name. Null writes a format 3 table, and
     /// <paramref name="post"/> false writes none.</param>
+    /// <param name="padding">The size of an extra table of zeros, to give the program a size.</param>
     internal static byte[] Build(int glyphs, IEnumerable<Cmap>? cmaps = null, string?[]? postNames = null, bool post = true,
-        string tag = "\0\u0001\0\0")
+        string tag = "\0\u0001\0\0", int padding = 0)
     {
         var tables = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["maxp"] = Bytes(w => { w.U32(0x00005000); w.U16(glyphs); })
         };
+        if (padding > 0) tables["zzzz"] = new byte[padding];
         if (cmaps != null) tables["cmap"] = CmapTable(cmaps.ToList());
         if (post) tables["post"] = PostTable(postNames, glyphs);
         return Bytes(w =>

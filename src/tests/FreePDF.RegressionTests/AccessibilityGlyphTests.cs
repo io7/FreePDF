@@ -138,6 +138,77 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
     }
 
+    // A program that inflates past its 32 MiB limit leaves its font unassessed; the scan goes on.
+    [Fact]
+    public void A_program_past_its_limit_leaves_only_its_font_unassessed()
+    {
+        using var deflated = new MemoryStream();
+        deflated.WriteByte(0x78);
+        deflated.WriteByte(0x9C);
+        // A valid program that only its size makes unreadable.
+        var program = Build(4, post: false, padding: 33 * 1024 * 1024);
+        using (var deflate = new System.IO.Compression.DeflateStream(deflated, System.IO.Compression.CompressionLevel.Optimal, true))
+            deflate.Write(program, 0, program.Length);
+        var report = ScanCid("<0001> Tj", deflated.ToArray(), (d, child) =>
+        {
+            var file = child.Elements.GetDictionary("/FontDescriptor")!.Elements.GetDictionary("/FontFile2")!;
+            file.Elements.SetName("/Filter", "/FlateDecode");
+        });
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "GLYPH"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
+    }
+
+    // Fonts often share a descendant, its program and its CIDToGIDMap. Each is read once per scan, so 600 fonts fit a
+    // 1 MiB decode budget that reading the 64 KiB map for each font would pass, and the 256 MiB program total that
+    // counting the 4 MiB program for each font would pass.
+    [Fact]
+    public void Fonts_sharing_a_program_and_a_map_read_them_once()
+    {
+        const int count = 600;
+        var program = Build(4, post: false, padding: 4 * 1024 * 1024);
+        var report = Scan(Fixture(d =>
+        {
+            var file = new PdfDictionary(d);
+            file.CreateStream(program);
+            d.Internals.AddObject(file);
+            var descriptor = new PdfDictionary(d);
+            descriptor.Elements.SetName("/Type", "/FontDescriptor");
+            descriptor.Elements["/FontFile2"] = file.Reference!;
+            d.Internals.AddObject(descriptor);
+            var map = new PdfDictionary(d);
+            var mapBytes = new byte[64 * 1024];
+            for (int cid = 0; cid < mapBytes.Length / 2; cid++) mapBytes[2 * cid + 1] = (byte)(cid % 3 + 1);
+            map.CreateStream(mapBytes);
+            d.Internals.AddObject(map);
+            var info = new PdfDictionary(d);
+            info.Elements.SetString("/Registry", "Adobe");
+            info.Elements.SetString("/Ordering", "Identity");
+            var child = new PdfDictionary(d);
+            child.Elements.SetName("/Subtype", "/CIDFontType2");
+            child.Elements["/CIDSystemInfo"] = info;
+            child.Elements["/FontDescriptor"] = descriptor.Reference!;
+            child.Elements["/CIDToGIDMap"] = map.Reference!;
+            d.Internals.AddObject(child);
+            var fonts = new PdfDictionary(d);
+            var content = new StringBuilder("/Artifact BMC BT ");
+            for (int i = 0; i < count; i++)
+            {
+                var font = new PdfDictionary(d);
+                font.Elements.SetName("/Subtype", "/Type0");
+                font.Elements.SetName("/Encoding", "/Identity-H");
+                font.Elements["/DescendantFonts"] = new PdfArray(d, child.Reference!);
+                d.Internals.AddObject(font);
+                fonts.Elements["/F" + i] = font.Reference!;
+                content.Append($"/F{i} 12 Tf <0001> Tj ");
+            }
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
+        }), new PdfAccessibilityScanOptions { MaxDecodedBytes = 1024 * 1024 });
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "GLYPH"));
+    }
+
     static Cmap Map(int platform, int encoding, int format, params int[] codeGlyphPairs)
     {
         var map = new Dictionary<int, int>();
