@@ -57,7 +57,8 @@ internal static class HostileInputs
         "cff-cid-maps" => CidMaps(3000),
         // A TrueType 'post' table with 15 million one-letter names, of which no glyph uses more than one.
         "post-strings" => PostStrings(15_000_000),
-        // One CFF program whose 65,534 glyphs all have the same 1 MiB custom name (one string, referenced 65,534 times).
+        // One CFF program whose 65,534 glyphs all have the same 1 MiB custom name (one string, referenced 65,534 times):
+        // each glyph made its own copy. The 255-character name limit now refuses it.
         "cff-repeated-name" => RepeatedName(1 << 20, 65_534),
         _ => throw new ArgumentException("Unknown input.", nameof(name))
     };

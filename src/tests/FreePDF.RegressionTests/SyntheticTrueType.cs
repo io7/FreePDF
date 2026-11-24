@@ -174,7 +174,12 @@ static class SyntheticTrueType
                 w.U16(int.Parse(name.Substring(1), System.Globalization.CultureInfo.InvariantCulture));
             else { w.U16(258 + custom.Count); custom.Add(name); }
         }
-        foreach (var name in custom) { w.U8(name.Length); w.Raw(Encoding.ASCII.GetBytes(name)); }
+        foreach (var name in custom)
+        {
+            if (name.Length > 255) throw new ArgumentException("A 'post' name is a Pascal string of at most 255 bytes.", nameof(names));
+            w.U8(name.Length);
+            w.Raw(Encoding.ASCII.GetBytes(name));
+        }
     });
 
     sealed class Writer

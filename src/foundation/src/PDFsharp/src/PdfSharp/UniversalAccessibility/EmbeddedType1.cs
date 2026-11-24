@@ -55,7 +55,7 @@ namespace PdfSharp.UniversalAccessibility
                 if (token == "/Encoding" && !encodingSeen)
                 {
                     encodingSeen = true;
-                    encoding = Encoding(clear);
+                    encoding = Encoding(clear, reserve);
                 }
             }
             if (encrypted < 0) return null;
@@ -71,8 +71,8 @@ namespace PdfSharp.UniversalAccessibility
         // Only the forms the reader follows completely: "/Encoding StandardEncoding def", or "/Encoding 256 array",
         // optionally filled by "0 1 255 {1 index exch /.notdef put} for", then "dup code /name put" entries, then "def"
         // (each def may follow readonly or noaccess). Null for any other form: another named encoding, a changed copy,
-        // or an operation the reader does not know.
-        static string?[]? Encoding(Lexer lexer)
+        // or an operation the reader does not know, and when reserve refuses an entry for a name it would keep.
+        static string?[]? Encoding(Lexer lexer, System.Func<int, bool> reserve)
         {
             var first = lexer.Next();
             if (first == "StandardEncoding")
@@ -101,6 +101,8 @@ namespace PdfSharp.UniversalAccessibility
                 var name = lexer.Next();
                 if (code is not (>= 0 and < 256) || name == null || !name.StartsWith("/", System.StringComparison.Ordinal)) return null;
                 if (lexer.Next() != "put") return null;
+                // Each name kept reserves its entries, as glyph names do.
+                if (name.Length - 1 > MaxNameLength || !reserve(1 + (name.Length - 1) / 16)) return null;
                 table[code.Value] = name == "/.notdef" ? null : name.Substring(1);
             }
             return EndsDefinition(lexer) ? table : null;

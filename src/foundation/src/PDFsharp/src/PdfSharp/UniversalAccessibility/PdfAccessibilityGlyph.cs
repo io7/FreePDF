@@ -14,12 +14,13 @@ namespace PdfSharp.UniversalAccessibility
     {
         enum GlyphUse : byte { Unknown, Present, Notdef, Missing }
 
-        // Width 1: Simple holds the outcome of each one-byte code and Names its glyph name, where known. Width 2: a
-        // CIDFont behind Identity-H or Identity-V, with the program's glyph count and, for a CIDFontType2, its
-        // CIDToGIDMap (null for Identity); a CID-keyed CFF program gives the glyph of each CID itself (CidCff).
-        // Embedded is false when the font has no program at all.
+        // Width 1: Simple holds the outcome of each one-byte code and Names its /Differences name; BaseNames is the shared
+        // base or built-in table that names the other codes (without a slash), for messages only. Width 2: a CIDFont
+        // behind Identity-H or Identity-V, with the program's glyph count and, for a CIDFontType2, its CIDToGIDMap (null
+        // for Identity); a CID-keyed CFF program gives the glyph of each CID itself (CidCff). Embedded is false when the
+        // font has no program at all.
         sealed record GlyphFont(int Width, GlyphUse[]? Simple, string?[]? Names, int GlyphCount, byte[]? CidMap, bool Embedded = true,
-            EmbeddedCff? CidCff = null);
+            EmbeddedCff? CidCff = null, string?[]? BaseNames = null);
 
         // The glyph names of an embedded Type 1 or CFF program, and its built-in encoding: a glyph name for each code,
         // null where it encodes none; BuiltIn is null when the encoding could not be read.
@@ -111,7 +112,9 @@ namespace PdfSharp.UniversalAccessibility
                         if (_missingGlyphPages.Add(page))
                         {
                             var glyph = "";
-                            if (font.Names?[code] is string name) glyph = " (glyph " + ShortName(name) + ")";
+                            var name = font.Names?[code];
+                            if (name == null && font.BaseNames?[code] is { Length: > 0 } baseName) name = "/" + baseName;
+                            if (name != null) glyph = " (glyph " + ShortName(name) + ")";
                             Record("GLYPH", PdfAccessibilityCheckStatus.Failed,
                                 $"Shown character code <{Hex(code, font.Width)}>{glyph} selects a glyph that the embedded font program does not contain.",
                                 page, path);
@@ -234,27 +237,28 @@ namespace PdfSharp.UniversalAccessibility
             else if (charProcs == null && encodingItem is PdfName or PdfNameObject) baseNames = SimpleEncodings.Names(Name(font, "/Encoding"));
             else if (IsNull(encodingItem)) builtIn = true;
             var uses = new GlyphUse[256];
-            var resolved = new string?[256];
             for (int code = 0; code < 256; code++)
             {
-                var name = names?[code];
+                // The name without its slash. A code that the encoding does not name selects .notdef in a Type 1 font
+                // program.
+                var differencesName = names?[code];
+                string? name = differencesName?.Substring(1);
                 if (name == null && baseNames != null)
                 {
-                    if (baseNames[code].Length > 0) name = "/" + baseNames[code];
-                    // A code that the encoding does not name selects .notdef in a Type 1 font program.
-                    else if (program != null) name = "/.notdef";
+                    if (baseNames[code].Length > 0) name = baseNames[code];
+                    else if (program != null) name = ".notdef";
                 }
-                if (name == null && builtIn && program?.BuiltIn != null) name = "/" + (program.BuiltIn[code] ?? ".notdef");
-                resolved[code] = name;
+                if (name == null && builtIn && program?.BuiltIn != null) name = program.BuiltIn[code] ?? ".notdef";
                 if (name == null) continue;
-                if (name == "/.notdef") uses[code] = GlyphUse.Notdef;
+                if (name == ".notdef") uses[code] = GlyphUse.Notdef;
                 else if (charProcs != null)
-                    uses[code] = Resolve(charProcs.Elements[name]) is PdfDictionary { Stream: not null } ? GlyphUse.Present : GlyphUse.Missing;
-                else if (program != null) uses[code] = program.HasGlyph(name.Substring(1)) ? GlyphUse.Present : GlyphUse.Missing;
+                    uses[code] = Resolve(charProcs.Elements[differencesName ?? "/" + name]) is PdfDictionary { Stream: not null } ? GlyphUse.Present : GlyphUse.Missing;
+                else if (program != null) uses[code] = program.HasGlyph(name) ? GlyphUse.Present : GlyphUse.Missing;
             }
-            // A Type 3 font's glyph procedures are its program.
+            // A Type 3 font's glyph procedures are its program. The base names stay shared: no copy is kept per font.
             bool embedded = charProcs != null || HasFontProgram(descriptor);
-            return new GlyphFont(1, uses, resolved, 0, null, embedded);
+            string?[]? baseForMessages = baseNames ?? (builtIn ? program?.BuiltIn : null);
+            return new GlyphFont(1, uses, names, 0, null, embedded, BaseNames: baseForMessages);
         }
 
         // The names and built-in encoding of a Type 1 font's embedded program: Type 1 (FontFile) or CFF (FontFile3,

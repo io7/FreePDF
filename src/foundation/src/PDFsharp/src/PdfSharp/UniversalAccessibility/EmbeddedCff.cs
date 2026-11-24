@@ -96,7 +96,9 @@ namespace PdfSharp.UniversalAccessibility
                 if (set.Add(name) && !reserve(name.Length / 16)) return null;
             }
             string?[]? encoding;
-            if (!Encoding(data, top.Encoding, glyphNames, Name, tick, out encoding)) return null;
+            // A supplement may name a glyph the charset lacks; such a name is kept too and reserves its entries.
+            bool Keep(string kept) => set.Contains(kept) || reserve(1 + kept.Length / 16);
+            if (!Encoding(data, top.Encoding, glyphNames, Name, Keep, tick, out encoding)) return null;
             return new EmbeddedCff(glyphs, set, encoding, null);
         }
 
@@ -139,8 +141,9 @@ namespace PdfSharp.UniversalAccessibility
         }
 
         // The built-in encoding: predefined Standard Encoding (code to name), a custom one (code to glyph), or none known
-        // (Expert). False for a damaged custom encoding.
-        static bool Encoding(byte[] data, int offset, string[] glyphNames, System.Func<int, string?> name, Action tick,
+        // (Expert). False for a damaged custom encoding, or when keep refuses a supplement's name.
+        static bool Encoding(byte[] data, int offset, string[] glyphNames, System.Func<int, string?> name,
+            System.Func<string, bool> keep, Action tick,
             out string?[]? encoding)
         {
             encoding = null;
@@ -197,7 +200,7 @@ namespace PdfSharp.UniversalAccessibility
                 {
                     int code = data[position + 3 * i];
                     var supplement = name(U16(data, position + 3 * i + 1));
-                    if (supplement == null) return false;
+                    if (supplement == null || !keep(supplement)) return false;
                     if (table[code] == null) table[code] = supplement;
                 }
             }

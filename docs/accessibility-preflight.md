@@ -122,8 +122,9 @@ in PFB form or without eexec encryption, font collections, damaged programs
 (including CFF INDEXes with offsets out of order and glyph names longer than 255
 characters), programs that inflate past 32 MiB, or past 256 MiB for all programs
 of a scan, and programs whose glyph tables do not fit. The glyph names, CID
-tables and `post` names kept from all programs of a scan share 1,048,576
-entries; a name takes one entry and one more for every 16 characters, and a
+tables, `post` names and built-in encoding names kept from all programs of a
+scan share 1,048,576 entries; a name takes one entry and one more for every 16
+characters, and a
 Type 1 program may name at most 65,536 glyphs. A Type 1 built-in encoding counts
 only as `StandardEncoding def`, or as `256 array`, optionally filled with
 `.notdef` by the usual `for` loop, then set by `dup code /name put` entries and
