@@ -315,14 +315,15 @@ public partial class AccessibilityScannerTests
         Assert.Equal("/Resources/Font/Text", finding.Location);
     }
 
-    // A readable map without the code leaves the decision to the encoding. A map that cannot be read may hold
-    // the code, so it stops a failure but no longer hides a named encoding.
+    // A readable map without the code leaves the decision to the encoding. A map that cannot be read might hold
+    // the code with any value, U+0000 included, so the code stays unassessed whatever the encoding says.
     [Theory]
     [InlineData("65 /A", null, true, PdfAccessibilityCheckStatus.Passed)]
     [InlineData("65 /g123", null, true, PdfAccessibilityCheckStatus.Failed)]
     [InlineData("65 /g123", null, false, PdfAccessibilityCheckStatus.NotChecked)]
+    [InlineData("65 /A", null, false, PdfAccessibilityCheckStatus.NotChecked)]
     [InlineData(null, "/WinAnsiEncoding", true, PdfAccessibilityCheckStatus.Passed)]
-    [InlineData(null, "/WinAnsiEncoding", false, PdfAccessibilityCheckStatus.Passed)]
+    [InlineData(null, "/WinAnsiEncoding", false, PdfAccessibilityCheckStatus.NotChecked)]
     public void A_map_without_the_code_falls_back_to_the_encoding(string? differences, string? encoding, bool readable,
         PdfAccessibilityCheckStatus expected)
     {
@@ -337,14 +338,42 @@ public partial class AccessibilityScannerTests
     public void Unembedded_standard_fonts_use_their_built_in_encoding(string baseFont, string show, PdfAccessibilityCheckStatus expected)
         => Assert.Equal(expected, Outcome(ScanSimple(show, "/Type1", descriptor: false, baseFont: baseFont), "UNICODE"));
 
+    // ISO 32000-1 7.3.9: a dictionary entry whose value is null is the same as an absent entry.
+    [Fact]
+    public void A_null_UseCMap_does_not_stop_the_map_from_being_read()
+        => Fails(ScanSimple("<41> Tj", encoding: "/WinAnsiEncoding", toUnicode: OneByteMap("1 beginbfchar <41> <0000> endbfchar"),
+            editMap: map => map.Elements["/UseCMap"] = PdfNull.Value), "UNICODE");
+
+    [Fact]
+    public void A_null_Differences_leaves_the_base_encoding()
+        => Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(ScanSimple("<41> Tj", "/Type1", baseEncoding: "/WinAnsiEncoding",
+            editFont: font => font.Elements.GetDictionary("/Encoding")!.Elements["/Differences"] = PdfNull.Value), "UNICODE"));
+
+    [Fact]
+    public void A_null_Encoding_leaves_a_standard_font_its_built_in_encoding()
+        => Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(ScanSimple("<41> Tj", "/Type1", descriptor: false,
+            baseFont: "/Helvetica", editFont: font => font.Elements["/Encoding"] = PdfNull.Value), "UNICODE"));
+
+    // A finding is kept for every page, so its message must not carry a name of any length.
+    [Fact]
+    public void A_long_glyph_name_is_shortened_in_the_report()
+    {
+        var report = ScanSimple("<41> Tj", "/Type1", differences: "65 /" + new string('x', 10_000));
+        var finding = Assert.Single(report.Findings.Where(f => f.RuleId == "FPDF-A11Y-UNICODE"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Failed, finding.Status);
+        Assert.Contains("<41> (glyph /xxx", finding.Message);
+        Assert.True(finding.Message.Length < 300, "Message length " + finding.Message.Length);
+    }
+
     // A page can select thousands of fonts. One finding per kind of defect and page keeps the report within
-    // MaxFindings; it names the first font and code.
+    // MaxFindings; it names the first font and code. The second page shows the same fonts and reports again.
     [Fact]
     public void Each_page_reports_the_first_missing_mapping_and_the_first_forbidden_value()
     {
         var report = Scan(Fixture(d =>
         {
             var fonts = new PdfDictionary(d);
+            d.Internals.AddObject(fonts);
             var content = new StringBuilder("/Artifact BMC BT ");
             for (int i = 0; i < 3; i++)
             {
@@ -361,14 +390,22 @@ public partial class AccessibilityScannerTests
                 content.Append($"/F{i} 12 Tf <4142> Tj ");
             }
             var page = d.Pages[0];
-            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts.Reference;
             page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
+            var second = d.AddPage();
+            var resources = new PdfDictionary(d);
+            resources.Elements["/Font"] = fonts.Reference;
+            second.Elements["/Resources"] = resources;
+            second.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
         }));
         var findings = report.Findings.Where(f => f.RuleId == "FPDF-A11Y-UNICODE").ToList();
-        Assert.Equal(2, findings.Count);
+        Assert.Equal(4, findings.Count);
         Assert.All(findings, f => Assert.Equal("/Resources/Font/F0", f.Location));
-        Assert.Contains(findings, f => f.Message.Contains("<41> (glyph /g0)"));
-        Assert.Contains(findings, f => f.Message.Contains("<42>") && f.Message.Contains("U+FEFF"));
+        foreach (var page in new[] { 1, 2 })
+        {
+            Assert.Contains(findings, f => f.Page == page && f.Message.Contains("<41> (glyph /g0)"));
+            Assert.Contains(findings, f => f.Page == page && f.Message.Contains("<42>") && f.Message.Contains("U+FEFF"));
+        }
     }
 
     static string OneByteMap(string entries)
@@ -377,7 +414,7 @@ public partial class AccessibilityScannerTests
     // A simple font without a font program. Differences are written as in PDF: "65 /A /B 70 /C".
     static PdfAccessibilityReport ScanSimple(string show, string subtype = "/TrueType", string? encoding = null,
         string? differences = null, string? baseEncoding = null, string? toUnicode = null, bool descriptor = true,
-        string baseFont = "/SyntheticSimple")
+        string baseFont = "/SyntheticSimple", Action<PdfDictionary>? editFont = null, Action<PdfDictionary>? editMap = null)
     {
         return Scan(Fixture(d =>
         {
@@ -416,9 +453,11 @@ public partial class AccessibilityScannerTests
             {
                 var cmap = new PdfDictionary(d);
                 cmap.CreateStream(Encoding.ASCII.GetBytes(toUnicode));
+                editMap?.Invoke(cmap);
                 d.Internals.AddObject(cmap);
                 font.Elements["/ToUnicode"] = cmap.Reference!;
             }
+            editFont?.Invoke(font);
             var fonts = new PdfDictionary(d);
             fonts.Elements["/Text"] = font;
             var page = d.Pages[0];

@@ -9,7 +9,7 @@ internal static class HostileInputs
     internal static readonly string[] Names =
     {
         "q-flood", "nested-xmp", "long-form-name", "type0-chain", "shared-alt", "form-fan-out",
-        "whitespace-alt", "mcr-form", "type3-shared"
+        "whitespace-alt", "mcr-form", "type3-shared", "shared-differences"
     };
 
     // What a correct scan reports for each input: the READ outcome (a limit makes it NotChecked) and, where the
@@ -36,6 +36,8 @@ internal static class HostileInputs
         "mcr-form" => McrForm(200_000),
         // Type3 fonts that share one /CharProcs dictionary.
         "type3-shared" => Type3Shared(10_000, 400_000),
+        // Simple fonts that share one encoding dictionary with a long /Differences array.
+        "shared-differences" => SharedDifferences(10_000, 300_000),
         // 10 MB of page content after decompression; 7.13.0 held every operator and every saved state.
         "q-flood" => QFlood(5_000_000),
         // Each element's Value joined the text of all its descendants (quadratic).
@@ -154,6 +156,21 @@ internal static class HostileInputs
         for (int i = 0; i < fonts; i++)
             objects.Add(A("<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] /FontMatrix [1 0 0 1 0 0] /CharProcs 5 0 R "
                 + "/Encoding << /Differences [97 /g0] >> /FirstChar 97 /LastChar 97 /Widths [1] >>"));
+        return Pdf(objects.ToArray());
+    }
+
+    // The fonts share an embedded font program, so only the Unicode check has work to do for each of them.
+    static byte[] SharedDifferences(int fonts, int pairs)
+    {
+        var names = String.Join(" ", Enumerable.Range(0, fonts).Select(i => "/F" + i + " " + (8 + i) + " 0 R"));
+        var show = String.Concat(Enumerable.Range(0, fonts).Select(i => "/F" + i + " 1 Tf (A) Tj "));
+        var differences = new StringBuilder("<< /Differences [");
+        for (int i = 0; i < pairs; i++) differences.Append("65 /A ");
+        var objects = new List<byte[]> { A(Catalog), A(Pages), A(Page("/Resources << /Font << " + names + " >> >>")),
+            Stream("", A("/Artifact BMC BT " + show + "ET EMC")), A(differences.Append("] >>").ToString()),
+            A("<< /Type /FontDescriptor /FontName /Shared /Flags 32 /FontFile 7 0 R >>"), Stream("", A("program")) };
+        for (int i = 0; i < fonts; i++)
+            objects.Add(A("<< /Type /Font /Subtype /Type1 /BaseFont /Shared /FontDescriptor 6 0 R /Encoding 5 0 R >>"));
         return Pdf(objects.ToArray());
     }
 

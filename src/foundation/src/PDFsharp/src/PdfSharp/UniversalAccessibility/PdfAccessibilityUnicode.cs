@@ -15,14 +15,14 @@ namespace PdfSharp.UniversalAccessibility
         enum CodeMapping : byte { Unknown, Mapped, Missing }
 
         // Simple: what a simple font's encoding says about each code when no ToUnicode entry decides it; Glyphs: the
-        // /Differences name of each code, for the report. MapUnreadable: the font has a map the checker could not
-        // read, which might hold any code, so no missing code can be confirmed.
-        sealed record UnicodeFont(int Width, CMapCoverage? Map, bool MapUnreadable, CodeMapping[]? Simple, string?[]? Glyphs,
-            bool RequiresMap);
-        // Every font and map is assessed once. A coverage grows with its map's entries, which the decode budget
-        // bounds, so neither cache needs a count limit. Fonts past such a limit would decode their map for each string.
+        // /Differences name of each code, for the report.
+        sealed record UnicodeFont(int Width, CMapCoverage? Map, CodeMapping[]? Simple, string?[]? Glyphs, bool RequiresMap);
+        // Every font, map and /Differences array is assessed once. A coverage grows with its map's entries, which the
+        // decode budget bounds, so no cache needs a count limit. Fonts past such a limit would read their map for each
+        // string, and fonts sharing one /Differences array would each walk all of it.
         readonly Dictionary<PdfDictionary, UnicodeFont> _unicodeFonts = new();
         readonly Dictionary<(PdfDictionary, int), CMapCoverage?> _unicodeMaps = new();
+        readonly Dictionary<PdfArray, (string?[]? Names, CodeMapping[] Mapping)> _differences = new();
         // Pages that already report a missing mapping, a forbidden value or an unassessed code. A page can select
         // thousands of fonts, so each kind is reported once per page, with the first font and code, within MaxFindings.
         readonly HashSet<int> _missingUnicodePages = new();
@@ -64,11 +64,10 @@ namespace PdfSharp.UniversalAccessibility
                     break;
             }
             CMapCoverage? map = null;
-            bool mapUnreadable = false;
-            if (width > 0 && Resolve(font.Elements["/ToUnicode"]) is PdfItem mapItem && mapItem is not (PdfNull or PdfNullObject))
+            if (width > 0 && Resolve(font.Elements["/ToUnicode"]) is PdfItem mapItem && !IsNull(mapItem))
             {
                 var stream = mapItem as PdfDictionary;
-                if (stream?.Stream != null && !stream.Elements.ContainsKey("/UseCMap"))
+                if (stream?.Stream != null && IsNull(Resolve(stream.Elements["/UseCMap"])))
                 {
                     if (!_unicodeMaps.TryGetValue((stream, width), out map))
                     {
@@ -78,12 +77,29 @@ namespace PdfSharp.UniversalAccessibility
                         _unicodeMaps.Add((stream, width), map);
                     }
                 }
-                mapUnreadable = map == null;
+                if (map == null)
+                {
+                    // A map the checker cannot read might give any code any value, U+0000 included, so the encoding
+                    // cannot settle a code either way.
+                    simple = null;
+                    glyphs = null;
+                    requiresMap = false;
+                }
             }
-            var result = new UnicodeFont(width, map, mapUnreadable, simple, glyphs, requiresMap);
+            var result = new UnicodeFont(width, map, simple, glyphs, requiresMap);
             _unicodeFonts.Add(font, result);
             return result;
         }
+
+        // A name is shortened as in locations: each page keeps its finding, so a long name would be held once per page.
+        static string ShortName(string name)
+        {
+            if (name.Length <= MaxLocationNameLength + 1) return name;
+            return Head(name, MaxLocationNameLength + 1) + Elision;
+        }
+
+        // ISO 32000-1 7.3.9: a dictionary entry whose value is null is the same as an absent entry.
+        static bool IsNull(PdfItem? item) => item is null or PdfNull or PdfNullObject;
 
         // What a simple font's encoding says about each code when no ToUnicode entry decides it (Matterhorn 31-027,
         // ISO 32000-1 9.6.6). A named WinAnsi, MacRoman or MacExpert encoding maps every code; as the BaseEncoding of
@@ -103,8 +119,11 @@ namespace PdfSharp.UniversalAccessibility
             if (encoding is PdfDictionary dictionary)
             {
                 if (NamedEncoding(Name(dictionary, "/BaseEncoding"))) Fill(mapping, CodeMapping.Mapped);
-                if (!dictionary.Elements.ContainsKey("/Differences")) return mapping;
-                glyphs = Differences(dictionary.Elements["/Differences"]);
+                var differences = Resolve(dictionary.Elements["/Differences"]);
+                if (IsNull(differences)) return mapping;
+                (string?[]? Names, CodeMapping[] Mapping) assessed = (null, Array.Empty<CodeMapping>());
+                if (differences is PdfArray array) assessed = DifferencesOf(array);
+                glyphs = assessed.Names;
                 if (glyphs == null)
                 {
                     // Which codes the array changes is not known, so no code is.
@@ -113,17 +132,12 @@ namespace PdfSharp.UniversalAccessibility
                 }
                 for (int code = 0; code < 256; code++)
                 {
-                    var glyph = glyphs[code];
-                    if (glyph == null) continue;
-                    if (glyph == "/.notdef") mapping[code] = CodeMapping.Unknown;
-                    else if (GlyphNames.IsListed(glyph.Substring(1))) mapping[code] = CodeMapping.Mapped;
-                    else mapping[code] = CodeMapping.Missing;
+                    if (glyphs[code] != null) mapping[code] = assessed.Mapping[code];
                 }
                 return mapping;
             }
             // An unembedded standard 14 font without an encoding uses its built-in one.
-            if (!font.Elements.ContainsKey("/Encoding") && Name(font, "/Subtype") == "/Type1"
-                && !font.Elements.ContainsKey("/FontDescriptor"))
+            if (IsNull(encoding) && Name(font, "/Subtype") == "/Type1" && !font.Elements.ContainsKey("/FontDescriptor"))
             {
                 var baseName = Name(font, "/BaseFont");
                 var builtIn = baseName switch
@@ -147,11 +161,27 @@ namespace PdfSharp.UniversalAccessibility
             for (int code = 0; code < mapping.Length; code++) mapping[code] = value;
         }
 
-        // The name /Differences gives each code from 0 to 255, or null when the array holds something other than
-        // non-negative integers and names, or a name before the first integer.
-        string?[]? Differences(PdfItem? item)
+        // The name a /Differences array gives each code from 0 to 255 and what that name says about the code. Names is
+        // null when the array holds something other than non-negative integers and names, or a name before the first
+        // integer. Fonts often share one array, so each array is walked once per scan.
+        (string?[]? Names, CodeMapping[] Mapping) DifferencesOf(PdfArray array)
         {
-            if (Resolve(item) is not PdfArray array) return null;
+            if (_differences.TryGetValue(array, out var known)) return known;
+            var names = Differences(array);
+            var mapping = new CodeMapping[256];
+            for (int code = 0; names != null && code < 256; code++)
+            {
+                var glyph = names[code];
+                if (glyph == null || glyph == "/.notdef") continue;
+                if (GlyphNames.IsListed(glyph.Substring(1))) mapping[code] = CodeMapping.Mapped;
+                else mapping[code] = CodeMapping.Missing;
+            }
+            _differences.Add(array, (names, mapping));
+            return (names, mapping);
+        }
+
+        string?[]? Differences(PdfArray array)
+        {
             var names = new string?[256];
             int code = -1;
             foreach (var raw in array.Elements)
@@ -222,11 +252,12 @@ namespace PdfSharp.UniversalAccessibility
                     else if (font.RequiresMap) fallback = CodeMapping.Missing;
                     if (fallback == CodeMapping.Mapped) continue;
                     passed = false;
-                    if (fallback == CodeMapping.Missing && !font.MapUnreadable)
+                    if (fallback == CodeMapping.Missing)
                     {
                         if (_missingUnicodePages.Add(page))
                         {
-                            var glyph = font.Glyphs?[code] is string name ? $" (glyph {name})" : "";
+                            var glyph = "";
+                            if (font.Glyphs?[code] is string name) glyph = " (glyph " + ShortName(name) + ")";
                             Record("UNICODE", PdfAccessibilityCheckStatus.Failed,
                                 $"Shown character code <{Hex(code, font.Width)}>{glyph} has no Unicode mapping in this font.", page, path);
                         }

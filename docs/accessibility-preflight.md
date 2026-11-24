@@ -81,10 +81,12 @@ a map stream that cannot be decoded, `.notdef` in `/Differences`, a code that
 depends on the built-in encoding of a font program, or another mapping the
 checker cannot establish produces `NotChecked` for affected text. The other
 checks continue. The report locates the first unassessed occurrence on each
-page. The checker reports a missing code as a failure only when it can also
-rule out an alternative mapping: a map it cannot read might hold the code, so
-it stops the failure. A mapped code still needs a correct glyph and meaningful
-text. The check does not evaluate either.
+page. A ToUnicode map the checker cannot read leaves every code of its font
+unassessed, also when the encoding would map the code: the map might give the
+code any value, U+0000 included. The checker reports a missing code as a
+failure only when it can also rule out an alternative mapping. A mapped code
+still needs a correct glyph and meaningful text. The check does not evaluate
+either.
 
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its
