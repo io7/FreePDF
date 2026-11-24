@@ -4,8 +4,11 @@
 
 - New accessibility rule `FPDF-A11Y-GLYPH`: a shown code must not select the .notdef glyph (Matterhorn
   31-030, any rendering mode), and visible text must select glyphs that the embedded program contains
-  (31-011). It reads embedded TrueType programs (glyph count, cmap, post names) and Type 3 procedures;
-  CFF and Type 1 programs give `NotChecked` for now. Rule set and requirements inventory 1.3.0.
+  (31-011). It reads embedded TrueType programs (glyph count, cmap, post names), Type 1 programs
+  (built-in encoding, CharStrings names), CFF programs (charset, built-in encoding, CIDs) and Type 3
+  procedures; OpenType programs in `FontFile3` give `NotChecked`. Rule set and requirements inventory
+  1.3.0.
+- The glyph tables add the ISO 32000-1 Annex D glyph names of WinAnsiEncoding and MacRomanEncoding.
 
 ## 7.16.0
 

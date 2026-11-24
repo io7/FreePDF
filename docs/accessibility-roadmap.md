@@ -82,7 +82,7 @@ Native rule `FPDF-A11Y-UNICODE` now checks used character codes against ToUnicod
 maps, named encodings and `/Differences` glyph names, and fails forbidden mapped
 values. Native rule `FPDF-A11Y-GLYPH` checks that shown codes do not select
 .notdef (Matterhorn 31-030) and that visible text selects glyphs the embedded
-program contains (31-011), for TrueType programs and Type 3 fonts. The next
-font work reads CFF and Type 1 programs for the glyph rule, then encodings that
-need the font program or the CJK character collections. Form-field and
-annotation rules follow.
+program contains (31-011), for TrueType, Type 1 and CFF programs and Type 3
+fonts. The next font work reads encodings that need the font program or the CJK
+character collections for the Unicode rule, then OpenType programs in
+`FontFile3`. Form-field and annotation rules follow.

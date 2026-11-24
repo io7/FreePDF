@@ -135,7 +135,7 @@ namespace PdfSharp.UniversalAccessibility
         {
             "This preflight does not establish PDF/UA, WCAG, Section 508 or ADA compliance.",
             "Human review is required for reading order, text alternatives, headings, table meaning, contrast, language and assistive-technology usability.",
-            "The font check covers visible text in page content and invoked forms. The Unicode check examines used character codes in supported font encodings. The glyph check reads embedded TrueType programs and Type 3 procedures, not yet CFF or Type 1 programs. Glyph shapes, annotation appearances, form-field semantics and optional content require further validation.",
+            "The font check covers visible text in page content and invoked forms. The Unicode check examines used character codes in supported font encodings. The glyph check reads embedded TrueType, Type 1 and CFF programs and Type 3 procedures, not yet OpenType programs in FontFile3. Glyph shapes, annotation appearances, form-field semantics and optional content require further validation.",
             "The scanner resolves named marked-content properties. Complex inline property dictionaries and external reference XObjects require independent inspection.",
             "PDF/UA-2 is not supported. Use an independent validator and assistive-technology testing before making a conformance claim.",
             "Limits bound this preflight's traversal; they are not a process sandbox. Isolate untrusted PDFs with external memory and time limits."

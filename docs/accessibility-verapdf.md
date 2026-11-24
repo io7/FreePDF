@@ -129,3 +129,23 @@ third control maps the shown CID to glyph 0 through a `CIDToGIDMap` stream.
 ISO 14289-1 7.21.8 forbids that reference to .notdef, and the native rule
 fails it. veraPDF 1.30.3 reports no 7.21.8-1 for it and fails the file only on
 glyph widths.
+
+Four more controls add a font with a synthetic Type 1 or CFF program. A Type 1
+`/Differences` name that the program lacks fails the native rule and veraPDF
+rule 7.21.4.1-2. A Type1C font with WinAnsiEncoding that shows code `01`, which
+WinAnsiEncoding does not name, fails the native rule and veraPDF rule 7.21.8-1.
+A CID that a CID-keyed CFF charset lacks fails the native rule and veraPDF
+rules 7.21.4.1-2 and 7.21.8-1. A Type1C font without `/Encoding` that shows
+code `80`, which its built-in Standard Encoding does not name, selects .notdef,
+and the native rule fails it. veraPDF 1.30.3 reports neither rule for it. The
+same holds for glyph 0 of a CFF program without CIDFont operators in a
+CIDFontType0 font, where ISO 32000-1 9.7.4.2 uses the CID as the glyph index.
+For such a code in a Type 1 (`FontFile`) program, veraPDF reports rule
+7.21.4.1-2 instead of 7.21.8-1. The native rule's scan of that fixture is
+`Incomplete`, because the Unicode rule does not yet read built-in encodings.
+
+Probes with URW NimbusSans as a Type 1 program and as Type1C, and with
+StandardSymbolsPS, gave the same verdicts in both validators for named
+encodings, `/Differences`, base encodings, unused WinAnsi codes and
+MacRomanEncoding code `AD` (not in PDF MacRomanEncoding). So did PDFs from
+pdfTeX (Type 1 subsets), Ghostscript (Type1C) and XeTeX (CID-keyed CFF).
