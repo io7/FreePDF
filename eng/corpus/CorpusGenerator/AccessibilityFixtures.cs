@@ -43,7 +43,7 @@ static class AccessibilityFixtures
                 if (mutation == "reused-tagged-form")
                     pdf.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Outer Do"));
                 if (mutation == "untagged-form-paint")
-                    inner.Stream.Value = inner.Stream.Value.Concat(Encoding.ASCII.GetBytes(" 2 2 5 5 re f")).ToArray();
+                    inner.Stream!.Value = inner.Stream.Value.Concat(Encoding.ASCII.GetBytes(" 2 2 5 5 re f")).ToArray();
             }
             else
             {

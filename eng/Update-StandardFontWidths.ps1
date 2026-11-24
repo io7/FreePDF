@@ -99,6 +99,8 @@ try {
     $source = ($header -join "`n") + @"
 
 
+#nullable enable
+
 namespace PdfSharp.Pdf.Forms
 {
     /// <summary>
