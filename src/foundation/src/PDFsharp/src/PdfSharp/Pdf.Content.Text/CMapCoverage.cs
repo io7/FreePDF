@@ -3,42 +3,67 @@
 namespace PdfSharp.Pdf.Content.Text
 {
     /// <summary>
-    /// The character codes that a ToUnicode CMap maps, as sorted ranges that do not overlap. Its size grows with the
-    /// entries in the map, not with the code space, so one coverage can be kept for every map in a document.
+    /// The character codes that a ToUnicode CMap maps, as sorted ranges that do not overlap, and the codes among them
+    /// whose value contains U+0000, U+FEFF or U+FFFE (ISO 14289-1 7.21.7). Its size grows with the entries in the map,
+    /// not with the code space, so one coverage can be kept for every map in a document.
     /// </summary>
     sealed class CMapCoverage
     {
-        readonly int[] _low;
-        readonly int[] _high;
+        readonly Ranges _mapped;
+        readonly Ranges _forbidden;
 
-        CMapCoverage(int[] low, int[] high)
+        CMapCoverage(Ranges mapped, Ranges forbidden)
         {
-            _low = low;
-            _high = high;
+            _mapped = mapped;
+            _forbidden = forbidden;
         }
 
-        internal bool Contains(int code)
+        internal bool Contains(int code) => _mapped.Contains(code);
+
+        internal bool MapsToForbiddenValue(int code) => _forbidden.Contains(code);
+
+        // Null when two entries map the same code: the map then has no single meaning. Forbidden codes lie inside
+        // their own entry's range, so they cannot overlap either.
+        internal static CMapCoverage? Create(List<(int Low, int High)> mapped, List<(int Low, int High)> forbidden)
         {
-            int index = Array.BinarySearch(_low, code);
-            if (index >= 0) return true;
-            // The complement is the first range that starts above the code. The range before it may contain the code.
-            index = ~index - 1;
-            return index >= 0 && code <= _high[index];
+            var ranges = Ranges.Create(mapped);
+            return ranges == null ? null : new CMapCoverage(ranges, Ranges.Create(forbidden)!);
         }
 
-        // Null when two entries map the same code: the map then has no single meaning.
-        internal static CMapCoverage? Create(List<(int Low, int High)> ranges)
+        sealed class Ranges
         {
-            ranges.Sort((a, b) => a.Low.CompareTo(b.Low));
-            var low = new int[ranges.Count];
-            var high = new int[ranges.Count];
-            for (int i = 0; i < ranges.Count; i++)
+            readonly int[] _low;
+            readonly int[] _high;
+
+            Ranges(int[] low, int[] high)
             {
-                if (i > 0 && ranges[i].Low <= high[i - 1]) return null;
-                low[i] = ranges[i].Low;
-                high[i] = ranges[i].High;
+                _low = low;
+                _high = high;
             }
-            return new CMapCoverage(low, high);
+
+            internal bool Contains(int code)
+            {
+                int index = Array.BinarySearch(_low, code);
+                if (index >= 0) return true;
+                // The complement is the first range that starts above the code. The range before it may contain it.
+                index = ~index - 1;
+                return index >= 0 && code <= _high[index];
+            }
+
+            // Null when two ranges overlap.
+            internal static Ranges? Create(List<(int Low, int High)> ranges)
+            {
+                ranges.Sort((a, b) => a.Low.CompareTo(b.Low));
+                var low = new int[ranges.Count];
+                var high = new int[ranges.Count];
+                for (int i = 0; i < ranges.Count; i++)
+                {
+                    if (i > 0 && ranges[i].Low <= high[i - 1]) return null;
+                    low[i] = ranges[i].Low;
+                    high[i] = ranges[i].High;
+                }
+                return new Ranges(low, high);
+            }
         }
     }
 
@@ -70,6 +95,7 @@ namespace PdfSharp.Pdf.Content.Text
             }
             if (first is not Keyword { Value: "begincmap" }) return null;
             var mapped = new List<(int Low, int High)>();
+            var forbidden = new List<(int Low, int High)>();
             int spaceLow = -1, spaceHigh = -1;
             object? token;
             while ((token = tokens.Next()) is not Keyword { Value: "endcmap" })
@@ -103,11 +129,11 @@ namespace PdfSharp.Pdf.Content.Text
                         for (int code = low; code <= high; code++)
                         {
                             tick();
-                            if (!ReadDestination(tokens.Next(), 0) || !tokens.LastStringWasHex) return null;
+                            if (!ReadDestination(tokens.Next(), code, 0, forbidden) || !tokens.LastStringWasHex) return null;
                         }
                         if (!KeywordIs("]")) return null;
                     }
-                    else if (!ReadDestination(dest, high - low) || !tokens.LastStringWasHex) return null;
+                    else if (!ReadDestination(dest, low, high - low, forbidden) || !tokens.LastStringWasHex) return null;
                     mapped.Add((low, high));
                 }
                 if (!KeywordIs(range ? "endbfrange" : "endbfchar")) return null;
@@ -115,7 +141,7 @@ namespace PdfSharp.Pdf.Content.Text
             if (wrapped && !(KeywordIs("CMapName") && KeywordIs("currentdict") && NameIs("/CMap")
                 && KeywordIs("defineresource") && KeywordIs("pop") && KeywordIs("end") && KeywordIs("end"))) return null;
             if (spaceLow < 0 || tokens.Next() != null || tokens.MalformedToken) return null;
-            return CMapCoverage.Create(mapped);
+            return CMapCoverage.Create(mapped, forbidden);
         }
 
         static bool ReadMetadata(Tokenizer tokens, string name)
@@ -139,20 +165,42 @@ namespace PdfSharp.Pdf.Content.Text
             return tokens.Next() is Keyword end && end.Value == (literal ? ">>" : "end");
         }
 
+        static readonly int[] ForbiddenUnits = { 0x0000, 0xFEFF, 0xFFFE };
+
         // A range increments only the last byte of its UTF-16BE destination. Surrogate
         // boundaries coincide with byte boundaries, so validity holds throughout that range.
-        static bool ReadDestination(object? token, int increment)
+        // The codes from low to low + increment whose value contains a forbidden unit go to forbidden.
+        static bool ReadDestination(object? token, int low, int increment, List<(int Low, int High)> forbidden)
         {
             if (token is not byte[] bytes || bytes.Length == 0 || (bytes.Length & 1) != 0
                 || increment > 255 - bytes[bytes.Length - 1]) return false;
             bool needLow = false;
+            bool leadingForbidden = false;
+            int last = 0;
             for (int i = 0; i < bytes.Length; i += 2)
             {
                 char unit = (char)((bytes[i] << 8) | bytes[i + 1]);
                 if (Char.IsLowSurrogate(unit) != needLow) return false;
                 needLow = Char.IsHighSurrogate(unit);
+                if (i + 2 < bytes.Length)
+                    leadingForbidden |= unit is '\u0000' or '﻿' or '￾';
+                else
+                    last = unit;
             }
-            return !needLow;
+            if (needLow) return false;
+            if (leadingForbidden)
+            {
+                forbidden.Add((low, low + increment));
+                return true;
+            }
+            // Only the last unit changes across the range, and only in its low byte.
+            foreach (int value in ForbiddenUnits)
+            {
+                int offset = value - last;
+                if (offset >= 0 && offset <= increment)
+                    forbidden.Add((low + offset, low + offset));
+            }
+            return true;
         }
     }
 }

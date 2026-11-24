@@ -55,19 +55,38 @@ found stay `Failed`, and `HasFailures` reports them.
 The Unicode rule checks the codes used by `Tj`, `TJ`, `'` and `"` with the
 active font. Selecting an unused font or showing an empty string needs no
 mapping. The rule reads one-byte simple fonts and two-byte Identity-H/V codes.
-It recognizes explicit WinAnsi, MacRoman and StandardEncoding, the built-in
-encodings of unembedded standard Type 1 fonts, and declarative ToUnicode maps
-with one code-space range and UTF-16BE `bfchar` or `bfrange` destinations.
-For an Adobe-Identity descendant using Identity-H/V, a used code with no map
-entry produces a failure with the first missing code, page and font path.
+It reads declarative ToUnicode maps with one code-space range and UTF-16BE
+`bfchar` or `bfrange` destinations.
+
+A ToUnicode entry maps its code. A shown code whose entry contains U+0000,
+U+FEFF or U+FFFE fails. Codes that are not shown are not checked. Without an
+entry, the encoding of a simple font decides:
+
+- An encoding named WinAnsiEncoding, MacRomanEncoding or MacExpertEncoding
+  maps every code. As the `BaseEncoding` of an encoding dictionary, such a
+  name maps every code that `/Differences` does not change.
+- A `/Differences` name maps its code when the Adobe Glyph List or the ITC
+  Zapf Dingbats Glyph List contains the name as written. `uniXXXX` names,
+  ligatures joined by `_` and suffixes after `.` do not count. Any other name
+  fails.
+- An unembedded standard Type 1 font without an encoding uses its built-in
+  encoding.
+
+For an Adobe-Identity descendant using Identity-H/V, a code without an entry
+fails. Each page reports its first missing mapping and its first forbidden
+value, with the code and the font path.
 
 An embedded encoding CMap, an inherited ToUnicode map, a map over 256 KiB,
-a map stream that cannot be decoded, or another mapping the checker cannot
-establish produces `NotChecked` for affected text. The other checks continue.
-The report locates the first unassessed occurrence on each page.
-The checker reports a missing code as a failure only when it
-can also rule out an alternative mapping. A mapped code still needs a correct
-glyph and meaningful text. The check does not evaluate either.
+a map stream that cannot be decoded, `.notdef` in `/Differences`, a code that
+depends on the built-in encoding of a font program, or another mapping the
+checker cannot establish produces `NotChecked` for affected text. The other
+checks continue. The report locates the first unassessed occurrence on each
+page. A ToUnicode map the checker cannot read leaves every code of its font
+unassessed, also when the encoding would map the code: the map might give the
+code any value, U+0000 included. The checker reports a missing code as a
+failure only when it can also rule out an alternative mapping. A mapped code
+still needs a correct glyph and meaningful text. The check does not evaluate
+either.
 
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its

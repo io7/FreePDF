@@ -61,9 +61,10 @@ static class AccessibilityFixtures
         }
     }
 
-    static void WriteUnicodeFixtures(string directory)
+    // A tagged paragraph with the two letters AB in one font.
+    static MemoryStream Original(PdfFontEncoding fontEncoding)
     {
-        using var original = new MemoryStream();
+        var original = new MemoryStream();
         using (var pdf = new PdfDocument())
         {
             pdf.Info.Title = "Synthetic mapped text";
@@ -72,17 +73,44 @@ static class AccessibilityFixtures
             {
                 tags.BeginElement(PdfBlockLevelElementTag.Paragraph);
                 gfx.DrawString("AB", new XFont("Corpus Sans", 14, XFontStyleEx.Regular,
-                    new XPdfFontOptions(PdfFontEncoding.Unicode)), XBrushes.Black, 40, 60);
+                    new XPdfFontOptions(fontEncoding)), XBrushes.Black, 40, 60);
                 tags.End();
             }
             pdf.Save(original, closeStream: false);
         }
-        foreach (var name in new[] { "unicode-mapped", "unicode-missing", "unicode-custom-encoding" })
+        return original;
+    }
+
+    static PdfDictionary OnlyFont(PdfDocument document)
+    {
+        var fonts = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
+        return fonts.Elements.GetDictionary(fonts.Elements.Keys.Single())!;
+    }
+
+    // Rewrites the ToUnicode entry of B, the second letter.
+    static void EditEntryOfB(PdfDictionary font, Func<string, string?> edit)
+    {
+        var cmap = font.Elements.GetDictionary("/ToUnicode")!;
+        var lines = Encoding.ASCII.GetString(cmap.Stream!.UnfilteredValue).Split('\n')
+            .Select(line => line.TrimEnd().EndsWith("<0042>", StringComparison.Ordinal) ? edit(line.TrimEnd()) : line)
+            .OfType<string>();
+        cmap.Elements.Remove("/Filter");
+        cmap.Stream.Value = Encoding.ASCII.GetBytes(string.Join("\n", lines));
+    }
+
+    static void WriteUnicodeFixtures(string directory)
+    {
+        using var original = Original(PdfFontEncoding.Unicode);
+        foreach (var name in new[] { "unicode-mapped", "unicode-missing", "unicode-custom-encoding", "unicode-forbidden" })
         {
             original.Position = 0;
             using var document = PdfReader.Open(original, PdfDocumentOpenMode.Modify);
-            var fonts = document.Pages[0].Elements.GetDictionary("/Resources")!.Elements.GetDictionary("/Font")!;
-            var font = fonts.Elements.GetDictionary(fonts.Elements.Keys.Single())!;
+            var font = OnlyFont(document);
+            if (name == "unicode-forbidden")
+            {
+                // B maps to U+FEFF, a value ISO 14289-1 7.21.7 forbids. A is unchanged.
+                EditEntryOfB(font, line => line[..^"<0042>".Length] + "<FEFF>");
+            }
             if (name == "unicode-missing")
             {
                 // Keep A mapped, remove only B's mapping. Both glyphs still draw.
@@ -111,6 +139,23 @@ static class AccessibilityFixtures
                 document.Internals.AddObject(encoding);
                 font.Elements["/Encoding"] = encoding.Reference!;
             }
+            using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
+            document.Save(file);
+        }
+
+        using var simple = Original(PdfFontEncoding.WinAnsi);
+        foreach (var (name, glyph) in new[] { ("unicode-glyph-name", "/B"), ("unicode-glyph-name-missing", "/g123") })
+        {
+            simple.Position = 0;
+            using var document = PdfReader.Open(simple, PdfDocumentOpenMode.Modify);
+            var font = OnlyFont(document);
+            // B's code takes its glyph name from /Differences, and no ToUnicode map supplies it. A keeps WinAnsi.
+            var encoding = new PdfDictionary(document);
+            encoding.Elements.SetName("/Type", "/Encoding");
+            encoding.Elements.SetName("/BaseEncoding", "/WinAnsiEncoding");
+            encoding.Elements["/Differences"] = new PdfArray(document, new PdfInteger(66), new PdfName(glyph));
+            font.Elements["/Encoding"] = encoding;
+            font.Elements.Remove("/ToUnicode");
             using var file = new FileStream(Path.Combine(directory, name + ".pdf"), FileMode.CreateNew);
             document.Save(file);
         }

@@ -43,6 +43,9 @@ def main():
         ("unicode-mapped", 2, "NeedsReview", "MachineChecksPassed"),
         ("unicode-missing", 1, "Failed", "Failed"),
         ("unicode-custom-encoding", 3, "Incomplete", "MachineChecksPassed"),
+        ("unicode-forbidden", 1, "Failed", "Failed"),
+        ("unicode-glyph-name", 2, "NeedsReview", "MachineChecksPassed"),
+        ("unicode-glyph-name-missing", 1, "Failed", "Failed"),
         ("malformed", 3, "Incomplete", "Incomplete"),
     ):
         text, sha = scan(name, expected, "--format", "json")
@@ -53,13 +56,21 @@ def main():
         if report["native"]["status"] != status or report["status"] != status or report["hasFailures"] != (expected == 1):
             raise RuntimeError(f"Incorrect combined status or failure flag for {name}")
         if name.startswith("unicode-"):
-            expected_rule = {"unicode-mapped": "Passed", "unicode-missing": "Failed", "unicode-custom-encoding": "NotChecked"}[name]
+            # The rule status, and the veraPDF 7.21.7 test that must report the same defect.
+            expected_rule, vera_test = {
+                "unicode-mapped": ("Passed", None),
+                "unicode-missing": ("Failed", "1"),
+                "unicode-custom-encoding": ("NotChecked", None),
+                "unicode-forbidden": ("Failed", "2"),
+                "unicode-glyph-name": ("Passed", None),
+                "unicode-glyph-name-missing": ("Failed", "1"),
+            }[name]
             rule = next(c for c in report["native"]["checks"] if c["id"] == "FPDF-A11Y-UNICODE")
             if rule["status"] != expected_rule:
                 raise RuntimeError(f"{name}: Unicode rule returned {rule['status']}")
-            if name == "unicode-missing" and not any(
-                    f["clause"] == "7.21.7" and f["testNumber"] == "1" for f in independent["findings"]):
-                raise RuntimeError("veraPDF did not report the missing Unicode mapping")
+            if vera_test and not any(
+                    f["clause"] == "7.21.7" and f["testNumber"] == vera_test for f in independent["findings"]):
+                raise RuntimeError(f"{name}: veraPDF did not report 7.21.7-{vera_test}")
         if {report["documentSha256"], report["native"]["documentSha256"], independent["documentSha256"]} != {sha}:
             raise RuntimeError("Native and independent results are not bound to the same bytes")
         if not report["humanReviewRequired"] or len(report["requirementsInventory"]["humanRequirementIds"]) != 48:

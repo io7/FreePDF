@@ -3,8 +3,10 @@
 ## Unreleased
 
 - The accessibility preflight checks Unicode mappings for character codes used on pages and in
-  invoked forms. Findings identify the page, font and first confirmed missing code. Encodings
-  outside native coverage produce an incomplete result.
+  invoked forms. It reads ToUnicode maps, the named WinAnsi, MacRoman and MacExpert encodings, and
+  `/Differences` names from the Adobe Glyph List and the Zapf Dingbats list. A shown code that maps to
+  U+0000, U+FEFF or U+FFFE fails. Each page reports its first missing mapping and its first forbidden
+  value, with the font and code. Encodings outside native coverage produce an incomplete result.
 
 ## 7.15.0
 

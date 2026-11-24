@@ -38,6 +38,14 @@ namespace PdfSharp.Pdf.Content.Text
             return text.ToString();
         }
 
+        /// <summary>
+        /// True when the name, without its slash, is an entry of the Adobe Glyph List or the ITC Zapf Dingbats Glyph
+        /// List as written there. Unlike <see cref="ToUnicode"/>, uniXXXX and uXXXX forms, ligatures joined by '_'
+        /// and suffixes after '.' do not count: PDF/UA-1 7.21.7 names the lists themselves, and veraPDF 1.30.3
+        /// rejects those forms.
+        /// </summary>
+        internal static bool IsListed(string name) => Adobe.ContainsKey(name) || Dingbats.ContainsKey(name);
+
         static string Component(string component, bool zapfDingbats)
         {
             if (zapfDingbats && Dingbats.TryGetValue(component, out var dingbat))
