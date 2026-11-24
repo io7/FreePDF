@@ -17,7 +17,9 @@ namespace PdfSharp.UniversalAccessibility
         readonly byte[]? _post;
         readonly Action _tick;
         readonly Dictionary<(int Platform, int Encoding, int Code), int?> _lookups = new();
-        Dictionary<string, int>? _customNames;
+        readonly Dictionary<string, int> _customNames = new(System.StringComparer.Ordinal);
+        bool _postRead, _hasStandardNames, _hasCustomNames;
+        bool _postNamesComplete = true;
 
         EmbeddedTrueType(int glyphCount, byte[]? cmap, byte[]? post, Action tick)
         {
@@ -76,12 +78,19 @@ namespace PdfSharp.UniversalAccessibility
             int start = Subtable(platform, encoding);
             if (start >= 0)
             {
-                switch (U16(_cmap!, start))
+                // Each reader stays within the length the subtable declares (formats 8 and up keep it in 32 bits).
+                int format = U16(_cmap!, start);
+                long length = format >= 8 ? U32(_cmap!, start + 4) : U16(_cmap!, start + 2);
+                if (start + length <= _cmap!.Length)
                 {
-                    case 0: glyph = Format0(start, code); break;
-                    case 4: glyph = Format4(start, code); break;
-                    case 6: glyph = Format6(start, code); break;
-                    case 12: glyph = Format12(start, code); break;
+                    int end = (int)(start + length);
+                    switch (format)
+                    {
+                        case 0: glyph = Format0(start, end, code); break;
+                        case 4: glyph = Format4(start, end, code); break;
+                        case 6: glyph = Format6(start, end, code); break;
+                        case 12: glyph = Format12(start, end, code); break;
+                    }
                 }
             }
             _lookups.Add(key, glyph);
@@ -94,45 +103,71 @@ namespace PdfSharp.UniversalAccessibility
         /// </summary>
         internal int? GlyphByCustomName(string name)
         {
-            _customNames ??= CustomNames();
+            ReadPost();
             return _customNames.TryGetValue(name, out var glyph) ? glyph : null;
         }
 
         /// <summary>
-        /// True when the 'post' table can name a glyph with a standard Macintosh name other than .notdef: format 1, or
-        /// format 2 with an index from 1 to 257. Index 0 names .notdef, which unnamed glyphs commonly use.
+        /// True when the 'post' table can name a glyph with a standard Macintosh name other than .notdef: format 1 or
+        /// 2.5, or format 2 with an index from 1 to 257. Index 0 names .notdef, which unnamed glyphs commonly use.
         /// </summary>
         internal bool HasStandardNames
         {
-            get
-            {
-                if (PostFormat == 0x00010000) return true;
-                if (PostFormat != 0x00020000 || _post!.Length < 34) return false;
-                int count = U16(_post, 32);
-                for (int glyph = 1; glyph < count && 34 + 2 * glyph + 1 < _post.Length; glyph++)
-                {
-                    _tick();
-                    int index = U16(_post, 34 + 2 * glyph);
-                    if (index > 0 && index < 258) return true;
-                }
-                return false;
-            }
+            get { ReadPost(); return _hasStandardNames; }
         }
 
-        Dictionary<string, int> CustomNames()
+        /// <summary>True when a format 2 'post' table gives some glyph a name of its own.</summary>
+        internal bool HasCustomNames
         {
-            var names = new Dictionary<string, int>(System.StringComparer.Ordinal);
-            if (PostFormat != 0x00020000 || _post!.Length < 34) return names;
-            int count = U16(_post, 32);
+            get { ReadPost(); return _hasCustomNames; }
+        }
+
+        /// <summary>
+        /// False when the 'post' table has a format the reader does not know or a name it cannot read; a name it
+        /// does not find may then still be in the table.
+        /// </summary>
+        internal bool PostNamesComplete
+        {
+            get { ReadPost(); return _postNamesComplete; }
+        }
+
+        void ReadPost()
+        {
+            if (_postRead) return;
+            _postRead = true;
+            switch (PostFormat)
+            {
+                case 0:
+                case 0x00030000:
+                    return;
+                case 0x00010000:
+                case 0x00025000:
+                    _hasStandardNames = true;
+                    return;
+                case 0x00020000:
+                    break;
+                default:
+                    _postNamesComplete = false;
+                    return;
+            }
+            int count = U16(_post!, 32);
             long stringsStart = 34L + 2L * count;
-            if (stringsStart > _post.Length) return names;
+            if (stringsStart > _post!.Length)
+            {
+                _postNamesComplete = false;
+                return;
+            }
             // The Pascal strings in order; index 258 + i names string i.
             var strings = new List<string>();
             for (long position = stringsStart; position < _post.Length;)
             {
                 _tick();
                 int length = _post[position];
-                if (position + 1 + length > _post.Length) break;
+                if (position + 1 + length > _post.Length)
+                {
+                    _postNamesComplete = false;
+                    break;
+                }
                 strings.Add(System.Text.Encoding.ASCII.GetString(_post, (int)position + 1, length));
                 position += 1 + length;
             }
@@ -140,10 +175,12 @@ namespace PdfSharp.UniversalAccessibility
             {
                 _tick();
                 int index = U16(_post, 34 + 2 * glyph);
-                if (index >= 258 && index - 258 < strings.Count && !names.ContainsKey(strings[index - 258]))
-                    names.Add(strings[index - 258], glyph);
+                if (index > 0 && index < 258) _hasStandardNames = true;
+                if (index < 258) continue;
+                _hasCustomNames = true;
+                if (index - 258 >= strings.Count) _postNamesComplete = false;
+                else if (!_customNames.ContainsKey(strings[index - 258])) _customNames.Add(strings[index - 258], glyph);
             }
-            return names;
         }
 
         // The offset of the subtable for this platform and encoding within the 'cmap' table, or -1.
@@ -161,60 +198,62 @@ namespace PdfSharp.UniversalAccessibility
             return -1;
         }
 
-        int? Format0(int start, int code)
+        int? Format0(int start, int end, int code)
         {
-            if (code < 0 || code > 255 || start + 6 + 256 > _cmap!.Length) return null;
-            return _cmap[start + 6 + code];
+            if (code < 0 || code > 255 || start + 6 + 256 > end) return null;
+            return _cmap![start + 6 + code];
         }
 
-        int? Format6(int start, int code)
+        int? Format6(int start, int end, int code)
         {
-            if (start + 10 > _cmap!.Length) return null;
-            int first = U16(_cmap, start + 6);
-            int count = U16(_cmap, start + 8);
-            if (start + 10L + 2L * count > _cmap.Length) return null;
+            if (start + 10 > end) return null;
+            int first = U16(_cmap!, start + 6);
+            int count = U16(_cmap!, start + 8);
+            if (start + 10L + 2L * count > end) return null;
             if (code < first || code >= first + count) return 0;
-            return U16(_cmap, start + 10 + 2 * (code - first));
+            return U16(_cmap!, start + 10 + 2 * (code - first));
         }
 
         // Segments are searched one by one: a font whose segments are out of order must not hide a mapping.
-        int? Format4(int start, int code)
+        int? Format4(int start, int end, int code)
         {
-            if (start + 14 > _cmap!.Length || code < 0 || code > 0xFFFF) return null;
-            int segments = U16(_cmap, start + 6) / 2;
+            if (start + 14 > end || code < 0 || code > 0xFFFF) return null;
+            var cmap = _cmap!;
+            int segments = U16(cmap, start + 6) / 2;
             int ends = start + 14;
             int starts = ends + 2 * segments + 2;
             int deltas = starts + 2 * segments;
             int rangeOffsets = deltas + 2 * segments;
-            if (rangeOffsets + 2L * segments > _cmap.Length) return null;
+            if (rangeOffsets + 2L * segments > end) return null;
             for (int i = 0; i < segments; i++)
             {
                 _tick();
-                if (code > U16(_cmap, ends + 2 * i) || code < U16(_cmap, starts + 2 * i)) continue;
-                int delta = U16(_cmap, deltas + 2 * i);
-                int rangeOffset = U16(_cmap, rangeOffsets + 2 * i);
+                if (code > U16(cmap, ends + 2 * i) || code < U16(cmap, starts + 2 * i)) continue;
+                int delta = U16(cmap, deltas + 2 * i);
+                int rangeOffset = U16(cmap, rangeOffsets + 2 * i);
                 if (rangeOffset == 0) return (code + delta) & 0xFFFF;
-                long address = rangeOffsets + 2L * i + rangeOffset + 2L * (code - U16(_cmap, starts + 2 * i));
-                if (address + 2 > _cmap.Length) return null;
-                int glyph = U16(_cmap, (int)address);
+                long address = rangeOffsets + 2L * i + rangeOffset + 2L * (code - U16(cmap, starts + 2 * i));
+                if (address + 2 > end) return null;
+                int glyph = U16(cmap, (int)address);
                 return glyph == 0 ? 0 : (glyph + delta) & 0xFFFF;
             }
             return 0;
         }
 
-        int? Format12(int start, int code)
+        int? Format12(int start, int end, int code)
         {
-            if (start + 16 > _cmap!.Length) return null;
-            long groups = U32(_cmap, start + 12);
-            if (start + 16L + 12L * groups > _cmap.Length) return null;
+            if (start + 16 > end) return null;
+            var cmap = _cmap!;
+            long groups = U32(cmap, start + 12);
+            if (start + 16L + 12L * groups > end) return null;
             for (long i = 0; i < groups; i++)
             {
                 _tick();
                 int group = start + 16 + (int)(12 * i);
-                long first = U32(_cmap, group);
-                long last = U32(_cmap, group + 4);
+                long first = U32(cmap, group);
+                long last = U32(cmap, group + 4);
                 if (code < first || code > last) continue;
-                long glyph = U32(_cmap, group + 8) + (code - first);
+                long glyph = U32(cmap, group + 8) + (code - first);
                 return glyph > int.MaxValue ? null : (int)glyph;
             }
             return 0;

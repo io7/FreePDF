@@ -182,10 +182,19 @@ namespace PdfSharp.UniversalAccessibility
         GlyphFont NamedGlyphs(PdfDictionary font, PdfDictionary? charProcs)
         {
             var names = DifferencesNames(font);
+            // A Type 3 code that /Differences leaves alone takes its name from a WinAnsi or MacRoman base encoding, where
+            // that name is certain. An array that cannot be read hides which codes it changes, so the base is not used.
+            string?[]? baseTable = null;
+            if (charProcs != null && Dict(font, "/Encoding") is PdfDictionary encoding
+                && Name(encoding, "/BaseEncoding") is "/WinAnsiEncoding" or "/MacRomanEncoding"
+                && (names != null || IsNull(Resolve(encoding.Elements["/Differences"]))))
+                baseTable = SimpleEncodings.Named(Name(encoding, "/BaseEncoding"));
             var uses = new GlyphUse[256];
-            for (int code = 0; names != null && code < 256; code++)
+            for (int code = 0; code < 256; code++)
             {
-                var name = names[code];
+                var name = names?[code];
+                if (name == null && baseTable?[code] is string unicode && BaseEncodingName(unicode, code) is string standard)
+                    name = "/" + standard;
                 if (name == null) continue;
                 if (name == "/.notdef") uses[code] = GlyphUse.Notdef;
                 else if (charProcs != null && Resolve(charProcs.Elements[name]) is PdfDictionary { Stream: not null }) uses[code] = GlyphUse.Present;
@@ -266,7 +275,11 @@ namespace PdfSharp.UniversalAccessibility
         {
             string? name = differencesName?.Substring(1);
             string? unicode = null;
-            if (name == null) unicode = baseTable?[code];
+            if (name == null)
+            {
+                unicode = baseTable?[code];
+                if (unicode != null) name = BaseEncodingName(unicode, code);
+            }
             if (name == null && unicode == null && GlyphTables.StandardEncoding[code].Length > 0)
                 name = GlyphTables.StandardEncoding[code];
             if (name == null && unicode == null) return GlyphUse.Unknown;
@@ -287,11 +300,24 @@ namespace PdfSharp.UniversalAccessibility
             }
             if (name != null && program.GlyphByCustomName(name) is int named && named > 0 && named < program.GlyphCount)
                 return GlyphUse.Present;
-            // A name of the standard Macintosh set is in the Adobe Glyph List, or is .null or nonmarkingreturn; such a
-            // glyph may carry the name in the 'post' table without a custom string.
+            // The 'post' table may still name the glyph: under a standard Macintosh name (those are in the Adobe Glyph
+            // List, or are .null or nonmarkingreturn), under a custom name when only the base encoding gives the code
+            // (its WinAnsi or MacRoman name is not at hand), or in a part the reader could not read.
             bool standardName = name == null || GlyphNames.IsListed(name) || name is ".null" or "nonmarkingreturn";
-            if (undecided || (standardName && program.HasStandardNames)) return GlyphUse.Unknown;
+            bool postMayName = !program.PostNamesComplete || (standardName && program.HasStandardNames)
+                || (name == null && program.HasCustomNames);
+            if (undecided || postMayName) return GlyphUse.Unknown;
             return GlyphUse.Missing;
+        }
+
+        // The name a WinAnsi or MacRoman code has, where it is certain: ISO 32000-1 Annex D gives a character one name
+        // in every encoding, so where the base table has StandardEncoding's character, it has StandardEncoding's name.
+        // Null elsewhere (Euro, for example), because only character tables of those encodings are at hand.
+        static string? BaseEncodingName(string unicode, int code)
+        {
+            var standard = GlyphTables.StandardEncoding[code];
+            if (standard.Length == 0 || GlyphNames.ToUnicode(standard, false) != unicode) return null;
+            return standard;
         }
 
         static GlyphUse Found(EmbeddedTrueType program, int? glyph)
@@ -334,15 +360,26 @@ namespace PdfSharp.UniversalAccessibility
             long limit = Math.Min(MaxFontProgramBytes, left);
             var bytes = file.Stream!.Value;
             var filter = Resolve(file.Elements["/Filter"]);
+            long spent = 0;
             if (!IsNull(filter))
             {
                 var decodeLimit = new DecodeLimit(limit, limit);
                 try { bytes = Filtering.Decode(bytes, filter!, file.Elements["/DecodeParms"], decodeLimit); }
-                // The program's own limit: only this font is left unassessed.
-                catch (PdfReaderException ex) when (Parser.IsLimitExceeded(ex)) { return null; }
-                catch (Exception ex) when (!EndsScan(ex)) { return null; }
+                // The program's own limit or damaged data: only this font is left unassessed, but what was decoded
+                // counts toward the total, so distinct oversized programs cannot each spend a full limit.
+                catch (PdfReaderException ex) when (Parser.IsLimitExceeded(ex))
+                {
+                    _fontProgramBytes += Math.Max(decodeLimit.Spent, limit);
+                    return null;
+                }
+                catch (Exception ex) when (!EndsScan(ex))
+                {
+                    _fontProgramBytes += decodeLimit.Spent;
+                    return null;
+                }
+                spent = decodeLimit.Spent;
             }
-            _fontProgramBytes += bytes.Length;
+            _fontProgramBytes += Math.Max(spent, bytes.Length);
             return bytes.Length > limit ? null : bytes;
         }
     }

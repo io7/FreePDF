@@ -31,8 +31,9 @@ static class SyntheticTrueType
     /// its standard index ("#3"), any other text becomes a custom name. Null writes a format 3 table, and
     /// <paramref name="post"/> false writes none.</param>
     /// <param name="padding">The size of an extra table of zeros, to give the program a size.</param>
+    /// <param name="postCut">Bytes cut from the end of the 'post' table, to damage its last name.</param>
     internal static byte[] Build(int glyphs, IEnumerable<Cmap>? cmaps = null, string?[]? postNames = null, bool post = true,
-        string tag = "\0\u0001\0\0", int padding = 0)
+        string tag = "\0\u0001\0\0", int padding = 0, int postCut = 0)
     {
         var tables = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
         {
@@ -40,7 +41,11 @@ static class SyntheticTrueType
         };
         if (padding > 0) tables["zzzz"] = new byte[padding];
         if (cmaps != null) tables["cmap"] = CmapTable(cmaps.ToList());
-        if (post) tables["post"] = PostTable(postNames, glyphs);
+        if (post)
+        {
+            var table = PostTable(postNames, glyphs);
+            tables["post"] = table.Take(table.Length - postCut).ToArray();
+        }
         return Bytes(w =>
         {
             foreach (char c in tag) w.U8(c);
@@ -130,6 +135,17 @@ static class SyntheticTrueType
                     foreach (var glyph in glyphIds) w.U16(glyph);
                 });
             }
+            case 42:
+                // Damaged format 4: the first code's idRangeOffset points just past this subtable's 32 bytes.
+                return Bytes(w =>
+                {
+                    int code = map[0].Key;
+                    w.U16(4); w.U16(32); w.U16(0); w.U16(4); w.U16(0); w.U16(0); w.U16(0);
+                    w.U16(code); w.U16(0xFFFF); w.U16(0);
+                    w.U16(code); w.U16(0xFFFF);
+                    w.U16(0); w.U16(1);
+                    w.U16(4); w.U16(0);
+                });
             case 12:
                 return Bytes(w =>
                 {

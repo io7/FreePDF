@@ -108,8 +108,17 @@ programs, and programs that inflate past 32 MiB, or past 256 MiB for all
 programs of a scan, give `NotChecked`. Font programs do not count toward
 `MaxDecodedBytes`. Visible text in a font without a program fails the font
 check, and the glyph rule judges only its `.notdef` names. Invisible text in
-such a font is `NotChecked`. A glyph name that the cmap does not find, and that
-the `post` table could hold under a standard Macintosh name, is `NotChecked`.
+such a font is `NotChecked`.
+
+A code that only a WinAnsi or MacRoman base encoding names has a known glyph
+name where that encoding has the same character as StandardEncoding (ISO
+32000-1 Annex D gives a character one name). Elsewhere, such as WinAnsi `80`
+(Euro), the name is not known. A glyph that the cmap does not find stays
+`NotChecked` when the `post` table could still name it: under a standard
+Macintosh name, under a custom name for a code whose name is not known, or in a
+part of the table the rule cannot read. A Type 3 code whose name is not known
+is `NotChecked`. The rule reads each cmap subtable within the length it declares.
+Decoding a program that passes its own limit still counts toward the total.
 
 Starting with 7.13.0, the scanner follows each `Do` that draws a local
 Form XObject. A form can inherit the caller's tag or artifact, or contain its

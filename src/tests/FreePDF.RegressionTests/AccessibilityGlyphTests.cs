@@ -158,6 +158,54 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));
     }
 
+    // Decoding counts toward the 256 MiB total for all programs also when a program passes its own limit: after eight
+    // distinct programs that each inflate past 32 MiB, a valid program is no longer read, so its .notdef stays
+    // unassessed.
+    [Fact]
+    public void Programs_past_their_limit_count_toward_the_total()
+    {
+        var bomb = Deflated(Build(4, post: false, padding: 33 * 1024 * 1024));
+        var report = Scan(Fixture(d =>
+        {
+            var fonts = new PdfDictionary(d);
+            var content = new StringBuilder("/Artifact BMC BT ");
+            for (int i = 0; i < 9; i++)
+            {
+                var file = new PdfDictionary(d);
+                // Each bomb is its own stream; the last font has a valid program.
+                file.CreateStream(i < 8 ? bomb : FourGlyphs);
+                if (i < 8) file.Elements.SetName("/Filter", "/FlateDecode");
+                d.Internals.AddObject(file);
+                var descriptor = new PdfDictionary(d);
+                descriptor.Elements["/FontFile2"] = file.Reference!;
+                var child = new PdfDictionary(d);
+                child.Elements.SetName("/Subtype", "/CIDFontType2");
+                child.Elements["/FontDescriptor"] = descriptor;
+                var font = new PdfDictionary(d);
+                font.Elements.SetName("/Subtype", "/Type0");
+                font.Elements.SetName("/Encoding", "/Identity-H");
+                font.Elements["/DescendantFonts"] = new PdfArray(d, child);
+                fonts.Elements["/F" + i] = font;
+                content.Append($"/F{i} 12 Tf <0000> Tj ");
+            }
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(content + "ET EMC"));
+        }));
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "FPDF-A11Y-GLYPH" && f.Status == PdfAccessibilityCheckStatus.Failed);
+        Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "GLYPH"));
+    }
+
+    static byte[] Deflated(byte[] data)
+    {
+        using var deflated = new MemoryStream();
+        deflated.WriteByte(0x78);
+        deflated.WriteByte(0x9C);
+        using (var deflate = new System.IO.Compression.DeflateStream(deflated, System.IO.Compression.CompressionLevel.Optimal, true))
+            deflate.Write(data, 0, data.Length);
+        return deflated.ToArray();
+    }
+
     // Fonts often share a descendant, its program and its CIDToGIDMap. Each is read once per scan, so 600 fonts fit a
     // 1 MiB decode budget that reading the 64 KiB map for each font would pass, and the 256 MiB program total that
     // counting the 4 MiB program for each font would pass.
@@ -244,6 +292,12 @@ public partial class AccessibilityScannerTests
     [InlineData("symbolic-1-0", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
     [InlineData("symbolic-1-0", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
     [InlineData("symbolic-without-subtable", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // WinAnsi 80 is Euro. The base encoding gives no name to look up, and 'post' may name the glyph.
+    [InlineData("base-code-post-names", "<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // A damaged format 4 subtable points past its own end into the next subtable.
+    [InlineData("subtable-overrun", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // A cut 'post' table cannot show that the name is absent.
+    [InlineData("post-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     public void Simple_TrueType_codes_follow_the_font_cmap(string kind, string show, PdfAccessibilityCheckStatus expected)
     {
         var report = kind switch
@@ -272,6 +326,12 @@ public partial class AccessibilityScannerTests
             "notdef-name" => ScanSimple(show, differences: "66 /.notdef", baseEncoding: "/WinAnsiEncoding", program: UnicodeA),
             "symbolic-3-0" => ScanSimple(show, flags: 4, program: Build(4, new[] { Map(3, 0, 4, 0xF041, 1) })),
             "symbolic-1-0" => ScanSimple(show, flags: 4, program: Build(4, new[] { Map(1, 0, 0, 0x41, 1) })),
+            "base-code-post-names" => ScanSimple(show, encoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x41, 2) }, new[] { null, "Euro", null, null })),
+            "subtable-overrun" => ScanSimple(show, encoding: "/WinAnsiEncoding",
+                program: Build(16, new[] { Map(3, 1, 42, 0x41, 0), Map(3, 10, 12, 0x41, 5) })),
+            "post-cut" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postCut: 2)),
             _ => ScanSimple(show, flags: 4, program: UnicodeA),
         };
         Assert.Equal(expected, Outcome(report, "GLYPH"));
@@ -295,6 +355,38 @@ public partial class AccessibilityScannerTests
     public void Type1_fonts_are_judged_by_notdef_names(string differences, bool embedded, PdfAccessibilityCheckStatus expected)
         => Assert.Equal(expected, Outcome(ScanSimple("<41> Tj", "/Type1", differences: differences,
             program: embedded ? Encoding.ASCII.GetBytes("%!PS-AdobeFont-1.0: Synthetic") : null), "GLYPH"));
+
+    // A code that only the base encoding names: where WinAnsi has the same character as StandardEncoding, the name is
+    // StandardEncoding's (ISO 32000-1 Annex D), so 41 is A and 43 is C. WinAnsi 80 (Euro) has no such name.
+    [Theory]
+    [InlineData("<41> Tj", PdfAccessibilityCheckStatus.Passed)]
+    [InlineData("<43> Tj", PdfAccessibilityCheckStatus.Failed)]
+    [InlineData("<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    public void Type3_base_encoding_codes_use_their_standard_names(string show, PdfAccessibilityCheckStatus expected)
+    {
+        var report = Scan(Fixture(d =>
+        {
+            var procedure = new PdfDictionary(d);
+            procedure.CreateStream(Encoding.ASCII.GetBytes("500 0 0 0 500 500 d1 0 0 500 500 re f"));
+            d.Internals.AddObject(procedure);
+            var procedures = new PdfDictionary(d);
+            procedures.Elements["/A"] = procedure.Reference!;
+            procedures.Elements["/b"] = procedure.Reference!;
+            var encoding = new PdfDictionary(d);
+            encoding.Elements.SetName("/BaseEncoding", "/WinAnsiEncoding");
+            encoding.Elements["/Differences"] = new PdfArray(d, new PdfInteger(66), new PdfName("/b"));
+            var font = new PdfDictionary(d);
+            font.Elements.SetName("/Subtype", "/Type3");
+            font.Elements["/CharProcs"] = procedures;
+            font.Elements["/Encoding"] = encoding;
+            var fonts = new PdfDictionary(d);
+            fonts.Elements["/Text"] = font;
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Text 12 Tf " + show + " ET EMC"));
+        }));
+        Assert.Equal(expected, Outcome(report, "GLYPH"));
+    }
 
     // A Type 3 glyph exists when /CharProcs has a procedure for its name. veraPDF 1.30.3: a missing procedure is
     // rule 7.21.4.1-2, a name of .notdef rule 7.21.8-1.
