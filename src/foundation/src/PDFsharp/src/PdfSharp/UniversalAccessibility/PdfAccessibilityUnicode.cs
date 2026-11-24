@@ -137,7 +137,7 @@ namespace PdfSharp.UniversalAccessibility
                 return mapping;
             }
             // An unembedded standard 14 font without an encoding uses its built-in one.
-            if (IsNull(encoding) && Name(font, "/Subtype") == "/Type1" && !font.Elements.ContainsKey("/FontDescriptor"))
+            if (IsNull(encoding) && Name(font, "/Subtype") == "/Type1" && IsNull(Resolve(font.Elements["/FontDescriptor"])))
             {
                 var baseName = Name(font, "/BaseFont");
                 var builtIn = baseName switch

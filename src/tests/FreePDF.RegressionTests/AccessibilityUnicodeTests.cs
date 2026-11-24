@@ -354,6 +354,11 @@ public partial class AccessibilityScannerTests
         => Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(ScanSimple("<41> Tj", "/Type1", descriptor: false,
             baseFont: "/Helvetica", editFont: font => font.Elements["/Encoding"] = PdfNull.Value), "UNICODE"));
 
+    [Fact]
+    public void A_null_FontDescriptor_leaves_a_standard_font_its_built_in_encoding()
+        => Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(ScanSimple("<41> Tj", "/Type1", descriptor: false,
+            baseFont: "/Helvetica", editFont: font => font.Elements["/FontDescriptor"] = PdfNull.Value), "UNICODE"));
+
     // A finding is kept for every page, so its message must not carry a name of any length.
     [Fact]
     public void A_long_glyph_name_is_shortened_in_the_report()
