@@ -232,4 +232,88 @@ public partial class AccessibilityScannerTests
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "CONTENT"));
         Fails(report, "FONT");
     }
+
+    // ISO 14289-1 7.21.7 and Matterhorn 31-028/31-029: no mapped value may be U+0000, U+FEFF or U+FFFE.
+    [Theory]
+    [InlineData("1 beginbfchar <0041> <0000> endbfchar")]
+    [InlineData("1 beginbfchar <0041> <FEFF> endbfchar")]
+    [InlineData("1 beginbfchar <0041> <FFFE> endbfchar")]
+    [InlineData("1 beginbfchar <0041> <00410000> endbfchar")]
+    [InlineData("1 beginbfrange <0040> <0041> <FEFE> endbfrange")]
+    [InlineData("1 beginbfrange <0041> <0042> [<FFFE> <0062>] endbfrange")]
+    public void Shown_code_mapped_to_a_forbidden_value_fails(string entries)
+    {
+        var report = ScanIdentity("<0041> Tj <0041> Tj", entries);
+        var finding = Assert.Single(report.Findings.Where(f => f.RuleId == "FPDF-A11Y-UNICODE"));
+        Assert.Equal(PdfAccessibilityCheckStatus.Failed, finding.Status);
+        Assert.Contains("<0041>", finding.Message);
+        Assert.Contains("U+FEFF", finding.Message);
+    }
+
+    [Theory]
+    [InlineData("2 beginbfchar <0041> <0061> <0042> <0000> endbfchar")]
+    [InlineData("1 beginbfrange <0041> <0042> <FEFE> endbfrange")]
+    [InlineData("1 beginbfrange <0040> <0042> <00FD> endbfrange")]
+    public void Forbidden_values_of_codes_not_shown_are_ignored(string entries)
+        => Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(ScanIdentity("<0041> Tj", entries), "UNICODE"));
+
+    [Fact]
+    public void A_forbidden_value_fails_in_a_simple_font_too()
+        => Fails(ScanSimple("<41> Tj", encoding: "/WinAnsiEncoding", toUnicode: OneByteMap("1 beginbfchar <41> <0000> endbfchar")), "UNICODE");
+
+    static string OneByteMap(string entries)
+        => "begincmap 1 begincodespacerange <00> <FF> endcodespacerange " + entries + " endcmap";
+
+    // A simple font without a font program. Differences are written as in PDF: "65 /A /B 70 /C".
+    static PdfAccessibilityReport ScanSimple(string show, string subtype = "/TrueType", string? encoding = null,
+        string? differences = null, string? baseEncoding = null, string? toUnicode = null, bool descriptor = true,
+        string baseFont = "/SyntheticSimple")
+    {
+        return Scan(Fixture(d =>
+        {
+            var font = new PdfDictionary(d);
+            font.Elements.SetName("/Type", "/Font");
+            font.Elements.SetName("/Subtype", subtype);
+            font.Elements.SetName("/BaseFont", baseFont);
+            if (descriptor)
+            {
+                var fd = new PdfDictionary(d);
+                fd.Elements.SetName("/Type", "/FontDescriptor");
+                fd.Elements.SetName("/FontName", baseFont);
+                fd.Elements.SetInteger("/Flags", 32);
+                d.Internals.AddObject(fd);
+                font.Elements["/FontDescriptor"] = fd.Reference!;
+            }
+            if (encoding != null) font.Elements.SetName("/Encoding", encoding);
+            if (differences != null || baseEncoding != null)
+            {
+                var dictionary = new PdfDictionary(d);
+                dictionary.Elements.SetName("/Type", "/Encoding");
+                if (baseEncoding != null) dictionary.Elements.SetName("/BaseEncoding", baseEncoding);
+                if (differences != null)
+                {
+                    var array = new PdfArray(d);
+                    foreach (var part in differences.Split(' '))
+                    {
+                        if (part.StartsWith("/", StringComparison.Ordinal)) array.Elements.Add(new PdfName(part));
+                        else array.Elements.Add(new PdfInteger(int.Parse(part, System.Globalization.CultureInfo.InvariantCulture)));
+                    }
+                    dictionary.Elements["/Differences"] = array;
+                }
+                font.Elements["/Encoding"] = dictionary;
+            }
+            if (toUnicode != null)
+            {
+                var cmap = new PdfDictionary(d);
+                cmap.CreateStream(Encoding.ASCII.GetBytes(toUnicode));
+                d.Internals.AddObject(cmap);
+                font.Elements["/ToUnicode"] = cmap.Reference!;
+            }
+            var fonts = new PdfDictionary(d);
+            fonts.Elements["/Text"] = font;
+            var page = d.Pages[0];
+            page.Elements.GetDictionary("/Resources")!.Elements["/Font"] = fonts;
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Text 12 Tf " + show + " ET EMC"));
+        }));
+    }
 }

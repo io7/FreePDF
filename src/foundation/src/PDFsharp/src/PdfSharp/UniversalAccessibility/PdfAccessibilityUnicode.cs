@@ -1,5 +1,6 @@
 // Original FreePDF implementation. See LICENSE and PROVENANCE.md.
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Content.Objects;
@@ -17,7 +18,11 @@ namespace PdfSharp.UniversalAccessibility
         readonly Dictionary<PdfDictionary, UnicodeFont> _unicodeFonts = new();
         readonly Dictionary<(PdfDictionary, int), CMapCoverage?> _unicodeMaps = new();
         readonly HashSet<(int Page, PdfDictionary Font)> _missingUnicode = new();
+        readonly HashSet<(int Page, PdfDictionary Font)> _forbiddenUnicode = new();
         readonly HashSet<int> _unassessedUnicodePages = new();
+
+        // A code as it appears in a hex string of the font: two digits for a simple font, four for a two-byte code.
+        static string Hex(int code, int width) => code.ToString(width == 1 ? "X2" : "X4", CultureInfo.InvariantCulture);
 
         static readonly string?[] WinAnsi = SimpleEncodings.Named("/WinAnsiEncoding")!;
         static readonly string?[] MacRoman = SimpleEncodings.Named("/MacRomanEncoding")!;
@@ -133,7 +138,18 @@ namespace PdfSharp.UniversalAccessibility
                         if (offset + 1 == value.Length) { Unknown(); return; }
                         code = (code << 8) | (byte)value[offset + 1];
                     }
-                    if (font.Map?.Contains(code) == true || font.Simple?[code] != null) continue;
+                    if (font.Map?.Contains(code) == true)
+                    {
+                        if (font.Map.MapsToForbiddenValue(code))
+                        {
+                            passed = false;
+                            if (_forbiddenUnicode.Add((page, text.Font!)))
+                                Record("UNICODE", PdfAccessibilityCheckStatus.Failed,
+                                    $"Shown character code <{Hex(code, font.Width)}> maps to U+0000, U+FEFF or U+FFFE in the ToUnicode map.", page, path);
+                        }
+                        continue;
+                    }
+                    if (font.Simple?[code] != null) continue;
                     passed = false;
                     if (font.RequiresMap)
                     {
