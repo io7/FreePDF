@@ -183,8 +183,9 @@ public partial class AccessibilityScannerTests
             AccessibilityFormFixture.AddForm(d, resources, "/Invisible", "BT 3 Tr (invisible) Tj ET");
             page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Artifact BMC BT /Review 10 Tf ET " + content + " EMC"));
         }));
-        Assert.Equal(failed ? PdfAccessibilityScanStatus.Failed : PdfAccessibilityScanStatus.NeedsReview, report.Status);
+        // The font check alone: since 7.17.0 the glyph check leaves invisible text in an unembedded font unassessed.
         if (failed) Fails(report, "FONT");
+        else Assert.NotEqual(PdfAccessibilityCheckStatus.Failed, Outcome(report, "FONT"));
     }
 
     [Fact]

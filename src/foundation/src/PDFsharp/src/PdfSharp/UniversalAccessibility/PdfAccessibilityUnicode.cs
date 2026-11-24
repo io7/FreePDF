@@ -267,19 +267,25 @@ namespace PdfSharp.UniversalAccessibility
                 if (passed) Record("UNICODE", PdfAccessibilityCheckStatus.Passed);
             }
 
+            ForEachShownString(op, InspectString, Unknown);
+        }
+
+        // Calls inspect for each string that Tj, TJ, ' or " shows, and unknown for an operand that cannot be read.
+        void ForEachShownString(COperator op, Action<string> inspect, Action unknown)
+        {
             if (op.Name == "TJ" && op.Operands.Count == 1 && op.Operands[0] is CArray array)
             {
                 foreach (var item in array)
                 {
                     Tick();
-                    if (item is CString str) InspectString(str.Value);
-                    else if (item is not (CInteger or CReal)) Unknown();
+                    if (item is CString str) inspect(str.Value);
+                    else if (item is not (CInteger or CReal)) unknown();
                 }
             }
             else if (op.Name != "TJ" && op.Operands.Count == (op.Name == "\"" ? 3 : 1)
                 && op.Operands.Last() is CString str)
-                InspectString(str.Value);
-            else Unknown();
+                inspect(str.Value);
+            else unknown();
         }
     }
 }

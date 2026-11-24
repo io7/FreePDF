@@ -198,6 +198,7 @@ namespace PdfSharp.UniversalAccessibility
             else if (ShowText.Contains(op.Name))
             {
                 InspectUnicode(op, text, page, stream);
+                InspectGlyphs(op, text, page, stream);
                 if (text.Mode == 3) return text;
                 if (text.Font != null) InspectFont(text.Font, page, text.Path);
                 else if (text.Selected && _missingFonts.Add(text.Key))
