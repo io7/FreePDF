@@ -13,7 +13,7 @@ public partial class AccessibilityScannerTests
 
     // A Type0 font with Identity-H over a CIDFontType2 whose descriptor embeds the given program as FontFile2.
     static PdfAccessibilityReport ScanCid(string content, byte[]? program = null, Action<PdfDocument, PdfDictionary>? editChild = null,
-        string fontFileKey = "/FontFile2", string childSubtype = "/CIDFontType2")
+        string fontFileKey = "/FontFile2", string childSubtype = "/CIDFontType2", string? fileSubtype = null)
     {
         return Scan(Fixture(d =>
         {
@@ -29,6 +29,7 @@ public partial class AccessibilityScannerTests
             {
                 var file = new PdfDictionary(d);
                 file.CreateStream(program);
+                if (fileSubtype != null) file.Elements.SetName("/Subtype", fileSubtype);
                 d.Internals.AddObject(file);
                 descriptor.Elements[fontFileKey] = file.Reference!;
             }
@@ -124,7 +125,7 @@ public partial class AccessibilityScannerTests
     [InlineData("damaged")]
     [InlineData("OTTO")]
     [InlineData("ttcf")]
-    [InlineData("cff")]
+    [InlineData("truetype-as-fontfile3")]
     public void Programs_the_check_cannot_read_leave_the_text_unassessed(string kind)
     {
         var report = kind switch
@@ -132,7 +133,7 @@ public partial class AccessibilityScannerTests
             "damaged" => ScanCid("<0000> Tj", Encoding.ASCII.GetBytes("not a font program")),
             "OTTO" => ScanCid("<0000> Tj", Build(4, tag: "OTTO")),
             "ttcf" => ScanCid("<0000> Tj", Build(4, tag: "ttcf")),
-            _ => ScanCid("<0000> Tj", FourGlyphs, fontFileKey: "/FontFile3", childSubtype: "/CIDFontType0"),
+            _ => ScanCid("<0000> Tj", FourGlyphs, fontFileKey: "/FontFile3", childSubtype: "/CIDFontType0", fileSubtype: "/CIDFontType0C"),
         };
         Assert.Equal(PdfAccessibilityCheckStatus.NotChecked, Outcome(report, "GLYPH"));
         Assert.Equal(PdfAccessibilityCheckStatus.Passed, Outcome(report, "READ"));

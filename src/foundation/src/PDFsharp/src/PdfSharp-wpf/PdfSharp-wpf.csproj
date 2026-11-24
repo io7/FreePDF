@@ -501,6 +501,8 @@
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityUnicode.cs" Link="UniversalAccessibility\PdfAccessibilityUnicode.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\PdfAccessibilityGlyph.cs" Link="UniversalAccessibility\PdfAccessibilityGlyph.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\EmbeddedTrueType.cs" Link="UniversalAccessibility\EmbeddedTrueType.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\EmbeddedCff.cs" Link="UniversalAccessibility\EmbeddedCff.cs" />
+    <Compile Include="..\PdfSharp\UniversalAccessibility\CffStandardStrings.cs" Link="UniversalAccessibility\CffStandardStrings.cs" />
     <Compile Include="..\PdfSharp\UniversalAccessibility\UAManager.cs" Link="UniversalAccessibility\UAManager.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\RenderMode.cs" Link="Windows\enums\RenderMode.cs" />
     <Compile Include="..\PdfSharp\Windows\enums\Zoom.cs" Link="Windows\enums\Zoom.cs" />
