@@ -1,6 +1,6 @@
 # FreePDF changelog
 
-## Unreleased
+## 7.16.0
 
 - The accessibility preflight checks Unicode mappings for character codes used on pages and in
   invoked forms. It reads ToUnicode maps, the named WinAnsi, MacRoman and MacExpert encodings, and

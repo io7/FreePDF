@@ -328,7 +328,8 @@ checks content inside nested Form XObjects and resolves named marked-content
 properties. 7.14.0 bounds the scan's memory and time on hostile files and adds
 a scan time limit. In 7.14.1 the time limit and cancellation also stop the
 reading of the PDF. 7.15.0 extracts the text and the painted line segments of
-a page. See the release notes for [7.15.0](docs/releases/7.15.0.md), [7.14.1](docs/releases/7.14.1.md), [7.14.0](docs/releases/7.14.0.md), [7.13.0](docs/releases/7.13.0.md),
+a page. 7.16.0 checks that the character codes a page shows map to Unicode.
+See the release notes for [7.16.0](docs/releases/7.16.0.md), [7.15.0](docs/releases/7.15.0.md), [7.14.1](docs/releases/7.14.1.md), [7.14.0](docs/releases/7.14.0.md), [7.13.0](docs/releases/7.13.0.md),
 [7.12.0](docs/releases/7.12.0.md), [7.11.0](docs/releases/7.11.0.md), [7.10.2](docs/releases/7.10.2.md), [7.10.1](docs/releases/7.10.1.md), [7.10.0](docs/releases/7.10.0.md), [7.9.0](docs/releases/7.9.0.md), [7.8.0](docs/releases/7.8.0.md), [7.7.0](docs/releases/7.7.0.md), [7.6.1](docs/releases/7.6.1.md), [7.6.0](docs/releases/7.6.0.md), [7.5.2](docs/releases/7.5.2.md), [7.5.1](docs/releases/7.5.1.md), [7.5.0](docs/releases/7.5.0.md), [7.4.1](docs/releases/7.4.1.md), [7.4.0](docs/releases/7.4.0.md), [7.3.0](docs/releases/7.3.0.md), [7.2.0](docs/releases/7.2.0.md), [7.1.1](docs/releases/7.1.1.md), [7.1.0](docs/releases/7.1.0.md),
 [7.0.1](docs/releases/7.0.1.md) and [7.0.0](docs/releases/7.0.0.md), the
 [changelog](CHANGELOG.md) and
