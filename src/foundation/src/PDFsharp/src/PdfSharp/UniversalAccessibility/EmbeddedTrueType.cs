@@ -27,12 +27,16 @@ namespace PdfSharp.UniversalAccessibility
             _cmap = cmap;
             _post = post;
             _tick = tick;
-            if (post != null && post.Length >= 32) PostFormat = (int)U32(post, 0);
+            // A table shorter than its 32-byte header is present but unreadable (-1), unlike a missing one (0).
+            if (post != null) PostFormat = post.Length >= 32 ? (int)U32(post, 0) : -1;
         }
 
         internal int GlyphCount { get; }
 
-        /// <summary>The 'post' table version as a 16.16 number (0x00020000 for format 2), or 0 without a table.</summary>
+        /// <summary>
+        /// The 'post' table version as a 16.16 number (0x00020000 for format 2), 0 without a table, -1 for a table too
+        /// short to have one.
+        /// </summary>
         internal int PostFormat { get; }
 
         /// <summary>The program, or null when it is not a single TrueType program with a 'maxp' table.</summary>

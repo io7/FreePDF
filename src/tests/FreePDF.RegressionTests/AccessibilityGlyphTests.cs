@@ -298,6 +298,8 @@ public partial class AccessibilityScannerTests
     [InlineData("subtable-overrun", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     // A cut 'post' table cannot show that the name is absent.
     [InlineData("post-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // A 'post' table shorter than its 32-byte header is present but cannot be read.
+    [InlineData("post-header-cut", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     public void Simple_TrueType_codes_follow_the_font_cmap(string kind, string show, PdfAccessibilityCheckStatus expected)
     {
         var report = kind switch
@@ -332,6 +334,8 @@ public partial class AccessibilityScannerTests
                 program: Build(16, new[] { Map(3, 1, 42, 0x41, 0), Map(3, 10, 12, 0x41, 5) })),
             "post-cut" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
                 program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, new[] { null, "zzzz", null, null }, postCut: 2)),
+            "post-header-cut" => ScanSimple(show, differences: "65 /g123", baseEncoding: "/WinAnsiEncoding",
+                program: Build(4, new[] { Map(3, 1, 4, 0x42, 2) }, postCut: 16)),
             _ => ScanSimple(show, flags: 4, program: UnicodeA),
         };
         Assert.Equal(expected, Outcome(report, "GLYPH"));

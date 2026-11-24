@@ -366,10 +366,11 @@ namespace PdfSharp.UniversalAccessibility
                 var decodeLimit = new DecodeLimit(limit, limit);
                 try { bytes = Filtering.Decode(bytes, filter!, file.Elements["/DecodeParms"], decodeLimit); }
                 // The program's own limit or damaged data: only this font is left unassessed, but what was decoded
-                // counts toward the total, so distinct oversized programs cannot each spend a full limit.
+                // counts toward the total, so distinct oversized programs cannot each spend a full limit. A filter
+                // refused before it runs has decoded nothing and costs nothing.
                 catch (PdfReaderException ex) when (Parser.IsLimitExceeded(ex))
                 {
-                    _fontProgramBytes += Math.Max(decodeLimit.Spent, limit);
+                    _fontProgramBytes += decodeLimit.Spent;
                     return null;
                 }
                 catch (Exception ex) when (!EndsScan(ex))
