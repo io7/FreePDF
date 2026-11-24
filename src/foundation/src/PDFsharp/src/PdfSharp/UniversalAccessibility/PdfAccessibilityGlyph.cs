@@ -307,6 +307,7 @@ namespace PdfSharp.UniversalAccessibility
             if (Dict(font, "/Encoding") is PdfDictionary encoding) baseName = Name(encoding, "/BaseEncoding");
             var baseTable = SimpleEncodings.Named(baseName);
             if (baseName == "/StandardEncoding") baseTable = null;
+            var baseNames = baseTable == null ? null : SimpleEncodings.Names(baseName);
             // No MacExpert table is at hand, so codes that encoding gives stay unknown.
             bool unknownBase = baseName == "/MacExpertEncoding";
             var program = TrueTypeProgram(Dict(descriptor, "/FontFile2"));
@@ -317,7 +318,7 @@ namespace PdfSharp.UniversalAccessibility
                 var name = names?[code];
                 if (nonsymbolic && name == "/.notdef") uses[code] = GlyphUse.Notdef;
                 else if (program == null || (nonsymbolic && name == null && unknownBase)) uses[code] = GlyphUse.Unknown;
-                else if (nonsymbolic) uses[code] = NonsymbolicGlyph(program, code, name, baseTable);
+                else if (nonsymbolic) uses[code] = NonsymbolicGlyph(program, code, name, baseTable, baseNames);
                 else uses[code] = SymbolicGlyph(program, code);
             }
             return new GlyphFont(1, uses, names, 0, null, HasFontProgram(descriptor));
@@ -341,17 +342,18 @@ namespace PdfSharp.UniversalAccessibility
             return Found(program, program.Lookup(1, 0, code));
         }
 
-        // The glyph name comes from /Differences, else the base encoding, else StandardEncoding. Its Unicode value is
-        // looked up in the (3,1) subtable, its MacRoman code in the (1,0) subtable, and the name in the 'post' table.
-        // A glyph is missing only when every lookup that could find it is known to fail.
-        static GlyphUse NonsymbolicGlyph(EmbeddedTrueType program, int code, string? differencesName, string?[]? baseTable)
+        // The glyph name comes from /Differences, else the base encoding (ISO 32000-1 Annex D), else StandardEncoding.
+        // Its Unicode value is looked up in the (3,1) subtable, its MacRoman code in the (1,0) subtable, and the name in
+        // the 'post' table. A glyph is missing only when every lookup that could find it is known to fail.
+        static GlyphUse NonsymbolicGlyph(EmbeddedTrueType program, int code, string? differencesName, string?[]? baseTable,
+            string[]? baseNames)
         {
             string? name = differencesName?.Substring(1);
             string? unicode = null;
             if (name == null)
             {
                 unicode = baseTable?[code];
-                if (unicode != null) name = BaseEncodingName(unicode, code);
+                if (unicode != null && baseNames?[code] is { Length: > 0 } baseName) name = baseName;
             }
             if (name == null && unicode == null && GlyphTables.StandardEncoding[code].Length > 0)
                 name = GlyphTables.StandardEncoding[code];
@@ -374,8 +376,9 @@ namespace PdfSharp.UniversalAccessibility
             if (name != null && program.GlyphByCustomName(name) is int named && named > 0 && named < program.GlyphCount)
                 return GlyphUse.Present;
             // The 'post' table may still name the glyph: under a standard Macintosh name (those are in the Adobe Glyph
-            // List, or are .null or nonmarkingreturn), under a custom name when only the base encoding gives the code
-            // (its WinAnsi or MacRoman name is not at hand), or in a part the reader could not read.
+            // List, or are .null or nonmarkingreturn), under a custom name when the base encoding gives the code a
+            // character but no name (a Mac OS Roman code that MacRomanEncoding lacks), or in a part the reader could
+            // not read.
             bool standardName = name == null || GlyphNames.IsListed(name) || name is ".null" or "nonmarkingreturn";
             bool postMayName = !program.PostNamesComplete || (standardName && program.HasStandardNames)
                 || (name == null && program.HasCustomNames);
@@ -383,15 +386,6 @@ namespace PdfSharp.UniversalAccessibility
             return GlyphUse.Missing;
         }
 
-        // The name a WinAnsi or MacRoman code has, where it is certain: ISO 32000-1 Annex D gives a character one name
-        // in every encoding, so where the base table has StandardEncoding's character, it has StandardEncoding's name.
-        // Null elsewhere (Euro, for example), because only character tables of those encodings are at hand.
-        static string? BaseEncodingName(string unicode, int code)
-        {
-            var standard = GlyphTables.StandardEncoding[code];
-            if (standard.Length == 0 || GlyphNames.ToUnicode(standard, false) != unicode) return null;
-            return standard;
-        }
 
         static GlyphUse Found(EmbeddedTrueType program, int? glyph)
         {

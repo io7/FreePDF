@@ -293,8 +293,8 @@ public partial class AccessibilityScannerTests
     [InlineData("symbolic-1-0", "<41> Tj", PdfAccessibilityCheckStatus.Passed)]
     [InlineData("symbolic-1-0", "<42> Tj", PdfAccessibilityCheckStatus.Failed)]
     [InlineData("symbolic-without-subtable", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
-    // WinAnsi 80 is Euro. The base encoding gives no name to look up, and 'post' may name the glyph.
-    [InlineData("base-code-post-names", "<80> Tj", PdfAccessibilityCheckStatus.NotChecked)]
+    // WinAnsi 80 is Euro (ISO 32000-1 Annex D): the cmap does not map U+20AC, and 'post' names glyph 1 Euro.
+    [InlineData("base-code-post-names", "<80> Tj", PdfAccessibilityCheckStatus.Passed)]
     // A damaged format 4 subtable points past its own end into the next subtable.
     [InlineData("subtable-overrun", "<41> Tj", PdfAccessibilityCheckStatus.NotChecked)]
     // A cut 'post' table cannot show that the name is absent.
