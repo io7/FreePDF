@@ -72,7 +72,7 @@ public partial class AccessibilityScannerTests
             var inner = AccessibilityFormFixture.AddTaggedForm(d);
             if (change == "wrong-parent-key") inner.Elements.SetInteger("/StructParents", d.Pages[0].Elements.GetInteger("/StructParents"));
             if (change == "repeat") d.Pages[0].Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("/Outer Do"));
-            if (change == "missing-sequence") inner.Stream.Value = Encoding.ASCII.GetBytes("/Artifact BMC 1 1 8 8 re f EMC");
+            if (change == "missing-sequence") inner.Stream!.Value = Encoding.ASCII.GetBytes("/Artifact BMC 1 1 8 8 re f EMC");
             if (change is "wrong-page" or "invalid-page")
             {
                 var figure = Child(Child(d.Catalog.Elements.GetDictionary("/StructTreeRoot")!));

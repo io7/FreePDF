@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.IO;
@@ -121,7 +122,7 @@ public class DamagedFileRecoveryTests
         using (var source = new PdfDocument())
         {
             source.Info.Title = "First-page trailer";
-            source.AddPage().Width = 240;
+            source.AddPage().Width = XUnit.FromPoint(240);
             source.SecurityHandler.SetEncryptionToV4UsingAES();
             source.SecuritySettings.UserPassword = "user";
             source.SecuritySettings.OwnerPassword = "owner";
@@ -267,7 +268,7 @@ public class DamagedFileRecoveryTests
         byte[] encrypted;
         using (var source = new PdfDocument())
         {
-            source.AddPage().Width = 100;
+            source.AddPage().Width = XUnit.FromPoint(100);
             source.SecurityHandler.SetEncryptionToV4UsingAES();
             source.SecuritySettings.UserPassword = "user";
             using var output = new MemoryStream();
@@ -386,7 +387,7 @@ public class DamagedFileRecoveryTests
         using (var source = new PdfDocument())
         {
             source.Info.Title = "Renamed root";
-            source.AddPage().Width = 240;
+            source.AddPage().Width = XUnit.FromPoint(240);
             source.SecurityHandler.SetEncryptionToV4UsingAES();
             source.SecuritySettings.UserPassword = "user";
             source.SecuritySettings.OwnerPassword = "owner";
@@ -496,7 +497,7 @@ public class DamagedFileRecoveryTests
         using (var source = new PdfDocument())
         {
             source.Info.Title = "Size-only update";
-            source.AddPage().Width = 240;
+            source.AddPage().Width = XUnit.FromPoint(240);
             source.SecurityHandler.SetEncryptionToV4UsingAES();
             source.SecuritySettings.UserPassword = "user";
             source.SecuritySettings.OwnerPassword = "owner";

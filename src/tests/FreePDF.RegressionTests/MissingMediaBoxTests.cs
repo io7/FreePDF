@@ -48,7 +48,7 @@ public class MissingMediaBoxTests
             document.Save(saved);
 
         using var reopened = PdfReader.Open(new MemoryStream(saved.ToArray()), PdfDocumentOpenMode.Import);
-        var box = reopened.Pages[0].Elements.GetRectangle("/MediaBox");
+        var box = reopened.Pages[0].Elements.GetRequiredRectangle("/MediaBox");
         Assert.Equal((0d, 0d, 612d, 792d), (box.X1, box.Y1, box.X2, box.Y2));
     }
 }

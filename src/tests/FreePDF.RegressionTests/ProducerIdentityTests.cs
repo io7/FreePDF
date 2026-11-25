@@ -84,7 +84,7 @@ public class ProducerIdentityTests
         var saved = Save(document);
 
         using var reopened = PdfReader.Open(new MemoryStream(saved), PdfDocumentOpenMode.Import);
-        var xmp = System.Text.Encoding.UTF8.GetString(MetadataManager.ForDocument(reopened).GetMetadata()!.Stream.UnfilteredValue);
+        var xmp = System.Text.Encoding.UTF8.GetString(MetadataManager.ForDocument(reopened).GetMetadata()!.Stream!.UnfilteredValue);
         Assert.Contains($"<pdf:Producer>FreePDF {Version}", xmp);
         Assert.Contains($"<xap:CreatorTool>FreePDF {Version} ({Url})</xap:CreatorTool>", xmp);
         AssertNoUpstreamName(xmp);

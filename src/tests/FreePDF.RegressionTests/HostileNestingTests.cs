@@ -135,7 +135,7 @@ public class HostileNestingTests
         });
 
         using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
-        var field = Assert.Single(document.Catalog.AcroForm!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>());
+        var field = Assert.Single(document.Catalog.GetAcroForm()!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>());
         Assert.Equal("name", field.FullName);
         Assert.Null(field.Value);
         document.Flatten();
@@ -172,7 +172,7 @@ public class HostileNestingTests
         });
 
         using var document = PdfReader.Open(new MemoryStream(bytes), PdfDocumentOpenMode.Modify);
-        var fields = document.Catalog.AcroForm!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>().ToList();
+        var fields = document.Catalog.GetAcroForm()!.Fields.Cast<PdfSharp.Pdf.Forms.PdfFormField>().ToList();
         var text = fields.Single(f => f.Name == "name");
         text.Value = null;
         Assert.Null(text.Value);
